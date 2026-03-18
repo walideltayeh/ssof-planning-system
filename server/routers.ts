@@ -430,6 +430,30 @@ export const appRouter = router({
         });
         return { success: true };
       }),
+    // Sync Planning FG arrival to arrivalData source table
+    syncPlanningFgArrival: publicProcedure
+      .input(z.object({
+        skuId: z.number(), periodId: z.number(), value: z.string(),
+        username: z.string().optional(), skuName: z.string().optional(),
+        periodLabel: z.string().optional(), oldValue: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const clampedValue = Math.max(0, parseFloat(input.value) || 0).toString();
+        await db.upsertPlanningFgData(input.skuId, input.periodId, { arrivals: clampedValue });
+        await db.upsertArrivalData(input.skuId, input.periodId, { week1: clampedValue, week2: "0", week3: "0", week4: "0" });
+        await db.logAudit({
+          username: input.username || "System",
+          action: "edit_cell",
+          sheet: "Planning FG",
+          skuName: input.skuName,
+          periodLabel: input.periodLabel,
+          field: "Actual arrivals / Planned Orders",
+          oldValue: input.oldValue || "0",
+          newValue: clampedValue,
+          details: `Planning FG arrival synced to source: ${input.oldValue || "0"} → ${clampedValue}`,
+        });
+        return { success: true };
+      }),
     // Auto-fill IMS from Forecast for a given period
     autoFillImsFromForecast: publicProcedure
       .input(z.object({

@@ -28,7 +28,7 @@ type RowLabel = typeof ROW_LABELS[number];
 
 // ── Undo/Redo history entry ──────────────────────────────────────────────────
 interface UndoEntry {
-  type: "planningFgCell" | "syncIms" | "invoicedSHP";
+  type: "planningFgCell" | "syncIms" | "invoicedSHP" | "imsDirect" | "syncArrival";
   skuId: number;
   periodId: number;
   label: string;
@@ -164,6 +164,23 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
     onError: (err: any) => toast.error("Failed to sync IMS: " + err.message),
   });
 
+  const updateImsDirect = trpc.update.imsCell.useMutation({
+    onSuccess: () => {
+      utils.data.planningFg.invalidate();
+      utils.data.imsVsForecast.invalidate();
+      toast.success("IMS updated", { duration: 2000 });
+    },
+    onError: (err: any) => toast.error("Failed to update IMS: " + err.message),
+  });
+
+  const syncArrival = trpc.update.syncPlanningFgArrival.useMutation({
+    onSuccess: () => {
+      utils.data.planningFg.invalidate();
+      toast.success("Arrivals updated & synced to source", { duration: 3000 });
+    },
+    onError: (err: any) => toast.error("Failed to sync arrivals: " + err.message),
+  });
+
   // ── Per-SKU undo handler ──────────────────────────────────────────────────
   const handleUndoForSku = useCallback((skuId: number) => {
     const stack = undoStacks.get(skuId) ?? [];
@@ -203,6 +220,27 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
         oldValue: entry.newValue,
         source: `Undo - Planning FG ${weight}`,
       }, { onSuccess: onDone, onError: onErr });
+    } else if (entry.type === "imsDirect") {
+      updateImsDirect.mutate({
+        skuId: entry.skuId,
+        periodId: entry.periodId,
+        value: entry.oldValue,
+        isActual: true,
+        username: appUser?.displayName,
+        skuName: entry.skuName,
+        periodLabel: entry.periodLabel,
+        oldValue: entry.newValue,
+      }, { onSuccess: onDone, onError: onErr });
+    } else if (entry.type === "syncArrival") {
+      syncArrival.mutate({
+        skuId: entry.skuId,
+        periodId: entry.periodId,
+        value: entry.oldValue,
+        username: appUser?.displayName,
+        skuName: entry.skuName,
+        periodLabel: entry.periodLabel,
+        oldValue: entry.newValue,
+      }, { onSuccess: onDone, onError: onErr });
     } else if (entry.type === "planningFgCell") {
       const updateData: any = {
         skuId: entry.skuId,
@@ -214,7 +252,6 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
       };
       if (entry.label === "Opening Stock") updateData.openingStock = entry.oldValue;
       else if (entry.label === "Adjustments") updateData.adjustments = entry.oldValue;
-      else if (entry.label === "Actual arrivals / Planned Orders") updateData.arrivals = entry.oldValue;
       updateCell.mutate(updateData, { onSuccess: onDone, onError: onErr });
     } else if (entry.type === "invoicedSHP") {
       const updateData: any = {
@@ -228,7 +265,7 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
       };
       updateCell.mutate(updateData, { onSuccess: onDone, onError: onErr });
     }
-  }, [undoStacks, syncIms, updateCell, appUser, weight, pushRedo]);
+  }, [undoStacks, syncIms, updateImsDirect, syncArrival, updateCell, appUser, weight, pushRedo]);
 
   // ── Per-SKU redo handler ──────────────────────────────────────────────────
   const handleRedoForSku = useCallback((skuId: number) => {
@@ -275,6 +312,27 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
         oldValue: entry.oldValue,
         source: `Redo - Planning FG ${weight}`,
       }, { onSuccess: onDone, onError: onErr });
+    } else if (entry.type === "imsDirect") {
+      updateImsDirect.mutate({
+        skuId: entry.skuId,
+        periodId: entry.periodId,
+        value: entry.newValue,
+        isActual: true,
+        username: appUser?.displayName,
+        skuName: entry.skuName,
+        periodLabel: entry.periodLabel,
+        oldValue: entry.oldValue,
+      }, { onSuccess: onDone, onError: onErr });
+    } else if (entry.type === "syncArrival") {
+      syncArrival.mutate({
+        skuId: entry.skuId,
+        periodId: entry.periodId,
+        value: entry.newValue,
+        username: appUser?.displayName,
+        skuName: entry.skuName,
+        periodLabel: entry.periodLabel,
+        oldValue: entry.oldValue,
+      }, { onSuccess: onDone, onError: onErr });
     } else if (entry.type === "planningFgCell") {
       const updateData: any = {
         skuId: entry.skuId,
@@ -286,7 +344,6 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
       };
       if (entry.label === "Opening Stock") updateData.openingStock = entry.newValue;
       else if (entry.label === "Adjustments") updateData.adjustments = entry.newValue;
-      else if (entry.label === "Actual arrivals / Planned Orders") updateData.arrivals = entry.newValue;
       updateCell.mutate(updateData, { onSuccess: onDone, onError: onErr });
     } else if (entry.type === "invoicedSHP") {
       const updateData: any = {
@@ -300,7 +357,7 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
       };
       updateCell.mutate(updateData, { onSuccess: onDone, onError: onErr });
     }
-  }, [redoStacks, syncIms, updateCell, appUser, weight]);
+  }, [redoStacks, syncIms, updateImsDirect, syncArrival, updateCell, appUser, weight]);
 
   // ── Ctrl+Z keyboard shortcut (undoes last edit across all SKUs) ────────────
   const handleGlobalUndo = useCallback(() => {
@@ -429,6 +486,16 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
     return map;
   }, [data]);
 
+  const arrivalMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const d of data?.arrival ?? []) {
+      const total = (parseFloat(d.week1 ?? "0") || 0) + (parseFloat(d.week2 ?? "0") || 0)
+        + (parseFloat(d.week3 ?? "0") || 0) + (parseFloat(d.week4 ?? "0") || 0);
+      map.set(`${d.skuId}-${d.periodId}`, total);
+    }
+    return map;
+  }, [data]);
+
   const allSkus = data?.skus ?? [];
   const skus = allSkus;
 
@@ -489,7 +556,8 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
       const planData = planningMap.get(`${skuId}-${p.id}`);
       const ims = getEffectiveIms(skuId, p.id);
       const invoiced = parseFloat(planData?.invoiced ?? "0") || 0;
-      const arrival = parseFloat(planData?.arrivals ?? "0") || 0;
+      const planningArrivals = parseFloat(planData?.arrivals ?? "0") || 0;
+      const arrival = planningArrivals !== 0 ? planningArrivals : (arrivalMap.get(`${skuId}-${p.id}`) ?? 0);
 
       const openingStock = i === 0
         ? parseFloat(planData?.openingStock ?? "0") || 0
@@ -520,17 +588,17 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
       prevClosingStock = closingStock;
     }
     return result;
-  }, [periods, planningMap, getEffectiveIms, getRawIms]);
+  }, [periods, planningMap, arrivalMap, getEffectiveIms, getRawIms]);
 
   const isCellEditable = useCallback((label: RowLabel, p: { year: number; month: number }, periodIndex: number): boolean => {
     if (label === "Closing Stock" || label === "Closing Stock - Weeks") return false;
     if (label === "Invoiced (SHP)") return isFuturePeriod(p);
     if (label === "Opening Stock") return periodIndex === 0;
     if (label === "Adjustments") return true;
-    if (label === "IMS") return isStrictlyFuture(p);
-    if (label === "Actual arrivals / Planned Orders") return isProductionEditable(p);
+    if (label === "IMS") return true;
+    if (label === "Actual arrivals / Planned Orders") return true;
     return false;
-  }, [isStrictlyFuture, isProductionEditable, isFuturePeriod]);
+  }, [isFuturePeriod]);
 
   // ── Cell interaction ──────────────────────────────────────────────────────
   const handleCellClick = (cellKey: string, currentValue: number, label: RowLabel, p: { id: number; year: number; month: number; label: string }, periodIndex: number, skuId?: number) => {
@@ -567,30 +635,26 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
     const period = data?.periods.find(p => p.id === periodId);
 
     if (label === "IMS") {
-      // Push undo entry before mutating
-      pushUndo({
-        type: "syncIms",
-        skuId, periodId,
-        label: "IMS",
-        oldValue: oldNum.toString(),
-        newValue: numVal.toString(),
-        skuName: sku?.name ?? "",
-        periodLabel: period?.label ?? "",
-      });
-      syncIms.mutate({
-        skuId, periodId,
-        value: numVal.toString(),
-        username: appUser?.displayName,
-        skuName: sku?.name,
-        periodLabel: period?.label,
-        oldValue,
-        source: `Planning FG ${weight}`,
-      });
+      const isFuture = period ? isStrictlyFuture(period) : false;
+      if (isFuture) {
+        pushUndo({ type: "syncIms", skuId, periodId, label: "IMS", oldValue: oldNum.toString(), newValue: numVal.toString(), skuName: sku?.name ?? "", periodLabel: period?.label ?? "" });
+        syncIms.mutate({ skuId, periodId, value: numVal.toString(), username: appUser?.displayName, skuName: sku?.name, periodLabel: period?.label, oldValue, source: `Planning FG ${weight}` });
+      } else {
+        pushUndo({ type: "imsDirect", skuId, periodId, label: "IMS", oldValue: oldNum.toString(), newValue: numVal.toString(), skuName: sku?.name ?? "", periodLabel: period?.label ?? "" });
+        updateImsDirect.mutate({ skuId, periodId, value: numVal.toString(), isActual: true, username: appUser?.displayName, skuName: sku?.name, periodLabel: period?.label, oldValue });
+      }
       setEditingCell(null);
       return;
     }
 
-    // Push undo entry for planningFgCell edits
+    if (label === "Actual arrivals / Planned Orders") {
+      pushUndo({ type: "syncArrival", skuId, periodId, label, oldValue: oldNum.toString(), newValue: numVal.toString(), skuName: sku?.name ?? "", periodLabel: period?.label ?? "" });
+      syncArrival.mutate({ skuId, periodId, value: numVal.toString(), username: appUser?.displayName, skuName: sku?.name, periodLabel: period?.label, oldValue });
+      setEditingCell(null);
+      return;
+    }
+
+    // Push undo entry for planningFgCell edits (Opening Stock, Adjustments)
     pushUndo({
       type: "planningFgCell",
       skuId, periodId,
@@ -602,9 +666,8 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
     });
 
     const updateData: any = { skuId, periodId };
-    if (label === "Opening Stock")                        updateData.openingStock = numVal.toString();
-    else if (label === "Adjustments")                     updateData.adjustments = numVal.toString();
-    else if (label === "Actual arrivals / Planned Orders") updateData.arrivals = numVal.toString();
+    if (label === "Opening Stock")  updateData.openingStock = numVal.toString();
+    else if (label === "Adjustments") updateData.adjustments = numVal.toString();
     updateData.username = appUser?.displayName;
     updateData.skuName = sku?.name;
     updateData.periodLabel = period?.label;
@@ -719,9 +782,9 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
   const getRowLabel = (label: RowLabel) => {
     if (label === "Opening Stock") return <>{label}<span className="ml-1 text-[9px] text-muted-foreground">(1st month)</span></>;
     if (label === "Adjustments") return <>{label}<span className="ml-1 text-[9px] text-blue-500">✎ all months</span></>;
-    if (label === "IMS") return <>{label}<span className="ml-1 text-[9px] text-blue-500">✎ future only → syncs Forecast</span></>;
+    if (label === "IMS") return <>{label}<span className="ml-1 text-[9px] text-blue-500">✎ all months → syncs IMS source</span></>;
     if (label === "Invoiced (SHP)") return <>{label}<span className="ml-1 text-[9px] text-blue-500">✎ future (weekly)</span></>;
-    if (label === "Actual arrivals / Planned Orders") return <>{label}<span className="ml-1 text-[9px] text-blue-500">✎ +4 months</span></>;
+    if (label === "Actual arrivals / Planned Orders") return <>{label}<span className="ml-1 text-[9px] text-blue-500">✎ all months → syncs Production</span></>;
     if (label === "Closing Stock") return <>{label}<span className="ml-1 text-[9px] text-muted-foreground">auto</span></>;
     if (label === "Closing Stock - Weeks") return <>{label}<span className="ml-1 text-[9px] text-muted-foreground">auto</span></>;
     return label;
