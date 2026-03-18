@@ -28,7 +28,10 @@ const NO_TOTAL_ROWS = new Set<RowLabel>(["Opening Stock", "Closing Stock - Weeks
 // Always-editable rows (any period)
 const ALWAYS_EDITABLE_ROWS = new Set<RowLabel>(["Adjustments"]);
 // Rows editable only for current/future periods
-const FUTURE_EDITABLE_ROWS = new Set<RowLabel>(["IMS", "Production"]);
+// Editable for current month + future
+const FUTURE_EDITABLE_ROWS = new Set<RowLabel>(["Production"]);
+// Editable for strictly future months only (not current month)
+const STRICTLY_FUTURE_EDITABLE_ROWS = new Set<RowLabel>(["IMS"]);
 
 // Conditional formatting for Closing Stock - Weeks
 function getWeeksStyle(weeks: number): string {
@@ -117,6 +120,10 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
 
   const isFuturePeriod = useCallback((p: { year: number; month: number }) => {
     return p.year > currentYear || (p.year === currentYear && p.month >= currentMonth);
+  }, [currentYear, currentMonth]);
+
+  const isStrictlyFuture = useCallback((p: { year: number; month: number }) => {
+    return p.year > currentYear || (p.year === currentYear && p.month > currentMonth);
   }, [currentYear, currentMonth]);
 
   // ── Local edit state ──────────────────────────────────────────────────────
@@ -283,6 +290,9 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
     if (ALWAYS_EDITABLE_ROWS.has(label)) {
       setEditingCell({ skuId, periodId: period.id, label });
       setEditValue(currentValue === 0 ? "" : currentValue.toString());
+    } else if (STRICTLY_FUTURE_EDITABLE_ROWS.has(label) && isStrictlyFuture(period)) {
+      setEditingCell({ skuId, periodId: period.id, label });
+      setEditValue(currentValue === 0 ? "" : currentValue.toString());
     } else if (FUTURE_EDITABLE_ROWS.has(label) && isFuturePeriod(period)) {
       setEditingCell({ skuId, periodId: period.id, label });
       setEditValue(currentValue === 0 ? "" : currentValue.toString());
@@ -388,14 +398,15 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
       for (const p of visiblePeriods) {
         ids.push(`${sku.id}-${p.id}-Adjustments`);
       }
-      for (const label of ["IMS", "Production"] as RowLabel[]) {
-        for (const p of visiblePeriods) {
-          if (isFuturePeriod(p)) ids.push(`${sku.id}-${p.id}-${label}`);
-        }
+      for (const p of visiblePeriods) {
+        if (isStrictlyFuture(p)) ids.push(`${sku.id}-${p.id}-IMS`);
+      }
+      for (const p of visiblePeriods) {
+        if (isFuturePeriod(p)) ids.push(`${sku.id}-${p.id}-Production`);
       }
     }
     return ids;
-  }, [filteredSkus, years, periodsByYear, collapsedYears, isFuturePeriod]);
+  }, [filteredSkus, years, periodsByYear, collapsedYears, isFuturePeriod, isStrictlyFuture]);
 
   const visiblePeriodCount = useMemo(() => {
     let count = 0;
@@ -716,7 +727,10 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
                             <span className="ml-1 text-[9px] text-blue-400">(editable)</span>
                           )}
                           {isFutureEditable && (
-                            <span className="ml-1 text-[9px] text-blue-400">(editable: future)</span>
+                            <span className="ml-1 text-[9px] text-blue-400">(editable: current+future)</span>
+                          )}
+                          {STRICTLY_FUTURE_EDITABLE_ROWS.has(label) && (
+                            <span className="ml-1 text-[9px] text-blue-400">(editable: future only)</span>
                           )}
                           {label === "Opening Stock" && (
                             <span className="ml-1 text-[9px] text-gray-400">(auto)</span>
@@ -781,7 +795,9 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
                               );
                             }
 
-                            const cellEditable = isAlwaysEditable || (isFutureEditable && isFuturePeriod(p));
+                            const cellEditable = isAlwaysEditable
+                              || (STRICTLY_FUTURE_EDITABLE_ROWS.has(label) && isStrictlyFuture(p))
+                              || (isFutureEditable && !STRICTLY_FUTURE_EDITABLE_ROWS.has(label) && isFuturePeriod(p));
 
                             if (cellEditable) {
                               return (
