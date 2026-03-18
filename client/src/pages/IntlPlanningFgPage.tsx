@@ -512,13 +512,13 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
   };
 
   const labelStyle: Record<RowLabel, string> = {
-    "Opening Stock": "text-blue-700 bg-blue-50/50",
-    "Adjustments": "text-blue-700 bg-blue-50/50",
-    "Production": "text-blue-600 bg-blue-50/20",
-    "Actual arrivals / Planned Orders": "text-emerald-700 bg-emerald-50/30",
-    "IMS": "text-orange-700 bg-orange-50/30",
-    "Closing Stock": "text-foreground bg-background",
-    "Closing Stock - Weeks": "text-amber-700 bg-amber-50/30",
+    "Opening Stock": "text-blue-700 bg-blue-50",
+    "Adjustments": "text-blue-700 bg-blue-50",
+    "Production": "text-blue-600 bg-blue-50",
+    "Actual arrivals / Planned Orders": "text-emerald-700 bg-emerald-50",
+    "IMS": "text-orange-700 bg-orange-50",
+    "Closing Stock": "text-foreground bg-white",
+    "Closing Stock - Weeks": "text-amber-700 bg-amber-50",
   };
 
   return (

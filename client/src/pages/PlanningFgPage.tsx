@@ -779,6 +779,11 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
     return "";
   };
 
+  const getLabelBg = (label: RowLabel) => {
+    const bg = getRowBg(label);
+    return bg || "bg-white";
+  };
+
   const getRowLabel = (label: RowLabel) => {
     if (label === "Opening Stock") return <>{label}<span className="ml-1 text-[9px] text-muted-foreground">(1st month)</span></>;
     if (label === "Adjustments") return <>{label}<span className="ml-1 text-[9px] text-blue-500">✎ all months</span></>;
@@ -1143,7 +1148,7 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
 
                       return (
                         <tr key={label} className={`border-b ${rowBg}`}>
-                          <td className={`sticky left-0 z-10 px-3 py-1.5 font-medium whitespace-nowrap ${rowBg || "bg-background"} ${isClosingStock || isWeeks ? "font-bold" : ""}`}>
+                          <td className={`sticky left-0 z-10 px-3 py-1.5 font-medium whitespace-nowrap ${getLabelBg(label)} ${isClosingStock || isWeeks ? "font-bold" : ""}`}>
                             {getRowLabel(label)}
                           </td>
 
