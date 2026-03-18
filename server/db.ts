@@ -1,5 +1,6 @@
 import { eq, and, asc, inArray, sql, desc, gt } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/mysql2";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
 import { InsertUser, users, skus, periods, forecastData, imsData, shipmentData, arrivalData, planningFgData, uploadHistory, auditTrail, ssofVersions, versionComments, revisedForecastData, clearanceEvents, appUsers } from "../drizzle/schema";
 import type { AuditTrail, InsertAuditTrail, InsertSsofVersion, Country, ClearanceEvent, AppUserRow, InsertAppUser } from "../drizzle/schema";
 import type { Sku, InsertSku, Period, ForecastData, ImsData, ShipmentData, ArrivalData, PlanningFgData, SsofVersion } from "../drizzle/schema";
@@ -10,7 +11,8 @@ let _db: ReturnType<typeof drizzle> | null = null;
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+      _db = drizzle(pool);
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
@@ -41,7 +43,7 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     else if (user.openId === ENV.ownerOpenId) { values.role = 'admin'; updateSet.role = 'admin'; }
     if (!values.lastSignedIn) values.lastSignedIn = new Date();
     if (Object.keys(updateSet).length === 0) updateSet.lastSignedIn = new Date();
-    await db.insert(users).values(values).onDuplicateKeyUpdate({ set: updateSet });
+    await db.insert(users).values(values).onConflictDoUpdate({ target: users.openId, set: updateSet });
   } catch (error) { console.error("[Database] Failed to upsert user:", error); throw error; }
 }
 
@@ -103,7 +105,7 @@ export async function createSkuForCountry(country: Country, data: { name: string
     packagingType: data.packagingType || "New",
     sortOrder: maxOrder + 1,
     isExcludedFromTotal: data.isExcludedFromTotal || false,
-  }).$returningId();
+  }).returning({ id: skus.id });
   // Initialize empty data for all periods of this country
   const allPeriods = await getPeriodsForCountry(country);
   if (allPeriods.length > 0) {
@@ -278,7 +280,7 @@ export async function createSku(data: { name: string; weight: string; category?:
     category: data.category || "Core",
     sortOrder: maxOrder + 1,
     isExcludedFromTotal: data.isExcludedFromTotal || false,
-  }).$returningId();
+  }).returning({ id: skus.id });
   
   // Initialize empty data for Lebanon periods only
   const allPeriods = await getPeriodsForCountry('Lebanon');
@@ -492,7 +494,7 @@ export async function addClearanceEvent(data: {
 }): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(clearanceEvents).values({
+  const [result] = await db.insert(clearanceEvents).values({
     skuId: data.skuId,
     periodId: data.periodId,
     country: data.country,
@@ -500,10 +502,10 @@ export async function addClearanceEvent(data: {
     clearedDate: new Date(data.clearedDate) as any,
     pendingClearDate: data.pendingClearDate ? new Date(data.pendingClearDate) as any : null,
     notes: data.notes ?? null,
-  });
+  }).returning({ id: clearanceEvents.id });
   // After adding event, sync shipmentData.clearedQty and status
   await syncShipmentClearedFromEvents(data.skuId, data.periodId, data.country);
-  return (result as any).insertId ?? 0;
+  return result?.id ?? 0;
 }
 
 export async function deleteClearanceEvent(eventId: number, skuId: number, periodId: number, country: Country): Promise<void> {
@@ -729,7 +731,7 @@ export async function createUploadRecord(data: { userId?: number; uploadType: st
     uploadType: data.uploadType,
     fileName: data.fileName,
     status: "processing",
-  }).$returningId();
+  }).returning({ id: uploadHistory.id });
   return result;
 }
 
@@ -864,7 +866,7 @@ export async function saveVersion(data: { name: string; description?: string; sa
     changesSummary: data.changesSummary || null,
     docUrl: data.docUrl || null,
     country: data.country || 'Lebanon',
-  }).$returningId();
+  }).returning({ id: ssofVersions.id });
   return result;
 }
 
@@ -1057,8 +1059,8 @@ export async function addVersionComment(data: { versionId: number; username: str
     versionId: data.versionId,
     username: data.username,
     comment: data.comment,
-  });
-  return { id: result.insertId };
+  }).returning({ id: versionComments.id });
+  return { id: result.id };
 }
 
 export async function deleteVersionComment(id: number) {
