@@ -1,7 +1,7 @@
 import { useCountry } from "@/contexts/CountryContext";
 import type { Country } from "@/contexts/CountryContext";
 import { useLocation } from "wouter";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 const COUNTRY_CARDS: {
   country: Country;
@@ -41,154 +41,206 @@ const COUNTRY_CARDS: {
   },
 ];
 
-function FlowAnimation() {
+const MONTHS = ["Oct", "Nov", "Dec", "Jan", "Feb", "Mar"];
+const MAX_WEEKS = 13;
+const MIN_HEALTHY = 4;
+const MAX_HEALTHY = 8;
+const CHART_H = 130;
+
+const CHAOTIC_WEEKS = [1.5, 10.5, 2, 11.5, 2.5, 9.5];
+const HEALTHY_WEEKS = [5, 6.5, 5.5, 7, 6, 5.5];
+
+const toH = (w: number) => (w / MAX_WEEKS) * CHART_H;
+
+const BAND_BOTTOM = toH(MIN_HEALTHY);
+const BAND_HEIGHT = toH(MAX_HEALTHY) - toH(MIN_HEALTHY);
+
+type Phase = "init" | "chaotic" | "healthy" | "resetting";
+
+function StockAnimation() {
+  const [phase, setPhase] = useState<Phase>("init");
+
+  useEffect(() => {
+    const timers: ReturnType<typeof setTimeout>[] = [];
+
+    const run = () => {
+      setPhase("init");
+      timers.push(setTimeout(() => setPhase("chaotic"), 120));
+      timers.push(setTimeout(() => setPhase("healthy"), 2800));
+      timers.push(setTimeout(() => setPhase("resetting"), 5400));
+      timers.push(setTimeout(run, 5900));
+    };
+
+    run();
+    return () => timers.forEach(clearTimeout);
+  }, []);
+
+  const isHealthy = phase === "healthy";
+  const isResetting = phase === "resetting";
+  const isInit = phase === "init";
+
   return (
     <div className="w-full max-w-2xl mx-auto px-4 mb-8">
       <style>{`
-        @keyframes ssof-fade-up {
-          from { opacity: 0; transform: translateY(10px); }
+        @keyframes land-fadein {
+          from { opacity: 0; transform: translateY(8px); }
           to   { opacity: 1; transform: translateY(0); }
         }
-        .ssof-flow-wrap {
-          animation: ssof-fade-up 0.7s ease-out 0.3s both;
+        .land-card { animation: land-fadein 0.6s ease-out 0.2s both; }
+        @keyframes land-check-pop {
+          0%   { transform: scale(0.5); opacity: 0; }
+          70%  { transform: scale(1.15); }
+          100% { transform: scale(1); opacity: 1; }
         }
-        @keyframes ssof-node-in {
-          from { opacity: 0; transform: scale(0.7); }
-          to   { opacity: 1; transform: scale(1); }
+        .land-check { animation: land-check-pop 0.4s cubic-bezier(.34,1.56,.64,1) both; }
+        @keyframes land-line-draw {
+          from { stroke-dashoffset: 200; }
+          to   { stroke-dashoffset: 0; }
         }
-        .ssof-n1 { animation: ssof-node-in 0.4s cubic-bezier(.34,1.56,.64,1) 0.4s both; }
-        .ssof-n2 { animation: ssof-node-in 0.4s cubic-bezier(.34,1.56,.64,1) 0.65s both; }
-        .ssof-n3 { animation: ssof-node-in 0.4s cubic-bezier(.34,1.56,.64,1) 0.9s both; }
-        .ssof-n4 { animation: ssof-node-in 0.4s cubic-bezier(.34,1.56,.64,1) 1.15s both; }
-        @keyframes ssof-connector-in {
-          from { opacity: 0; }
-          to   { opacity: 1; }
-        }
-        .ssof-c1 { animation: ssof-connector-in 0.3s ease 0.8s both; }
-        .ssof-c2 { animation: ssof-connector-in 0.3s ease 1.05s both; }
-        .ssof-c3 { animation: ssof-connector-in 0.3s ease 1.3s both; }
-        @keyframes ssof-glow {
-          0%, 100% { filter: drop-shadow(0 0 0px transparent); }
-          50%       { filter: drop-shadow(0 0 6px currentColor); }
-        }
+        .land-minline { animation: land-line-draw 0.6s ease 0.3s both; stroke-dasharray: 200; }
+        .land-maxline { animation: land-line-draw 0.6s ease 0.5s both; stroke-dasharray: 200; }
       `}</style>
 
-      <p className="text-center text-[10px] tracking-widest uppercase text-gray-400 font-semibold mb-3">
-        Integrated Planning Flow
-      </p>
+      <div className="land-card rounded-2xl border border-white/70 bg-white/60 backdrop-blur-sm shadow-lg px-5 pt-4 pb-3 overflow-hidden">
+        {/* Header row */}
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <p className="text-sm font-bold text-gray-800 leading-tight">Closing Stock Health</p>
+            <p className="text-[10px] text-gray-400 mt-0.5">Weeks of coverage · target range: {MIN_HEALTHY}–{MAX_HEALTHY} wks</p>
+          </div>
+          <div
+            key={phase}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-colors duration-500 ${
+              isHealthy
+                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                : isResetting || isInit
+                ? "bg-gray-50 text-gray-400 border-gray-200"
+                : "bg-red-50 text-red-600 border-red-200"
+            }`}
+          >
+            {isHealthy ? (
+              <span className="land-check inline-flex items-center gap-1">
+                <svg className="w-3 h-3" viewBox="0 0 12 12" fill="none">
+                  <circle cx="6" cy="6" r="5.5" fill="#10b981" />
+                  <path d="M3.5 6l1.8 1.8 3-3.6" stroke="white" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                Healthy range
+              </span>
+            ) : isResetting || isInit ? (
+              "Analysing…"
+            ) : (
+              <>
+                <svg className="w-3 h-3 text-red-500" viewBox="0 0 12 12" fill="currentColor">
+                  <path d="M6 1L11.2 10H.8L6 1z" />
+                  <path d="M6 4.5v2.5M6 8.5h.01" stroke="white" strokeWidth="1.1" strokeLinecap="round" />
+                </svg>
+                Needs planning
+              </>
+            )}
+          </div>
+        </div>
 
-      <div className="ssof-flow-wrap rounded-2xl border border-white/70 bg-white/55 backdrop-blur-sm shadow-md p-3 overflow-visible">
-        <svg
-          viewBox="0 0 640 104"
-          className="w-full overflow-visible"
-          style={{ height: "clamp(72px, 15vw, 104px)" }}
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <defs>
-            <path id="ssof-p1" d="M 103,44 L 211,44" />
-            <path id="ssof-p2" d="M 269,44 L 377,44" />
-            <path id="ssof-p3" d="M 435,44 L 543,44" />
+        {/* Chart */}
+        <div className="relative" style={{ height: `${CHART_H}px` }}>
+          {/* Healthy zone band */}
+          <div
+            className="absolute left-0 right-0 pointer-events-none"
+            style={{ bottom: `${BAND_BOTTOM}px`, height: `${BAND_HEIGHT}px`, backgroundColor: "rgba(209,250,229,0.55)", borderTop: "1.5px dashed #6ee7b7", borderBottom: "1.5px dashed #6ee7b7" }}
+          />
 
-            <filter id="ssof-glow-orange" x="-50%" y="-50%" width="200%" height="200%">
-              <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur" />
-              <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-            </filter>
-            <filter id="ssof-glow-blue" x="-50%" y="-50%" width="200%" height="200%">
-              <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur" />
-              <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-            </filter>
-            <filter id="ssof-glow-purple" x="-50%" y="-50%" width="200%" height="200%">
-              <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur" />
-              <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-            </filter>
-          </defs>
+          {/* Max label */}
+          <span
+            className="absolute right-0 text-[9px] font-semibold text-emerald-600"
+            style={{ bottom: `${BAND_BOTTOM + BAND_HEIGHT}px`, transform: "translateY(50%)" }}
+          >
+            {MAX_HEALTHY} wks
+          </span>
 
-          {/* ── Connector 1: Sales → Stock ───────────────────────── */}
-          <g className="ssof-c1">
-            <line x1="103" y1="44" x2="205" y2="44" stroke="#fed7aa" strokeWidth="2.5" strokeLinecap="round" />
-            <polygon points="213,44 204,39 204,49" fill="#fdba74" />
-            <circle r="5.5" fill="#f97316" filter="url(#ssof-glow-orange)">
-              <animateMotion dur="1.7s" repeatCount="indefinite" begin="0.8s">
-                <mpath href="#ssof-p1" />
-              </animateMotion>
-              <animate attributeName="opacity" values="0;0.9;0.9;0" dur="1.7s" repeatCount="indefinite" begin="0.8s" />
-            </circle>
-            <circle r="4" fill="#f97316" opacity="0.5">
-              <animateMotion dur="1.7s" repeatCount="indefinite" begin="-0.05s">
-                <mpath href="#ssof-p1" />
-              </animateMotion>
-              <animate attributeName="opacity" values="0;0.5;0.5;0" dur="1.7s" repeatCount="indefinite" begin="-0.05s" />
-            </circle>
-          </g>
+          {/* Min label */}
+          <span
+            className="absolute right-0 text-[9px] font-semibold text-emerald-600"
+            style={{ bottom: `${BAND_BOTTOM}px`, transform: "translateY(50%)" }}
+          >
+            {MIN_HEALTHY} wks
+          </span>
 
-          {/* ── Connector 2: Stock → Orders ──────────────────────── */}
-          <g className="ssof-c2">
-            <line x1="269" y1="44" x2="371" y2="44" stroke="#bfdbfe" strokeWidth="2.5" strokeLinecap="round" />
-            <polygon points="379,44 370,39 370,49" fill="#93c5fd" />
-            <circle r="5.5" fill="#3b82f6" filter="url(#ssof-glow-blue)">
-              <animateMotion dur="1.7s" repeatCount="indefinite" begin="1.05s">
-                <mpath href="#ssof-p2" />
-              </animateMotion>
-              <animate attributeName="opacity" values="0;0.9;0.9;0" dur="1.7s" repeatCount="indefinite" begin="1.05s" />
-            </circle>
-            <circle r="4" fill="#3b82f6" opacity="0.5">
-              <animateMotion dur="1.7s" repeatCount="indefinite" begin="0.2s">
-                <mpath href="#ssof-p2" />
-              </animateMotion>
-              <animate attributeName="opacity" values="0;0.5;0.5;0" dur="1.7s" repeatCount="indefinite" begin="0.2s" />
-            </circle>
-          </g>
+          {/* Bars */}
+          <div className="absolute inset-0 flex items-end justify-around pr-9">
+            {CHAOTIC_WEEKS.map((chaosW, i) => {
+              const healthyH = toH(HEALTHY_WEEKS[i]);
+              const chaoticH = toH(chaosW);
 
-          {/* ── Connector 3: Orders → Forecast ───────────────────── */}
-          <g className="ssof-c3">
-            <line x1="435" y1="44" x2="537" y2="44" stroke="#ddd6fe" strokeWidth="2.5" strokeLinecap="round" />
-            <polygon points="545,44 536,39 536,49" fill="#c4b5fd" />
-            <circle r="5.5" fill="#8b5cf6" filter="url(#ssof-glow-purple)">
-              <animateMotion dur="1.7s" repeatCount="indefinite" begin="1.3s">
-                <mpath href="#ssof-p3" />
-              </animateMotion>
-              <animate attributeName="opacity" values="0;0.9;0.9;0" dur="1.7s" repeatCount="indefinite" begin="1.3s" />
-            </circle>
-            <circle r="4" fill="#8b5cf6" opacity="0.5">
-              <animateMotion dur="1.7s" repeatCount="indefinite" begin="0.4s">
-                <mpath href="#ssof-p3" />
-              </animateMotion>
-              <animate attributeName="opacity" values="0;0.5;0.5;0" dur="1.7s" repeatCount="indefinite" begin="0.4s" />
-            </circle>
-          </g>
+              let targetH: number;
+              if (isInit) targetH = 0;
+              else if (isResetting) targetH = 0;
+              else if (isHealthy) targetH = healthyH;
+              else targetH = chaoticH;
 
-          {/* ── Node 1: Sales ────────────────────────────────────── */}
-          <g className="ssof-n1">
-            <circle cx="75" cy="44" r="29" fill="#fff7ed" stroke="#f97316" strokeWidth="2.2" />
-            <text x="75" y="50" textAnchor="middle" dominantBaseline="middle" fill="#f97316" fontSize="17" fontWeight="800" fontFamily="system-ui, sans-serif">S</text>
-            <text x="75" y="82" textAnchor="middle" fill="#374151" fontSize="11" fontWeight="600" fontFamily="system-ui, sans-serif">Sales</text>
-            <text x="75" y="96" textAnchor="middle" fill="#9ca3af" fontSize="9" fontFamily="system-ui, sans-serif">IMS &amp; Invoiced</text>
-          </g>
+              const isAbove = chaosW > MAX_HEALTHY;
+              const barColor = isHealthy
+                ? "#10b981"
+                : isResetting || isInit
+                ? "#d1d5db"
+                : isAbove
+                ? "#f97316"
+                : "#ef4444";
 
-          {/* ── Node 2: Stock ────────────────────────────────────── */}
-          <g className="ssof-n2">
-            <circle cx="241" cy="44" r="29" fill="#eff6ff" stroke="#3b82f6" strokeWidth="2.2" />
-            <text x="241" y="50" textAnchor="middle" dominantBaseline="middle" fill="#3b82f6" fontSize="17" fontWeight="800" fontFamily="system-ui, sans-serif">S</text>
-            <text x="241" y="82" textAnchor="middle" fill="#374151" fontSize="11" fontWeight="600" fontFamily="system-ui, sans-serif">Stock</text>
-            <text x="241" y="96" textAnchor="middle" fill="#9ca3af" fontSize="9" fontFamily="system-ui, sans-serif">Opening &amp; Closing</text>
-          </g>
+              const delay = isResetting
+                ? `${(CHAOTIC_WEEKS.length - 1 - i) * 50}ms`
+                : `${i * 90}ms`;
 
-          {/* ── Node 3: Orders ───────────────────────────────────── */}
-          <g className="ssof-n3">
-            <circle cx="407" cy="44" r="29" fill="#f5f3ff" stroke="#8b5cf6" strokeWidth="2.2" />
-            <text x="407" y="50" textAnchor="middle" dominantBaseline="middle" fill="#8b5cf6" fontSize="17" fontWeight="800" fontFamily="system-ui, sans-serif">O</text>
-            <text x="407" y="82" textAnchor="middle" fill="#374151" fontSize="11" fontWeight="600" fontFamily="system-ui, sans-serif">Orders</text>
-            <text x="407" y="96" textAnchor="middle" fill="#9ca3af" fontSize="9" fontFamily="system-ui, sans-serif">Arrivals &amp; Production</text>
-          </g>
+              const duration = isResetting ? "250ms" : isHealthy ? "500ms" : "450ms";
+              const easing = isResetting
+                ? "ease-in"
+                : "cubic-bezier(0.34, 1.4, 0.64, 1)";
 
-          {/* ── Node 4: Forecast ─────────────────────────────────── */}
-          <g className="ssof-n4">
-            <circle cx="573" cy="44" r="29" fill="#ecfdf5" stroke="#10b981" strokeWidth="2.2" />
-            <text x="573" y="50" textAnchor="middle" dominantBaseline="middle" fill="#10b981" fontSize="17" fontWeight="800" fontFamily="system-ui, sans-serif">F</text>
-            <text x="573" y="82" textAnchor="middle" fill="#374151" fontSize="11" fontWeight="600" fontFamily="system-ui, sans-serif">Forecast</text>
-            <text x="573" y="96" textAnchor="middle" fill="#9ca3af" fontSize="9" fontFamily="system-ui, sans-serif">Demand Planning</text>
-          </g>
-        </svg>
+              return (
+                <div
+                  key={i}
+                  className="rounded-t-sm"
+                  style={{
+                    width: "13.5%",
+                    height: `${targetH}px`,
+                    backgroundColor: barColor,
+                    transition: `height ${duration} ${easing} ${delay}, background-color 0.45s ease ${delay}`,
+                    willChange: "height",
+                    minWidth: "28px",
+                    maxWidth: "52px",
+                  }}
+                />
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Month labels */}
+        <div className="flex justify-around pr-9 mt-1.5">
+          {MONTHS.map((m) => (
+            <span
+              key={m}
+              className="text-[10px] text-gray-400 text-center font-medium"
+              style={{ width: "13.5%", minWidth: "28px", maxWidth: "52px" }}
+            >
+              {m}
+            </span>
+          ))}
+        </div>
+
+        {/* Legend */}
+        <div className="flex items-center justify-center gap-4 mt-3 border-t border-gray-100 pt-2.5">
+          <span className="flex items-center gap-1 text-[10px] text-gray-500">
+            <span className="w-2.5 h-2.5 rounded-sm bg-red-500 inline-block" />
+            Understocked
+          </span>
+          <span className="flex items-center gap-1 text-[10px] text-gray-500">
+            <span className="w-2.5 h-2.5 rounded-sm bg-orange-400 inline-block" />
+            Overstocked
+          </span>
+          <span className="flex items-center gap-1 text-[10px] text-gray-500">
+            <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500 inline-block" />
+            In target range
+          </span>
+        </div>
       </div>
     </div>
   );
@@ -238,8 +290,8 @@ export default function LandingPage() {
           </div>
         </header>
 
-        {/* Flow animation */}
-        <FlowAnimation />
+        {/* Stock animation */}
+        <StockAnimation />
 
         {/* Country Cards */}
         <main className="flex flex-col items-center justify-center px-4 pb-8">
