@@ -462,8 +462,8 @@ export async function updateShipmentClearedDate(
 ) {
   const db = await getDb();
   if (!db) return;
-  // Drizzle date column expects a Date object or null
-  const clearedDate = clearedDateStr ? new Date(clearedDateStr) : null;
+  // Drizzle date column expects a string ("YYYY-MM-DD") or null
+  const clearedDate = clearedDateStr ?? null;
   const existing = await db.select().from(shipmentData)
     .where(and(eq(shipmentData.skuId, skuId), eq(shipmentData.periodId, periodId))).limit(1);
   if (existing.length > 0) {
@@ -590,7 +590,7 @@ export async function updateShipmentPendingClearDate(
 ) {
   const db = await getDb();
   if (!db) return;
-  const pendingClearDate = pendingClearDateStr ? new Date(pendingClearDateStr) : null;
+  const pendingClearDate = pendingClearDateStr ?? null;
   const existing = await db.select().from(shipmentData)
     .where(and(eq(shipmentData.skuId, skuId), eq(shipmentData.periodId, periodId))).limit(1);
   if (existing.length > 0) {

@@ -25,8 +25,10 @@ type RowLabel = typeof ROW_LABELS[number];
 // Rows where year total should show "—" (not summable)
 const NO_TOTAL_ROWS = new Set<RowLabel>(["Opening Stock", "Closing Stock - Weeks"]);
 
-// Editable rows
-const EDITABLE_ROWS = new Set<RowLabel>(["Opening Stock", "Adjustments"]);
+// Always-editable rows (any period)
+const ALWAYS_EDITABLE_ROWS = new Set<RowLabel>(["Opening Stock", "Adjustments"]);
+// Rows editable only for current/future periods
+const FUTURE_EDITABLE_ROWS = new Set<RowLabel>(["IMS", "Production"]);
 
 // Conditional formatting for Closing Stock - Weeks
 function getWeeksStyle(weeks: number): string {
@@ -91,6 +93,31 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
     },
     onError: (err: any) => toast.error("Failed to save: " + err.message),
   });
+
+  const updateImsMut = trpc.country.updateIms.useMutation({
+    onSuccess: () => {
+      utils.country.planningFg.invalidate();
+      utils.country.data.invalidate();
+    },
+    onError: (err: any) => toast.error("Failed to save IMS: " + err.message),
+  });
+
+  const updateProductionMut = trpc.country.updateProduction.useMutation({
+    onSuccess: () => {
+      utils.country.planningFg.invalidate();
+      utils.country.data.invalidate();
+    },
+    onError: (err: any) => toast.error("Failed to save Production: " + err.message),
+  });
+
+  // ── Current period detection ───────────────────────────────────────────────
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+
+  const isFuturePeriod = useCallback((p: { year: number; month: number }) => {
+    return p.year > currentYear || (p.year === currentYear && p.month >= currentMonth);
+  }, [currentYear, currentMonth]);
 
   // ── Local edit state ──────────────────────────────────────────────────────
   const [editingCell, setEditingCell] = useState<{
@@ -252,10 +279,14 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
   );
 
   // ── Cell editing ──────────────────────────────────────────────────────────
-  const handleCellClick = (skuId: number, periodId: number, label: RowLabel, currentValue: number) => {
-    if (!EDITABLE_ROWS.has(label)) return;
-    setEditingCell({ skuId, periodId, label });
-    setEditValue(currentValue === 0 ? "" : currentValue.toString());
+  const handleCellClick = (skuId: number, period: Period, label: RowLabel, currentValue: number) => {
+    if (ALWAYS_EDITABLE_ROWS.has(label)) {
+      setEditingCell({ skuId, periodId: period.id, label });
+      setEditValue(currentValue === 0 ? "" : currentValue.toString());
+    } else if (FUTURE_EDITABLE_ROWS.has(label) && isFuturePeriod(period)) {
+      setEditingCell({ skuId, periodId: period.id, label });
+      setEditValue(currentValue === 0 ? "" : currentValue.toString());
+    }
   };
 
   const handleCellBlur = () => {
@@ -263,14 +294,44 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
     const newVal = editValue.trim() === "" ? "0" : editValue;
     const numVal = parseFloat(newVal);
     if (isNaN(numVal)) { setEditingCell(null); return; }
-    updateCell.mutate({
-      skuId: editingCell.skuId,
-      periodId: editingCell.periodId,
-      label: editingCell.label,
-      value: newVal,
-      country: country as "Syria" | "Libya",
-      username: appUser?.displayName,
-    });
+
+    const { label } = editingCell;
+    const period = allPeriods.find(p => p.id === editingCell.periodId);
+    const sku = allSkus.find(s => s.id === editingCell.skuId);
+
+    if (label === "IMS") {
+      updateImsMut.mutate({
+        skuId: editingCell.skuId,
+        periodId: editingCell.periodId,
+        value: newVal,
+        country: country as "Syria" | "Libya",
+        username: appUser?.displayName,
+        skuName: sku?.name,
+        periodLabel: period?.label,
+      });
+    } else if (label === "Production") {
+      updateProductionMut.mutate({
+        skuId: editingCell.skuId,
+        periodId: editingCell.periodId,
+        week1: newVal,
+        week2: "0",
+        week3: "0",
+        week4: "0",
+        country: country as "Syria" | "Libya",
+        username: appUser?.displayName,
+        skuName: sku?.name,
+        periodLabel: period?.label,
+      });
+    } else {
+      updateCell.mutate({
+        skuId: editingCell.skuId,
+        periodId: editingCell.periodId,
+        label: editingCell.label,
+        value: newVal,
+        country: country as "Syria" | "Libya",
+        username: appUser?.displayName,
+      });
+    }
     setEditingCell(null);
   };
 
@@ -314,7 +375,7 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
 
   const years = useMemo(() => Array.from(periodsByYear.keys()).sort(), [periodsByYear]);
 
-  // Build navigable cell IDs for IntlPlanningFg (only Opening Stock + Adjustments are editable)
+  // Build navigable cell IDs for IntlPlanningFg
   const navigableCellIds = useMemo(() => {
     const visiblePeriods: Period[] = [];
     for (const year of years) {
@@ -329,9 +390,14 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
           ids.push(`${sku.id}-${p.id}-${label}`);
         }
       }
+      for (const label of ["IMS", "Production"] as RowLabel[]) {
+        for (const p of visiblePeriods) {
+          if (isFuturePeriod(p)) ids.push(`${sku.id}-${p.id}-${label}`);
+        }
+      }
     }
     return ids;
-  }, [filteredSkus, years, periodsByYear, collapsedYears]);
+  }, [filteredSkus, years, periodsByYear, collapsedYears, isFuturePeriod]);
 
   const visiblePeriodCount = useMemo(() => {
     let count = 0;
@@ -354,7 +420,11 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
       const label = id.slice(secondDash + 1) as RowLabel;
       // Get current value
       const planData = planningMap.get(`${skuId}-${periodId}`);
-      const val = label === "Opening Stock" ? (planData?.openingStock ?? 0) : (planData?.adjustments ?? 0);
+      let val = 0;
+      if (label === "Opening Stock") val = planData?.openingStock ?? 0;
+      else if (label === "Adjustments") val = planData?.adjustments ?? 0;
+      else if (label === "IMS") val = imsMap.get(`${skuId}-${periodId}`) ?? 0;
+      else if (label === "Production") val = shipmentMap.get(`${skuId}-${periodId}`) ?? 0;
       setEditingCell({ skuId, periodId, label });
       setEditValue(val === 0 ? "" : val.toString());
     },
@@ -627,11 +697,13 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
                 </thead>
                 <tbody>
                   {ROW_LABELS.map((label) => {
-                    const isEditable = EDITABLE_ROWS.has(label);
+                    const isAlwaysEditable = ALWAYS_EDITABLE_ROWS.has(label);
+                    const isFutureEditable = FUTURE_EDITABLE_ROWS.has(label);
                     const isClosingWeeks = label === "Closing Stock - Weeks";
                     const isClosingStock = label === "Closing Stock";
                     const isArrivals = label === "Actual arrivals / Planned Orders";
                     const isIms = label === "IMS";
+                    const isProduction = label === "Production";
                     const isSeparatorBefore = label === "Closing Stock";
                     const showTotal = !NO_TOTAL_ROWS.has(label);
 
@@ -643,14 +715,14 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
                         {/* Row label */}
                         <td className={`sticky left-0 z-10 px-3 py-1.5 font-medium whitespace-nowrap ${labelStyle[label]}`}>
                           {label}
-                          {isEditable && (
+                          {isAlwaysEditable && (
                             <span className="ml-1 text-[9px] text-blue-400">(editable)</span>
+                          )}
+                          {isFutureEditable && (
+                            <span className="ml-1 text-[9px] text-blue-400">(editable: future)</span>
                           )}
                           {isArrivals && (
                             <span className="ml-1 text-[9px] text-emerald-500">(Cleared only)</span>
-                          )}
-                          {isIms && (
-                            <span className="ml-1 text-[9px] text-orange-400">(from IMS page)</span>
                           )}
                         </td>
 
@@ -706,12 +778,14 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
                               );
                             }
 
-                            if (isEditable) {
+                            const cellEditable = isAlwaysEditable || (isFutureEditable && isFuturePeriod(p));
+
+                            if (cellEditable) {
                               return (
                                 <td
                                   key={p.id}
                                   className="px-2 py-1.5 text-right cursor-pointer hover:bg-blue-100/60"
-                                  onClick={() => handleCellClick(sku.id, p.id, label, val)}
+                                  onClick={() => handleCellClick(sku.id, p, label, val)}
                                 >
                                   {isActive ? (
                                     <input
