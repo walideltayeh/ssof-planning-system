@@ -595,8 +595,8 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
     if (label === "Invoiced (SHP)") return isFuturePeriod(p);
     if (label === "Opening Stock") return periodIndex === 0;
     if (label === "Adjustments") return true;
-    if (label === "IMS") return true;
-    if (label === "Actual arrivals / Planned Orders") return true;
+    if (label === "IMS") return isFuturePeriod(p);
+    if (label === "Actual arrivals / Planned Orders") return isFuturePeriod(p);
     return false;
   }, [isFuturePeriod]);
 
@@ -782,9 +782,9 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
   const getRowLabel = (label: RowLabel) => {
     if (label === "Opening Stock") return <>{label}<span className="ml-1 text-[9px] text-muted-foreground">(1st month)</span></>;
     if (label === "Adjustments") return <>{label}<span className="ml-1 text-[9px] text-blue-500">✎ all months</span></>;
-    if (label === "IMS") return <>{label}<span className="ml-1 text-[9px] text-blue-500">✎ all months → syncs IMS source</span></>;
+    if (label === "IMS") return <>{label}<span className="ml-1 text-[9px] text-blue-500">✎ current & future → syncs IMS source</span></>;
     if (label === "Invoiced (SHP)") return <>{label}<span className="ml-1 text-[9px] text-blue-500">✎ future (weekly)</span></>;
-    if (label === "Actual arrivals / Planned Orders") return <>{label}<span className="ml-1 text-[9px] text-blue-500">✎ all months → syncs Production</span></>;
+    if (label === "Actual arrivals / Planned Orders") return <>{label}<span className="ml-1 text-[9px] text-blue-500">✎ current & future → syncs Production</span></>;
     if (label === "Closing Stock") return <>{label}<span className="ml-1 text-[9px] text-muted-foreground">auto</span></>;
     if (label === "Closing Stock - Weeks") return <>{label}<span className="ml-1 text-[9px] text-muted-foreground">auto</span></>;
     return label;
