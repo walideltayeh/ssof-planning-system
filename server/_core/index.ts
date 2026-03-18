@@ -120,6 +120,65 @@ async function startServer() {
     }
   });
 
+  // Temporary full-database export endpoint (for data migration)
+  app.get("/api/export-db", async (req, res) => {
+    try {
+      const db = await import("../db");
+      const [lebanon, syria, libya] = await Promise.all([
+        db.getFullSnapshot("Lebanon"),
+        db.getFullSnapshot("Syria"),
+        db.getFullSnapshot("Libya"),
+      ]);
+      const versions = await Promise.all([
+        db.listVersions("Lebanon"),
+        db.listVersions("Syria"),
+        db.listVersions("Libya"),
+      ]);
+      const payload = {
+        exportedAt: new Date().toISOString(),
+        snapshots: { Lebanon: lebanon, Syria: syria, Libya: libya },
+        versions: {
+          Lebanon: versions[0],
+          Syria: versions[1],
+          Libya: versions[2],
+        },
+      };
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader("Content-Disposition", `attachment; filename=ssof-full-export-${Date.now()}.json`);
+      res.json(payload);
+    } catch (err: any) {
+      console.error("[DB Export] Error:", err);
+      res.status(500).json({ error: err?.message || "Export failed" });
+    }
+  });
+
+  // Temporary full-database import endpoint (for data migration)
+  app.post("/api/import-db", async (req, res) => {
+    try {
+      const db = await import("../db");
+      const payload = req.body;
+      if (!payload?.snapshots) {
+        res.status(400).json({ error: "Invalid payload: missing snapshots" });
+        return;
+      }
+      const countries = ["Lebanon", "Syria", "Libya"] as const;
+      const results: Record<string, string> = {};
+      for (const country of countries) {
+        const snap = payload.snapshots[country];
+        if (snap) {
+          await db.restoreSnapshot(snap, country);
+          results[country] = "restored";
+        } else {
+          results[country] = "no data";
+        }
+      }
+      res.json({ success: true, results });
+    } catch (err: any) {
+      console.error("[DB Import] Error:", err);
+      res.status(500).json({ error: err?.message || "Import failed" });
+    }
+  });
+
   // tRPC API
   app.use(
     "/api/trpc",
