@@ -865,32 +865,6 @@ export default function ArrivalPage() {
                   {/* ── Expanded clearance events panel ── */}
                   {isExpanded && (
                     <div className="border-t border-border bg-slate-50/70 px-4 py-3 space-y-2">
-                      {/* Invoice / Container Note */}
-                      <div className="flex items-center gap-2 pb-1">
-                        <span className="text-[10px] font-semibold text-muted-foreground shrink-0 uppercase tracking-wide">Invoice / Container Note:</span>
-                        <input
-                          key={`note-${batchKey}-${batch.note}`}
-                          type="text"
-                          className="flex-1 text-xs border border-border rounded px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-primary min-w-0"
-                          defaultValue={batch.note ?? ""}
-                          placeholder="e.g. INV-12345 / CTRU1234567"
-                          onBlur={e => {
-                            const val = e.target.value.trim() || null;
-                            if (val !== (batch.note ?? null)) {
-                              const shipRow = shipmentMap.get(batchKey);
-                              updateBatchNote.mutate({
-                                skuId: batch.sku.id, periodId: batch.period.id,
-                                week1: shipRow?.week1 ?? "0", week2: shipRow?.week2 ?? "0",
-                                week3: shipRow?.week3 ?? "0", week4: shipRow?.week4 ?? "0",
-                                note: val,
-                                country: country as "Syria" | "Libya",
-                                username: appUser?.displayName, skuName: batch.sku.name, periodLabel: batch.period.label,
-                              });
-                            }
-                          }}
-                          onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                        />
-                      </div>
                       {/* Events table */}
                       {events.length > 0 && (
                         <table className="w-full text-xs border-collapse mb-2">
@@ -901,7 +875,7 @@ export default function ArrivalPage() {
                               <th className="px-2 py-1.5 text-left font-medium text-teal-700">Cleared Date</th>
                               <th className="px-2 py-1.5 text-right font-medium text-amber-700">Pending Qty</th>
                               <th className="px-2 py-1.5 text-left font-medium text-violet-700">Pending Clear Date</th>
-                              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Notes</th>
+                              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Invoice / Container No.</th>
                               <th className="px-2 py-1.5 text-center font-medium text-muted-foreground">Actions</th>
                             </tr>
                           </thead>
@@ -967,13 +941,13 @@ export default function ArrivalPage() {
                                       <span className="text-[10px] text-muted-foreground italic">Superseded</span>
                                     )}
                                   </td>
-                                  {/* Notes - editable */}
+                                  {/* Invoice / Container No. - editable */}
                                   <td className="px-2 py-1.5">
                                     <input
                                       type="text"
-                                      className="text-xs border border-border rounded px-1 py-0.5 bg-white focus:outline-none focus:ring-1 focus:ring-primary w-full min-w-[100px]"
+                                      className="text-xs border border-border rounded px-1 py-0.5 bg-white focus:outline-none focus:ring-1 focus:ring-primary w-full min-w-[120px]"
                                       defaultValue={ev.notes ?? ""}
-                                      placeholder="Notes..."
+                                      placeholder="INV / Container No."
                                       onBlur={e => {
                                         const val = e.target.value || null;
                                         if (val !== (ev.notes ?? null)) {
