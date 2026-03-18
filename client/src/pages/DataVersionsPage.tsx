@@ -132,8 +132,9 @@ export default function DataVersionsPage() {
   const uploadArrival = trpc.upload.arrival.useMutation();
   const uploadPlanningFgBulk = trpc.upload.planningFgBulk.useMutation();
 
-  const versionsQuery = trpc.versions.list.useQuery({ country: uploadCountry as any });
-  const editCountQuery = trpc.versions.editCount.useQuery({});
+  const [versionCountry, setVersionCountry] = useState<string>(uploadCountry);
+  const versionsQuery = trpc.versions.list.useQuery({ country: versionCountry as any });
+  const editCountQuery = trpc.versions.editCount.useQuery({ country: versionCountry as any });
   const saveMutation = trpc.versions.save.useMutation();
   const loadMutation = trpc.versions.load.useMutation();
   const deleteMutation = trpc.versions.delete.useMutation();
@@ -515,7 +516,7 @@ export default function DataVersionsPage() {
         name: versionName.trim(),
         description: versionDescription.trim() || undefined,
         username,
-        country: uploadCountry as any,
+        country: versionCountry as any,
       });
       toast.success(`Version "${versionName}" saved successfully!`, {
         description: result.docUrl ? "Word document generated and attached." : "Version snapshot saved.",
@@ -784,6 +785,19 @@ export default function DataVersionsPage() {
               </p>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
+              {/* Country selector */}
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-medium text-muted-foreground">Country:</span>
+                <select
+                  value={versionCountry}
+                  onChange={e => setVersionCountry(e.target.value)}
+                  className="text-xs border border-border rounded px-2 py-1.5 bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+                >
+                  <option value="Lebanon">Lebanon</option>
+                  <option value="Syria">Syria</option>
+                  <option value="Libya">Libya</option>
+                </select>
+              </div>
               {/* Compare button */}
               <VersionComparison versions={versions} />
 
@@ -810,9 +824,9 @@ export default function DataVersionsPage() {
                 </DialogTrigger>
                 <DialogContent className="sm:max-w-md">
                   <DialogHeader>
-                    <DialogTitle>Save SSOF Version</DialogTitle>
+                    <DialogTitle>Save SSOF Version — {versionCountry}</DialogTitle>
                     <DialogDescription>
-                      Save the current state of all data as a named version. A Word document summarizing changes will be auto-generated.
+                      Save the current state of {versionCountry} data as a named version. A Word document summarizing changes will be auto-generated.
                     </DialogDescription>
                   </DialogHeader>
                   <div className="space-y-4 py-2">

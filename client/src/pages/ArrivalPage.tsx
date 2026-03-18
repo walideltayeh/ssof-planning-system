@@ -208,6 +208,11 @@ export default function ArrivalPage() {
   const [clearedQtyValue, setClearedQtyValue] = useState("");
   const [clearedDateLocal, setClearedDateLocal] = useState<Record<string, string>>({});
   const [pendingDateLocal, setPendingDateLocal] = useState<Record<string, string>>({});
+  const updateBatchNote = trpc.country.updateProduction.useMutation({
+    onSuccess: () => { intlRefetch(); },
+    onError: (err) => toast.error("Failed to save note: " + err.message),
+  });
+
   const updatePendingClearDate = trpc.country.updatePendingClearDate.useMutation({
     onSuccess: () => utils.country.data.invalidate(),
     onError: (err) => toast.error("Failed to save pending clear date: " + err.message),
@@ -215,7 +220,7 @@ export default function ArrivalPage() {
 
   // For Syria/Libya: shipment map includes arrivalOffset fields + arrivalStatus + clearedQty + clearedDate + pendingClearDate
   const shipmentMap = useMemo(() => {
-    const map = new Map<string, { week1: string; week2: string; week3: string; week4: string; arrivalOffsetValue?: number; arrivalOffsetUnit?: string; arrivalStatus?: string; clearedQty?: string | null; clearedDate?: string | null; pendingClearDate?: string | null }>();
+    const map = new Map<string, { week1: string; week2: string; week3: string; week4: string; arrivalOffsetValue?: number; arrivalOffsetUnit?: string; arrivalStatus?: string; clearedQty?: string | null; clearedDate?: string | null; pendingClearDate?: string | null; note?: string | null }>();
     if (data?.shipment) {
       for (const d of data.shipment) {
         map.set(`${d.skuId}-${d.periodId}`, {
@@ -226,6 +231,7 @@ export default function ArrivalPage() {
           clearedQty: (d as any).clearedQty ?? null,
           clearedDate: (d as any).clearedDate ?? null,
           pendingClearDate: (d as any).pendingClearDate ?? null,
+          note: (d as any).note ?? null,
         });
       }
     }
@@ -425,6 +431,7 @@ export default function ArrivalPage() {
         clearedQty: number | null;
         clearedDate: string | null;
         pendingClearDate: string | null;
+        note: string | null;
       };
 
     const batches: Batch[] = [];
@@ -441,7 +448,7 @@ export default function ArrivalPage() {
         const clearedQty = shipRow.clearedQty != null ? parseFloat(shipRow.clearedQty) : null;
         const clearedDate = shipRow.clearedDate ?? null;
         const pendingClearDate = shipRow.pendingClearDate ?? null;
-        batches.push({ sku, period, total, arrivalOffsetValue: offVal, arrivalOffsetUnit: offUnit, arrivalDate, arrivalStatus, clearedQty, clearedDate, pendingClearDate });
+        batches.push({ sku, period, total, arrivalOffsetValue: offVal, arrivalOffsetUnit: offUnit, arrivalDate, arrivalStatus, clearedQty, clearedDate, pendingClearDate, note: shipRow.note ?? null });
       }
     }
 
@@ -858,6 +865,32 @@ export default function ArrivalPage() {
                   {/* ── Expanded clearance events panel ── */}
                   {isExpanded && (
                     <div className="border-t border-border bg-slate-50/70 px-4 py-3 space-y-2">
+                      {/* Invoice / Container Note */}
+                      <div className="flex items-center gap-2 pb-1">
+                        <span className="text-[10px] font-semibold text-muted-foreground shrink-0 uppercase tracking-wide">Invoice / Container Note:</span>
+                        <input
+                          key={`note-${batchKey}-${batch.note}`}
+                          type="text"
+                          className="flex-1 text-xs border border-border rounded px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-primary min-w-0"
+                          defaultValue={batch.note ?? ""}
+                          placeholder="e.g. INV-12345 / CTRU1234567"
+                          onBlur={e => {
+                            const val = e.target.value.trim() || null;
+                            if (val !== (batch.note ?? null)) {
+                              const shipRow = shipmentMap.get(batchKey);
+                              updateBatchNote.mutate({
+                                skuId: batch.sku.id, periodId: batch.period.id,
+                                week1: shipRow?.week1 ?? "0", week2: shipRow?.week2 ?? "0",
+                                week3: shipRow?.week3 ?? "0", week4: shipRow?.week4 ?? "0",
+                                note: val,
+                                country: country as "Syria" | "Libya",
+                                username: appUser?.displayName, skuName: batch.sku.name, periodLabel: batch.period.label,
+                              });
+                            }
+                          }}
+                          onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                        />
+                      </div>
                       {/* Events table */}
                       {events.length > 0 && (
                         <table className="w-full text-xs border-collapse mb-2">

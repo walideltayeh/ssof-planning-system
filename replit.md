@@ -69,6 +69,25 @@ Schema was converted from MySQL to PostgreSQL during Replit import. Uses Drizzle
 - `VITE_OAUTH_PORTAL_URL` — Optional, Manus OAuth (not required; falls back to `/` if missing)
 - `OWNER_OPEN_ID` — Optional, for OAuth owner detection
 
+## Recent Features (March 2026)
+
+### 1. Invoice / Container Note on Arrival batches (Syria & Libya)
+- New `note` text column added to `shipment_data` table (migration `0001_left_mariko_yashida.sql`)
+- Each production batch in the Arrival page (Syria/Libya) has an editable "Invoice / Container Note" field in the expanded panel
+- Notes are preserved in version snapshots (save/load versions carries note through)
+- Saved via `trpc.country.updateProduction` mutation which now accepts optional `note` field
+
+### 2. Libya Production Arrival Offset default of 30 days
+- When opening the offset editor for a Libya production entry with no offset set, the input pre-fills with 30 days instead of empty
+- File: `client/src/pages/ShipmentPage.tsx`
+
+### 3. Version Manager country isolation fix
+- Data & Versions page now has an explicit **Country** selector in the Version Manager header
+- The selector determines which country's versions are viewed and which country's data is snapshotted when saving
+- `editCount` query now also filters by the selected country
+- Dialog title shows "Save SSOF Version — [Country]" to make the scope clear
+- `versionCountry` state defaults to the logged-in user's country
+
 ## Deployment
 
 - Custom domain: `ssofplan.live`

@@ -573,7 +573,7 @@ export default function ShipmentPage() {
                                               className={`text-[10px] rounded px-1.5 py-0.5 transition-colors w-full text-center ${hasOffset ? "bg-amber-100 text-amber-700 hover:bg-amber-200 font-medium" : "text-muted-foreground hover:bg-muted"}`}
                                               onClick={() => {
                                                 setOffsetEditing(offsetKey);
-                                                setOffsetValue(offVal > 0 ? offVal.toString() : "");
+                                                setOffsetValue(offVal > 0 ? offVal.toString() : (country === "Libya" ? "30" : ""));
                                                 setOffsetUnit(offUnit);
                                               }}
                                               title="Set arrival offset"

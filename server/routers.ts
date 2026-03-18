@@ -1196,6 +1196,7 @@ export const appRouter = router({
         week1: z.string(), week2: z.string(), week3: z.string(), week4: z.string(),
         arrivalOffsetValue: z.number().optional(),
         arrivalOffsetUnit: z.enum(["days", "weeks", "months"]).optional(),
+        note: z.string().nullable().optional(),
         country: z.enum(["Lebanon", "Syria", "Libya"]),
         username: z.string().optional(), skuName: z.string().optional(), periodLabel: z.string().optional(),
       }))
@@ -1204,6 +1205,7 @@ export const appRouter = router({
           week1: input.week1, week2: input.week2, week3: input.week3, week4: input.week4,
           arrivalOffsetValue: input.arrivalOffsetValue,
           arrivalOffsetUnit: input.arrivalOffsetUnit,
+          note: input.note,
         });
         await db.logAudit({
           country: input.country, username: input.username || "System",
