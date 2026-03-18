@@ -124,19 +124,23 @@ async function startServer() {
   app.get("/api/export-db", async (req, res) => {
     try {
       const db = await import("../db");
-      const [lebanon, syria, libya] = await Promise.all([
+      const [lebanon, syria, libya, syriaEvents, libyaEvents, lebaEvents, versions] = await Promise.all([
         db.getFullSnapshot("Lebanon"),
         db.getFullSnapshot("Syria"),
         db.getFullSnapshot("Libya"),
-      ]);
-      const versions = await Promise.all([
-        db.listVersions("Lebanon"),
-        db.listVersions("Syria"),
-        db.listVersions("Libya"),
+        db.getClearanceEventsForCountry("Syria"),
+        db.getClearanceEventsForCountry("Libya"),
+        db.getClearanceEventsForCountry("Lebanon"),
+        Promise.all([
+          db.listVersions("Lebanon"),
+          db.listVersions("Syria"),
+          db.listVersions("Libya"),
+        ]),
       ]);
       const payload = {
         exportedAt: new Date().toISOString(),
         snapshots: { Lebanon: lebanon, Syria: syria, Libya: libya },
+        clearanceEvents: { Lebanon: lebaEvents, Syria: syriaEvents, Libya: libyaEvents },
         versions: {
           Lebanon: versions[0],
           Syria: versions[1],
@@ -170,6 +174,21 @@ async function startServer() {
           results[country] = "restored";
         } else {
           results[country] = "no data";
+        }
+      }
+      // Import clearance events if present
+      if (payload.clearanceEvents) {
+        for (const country of countries) {
+          const events = payload.clearanceEvents[country];
+          if (!events?.length) continue;
+          for (const ev of events) {
+            try {
+              await db.importClearanceEvent(ev);
+            } catch (e: any) {
+              console.warn(`[Import] clearance event ${ev.id} skip: ${e.message}`);
+            }
+          }
+          results[`clearanceEvents_${country}`] = `${events.length} events`;
         }
       }
       res.json({ success: true, results });

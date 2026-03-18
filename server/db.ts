@@ -475,6 +475,21 @@ export async function updateShipmentClearedDate(
 
 // ==================== CLEARANCE EVENTS ====================
 
+export async function importClearanceEvent(ev: any): Promise<void> {
+  const db = await getDb();
+  if (!db) return;
+  await db.insert(clearanceEvents).values({
+    id: ev.id,
+    skuId: ev.skuId,
+    periodId: ev.periodId,
+    country: ev.country as Country,
+    clearedQty: ev.clearedQty,
+    clearedDate: ev.clearedDate ? new Date(ev.clearedDate) as any : null,
+    pendingClearDate: ev.pendingClearDate ? new Date(ev.pendingClearDate) as any : null,
+    notes: ev.notes ?? null,
+  }).onConflictDoNothing();
+}
+
 export async function getClearanceEventsForCountry(country: Country): Promise<ClearanceEvent[]> {
   const db = await getDb();
   if (!db) return [];
