@@ -26,7 +26,7 @@ type RowLabel = typeof ROW_LABELS[number];
 const NO_TOTAL_ROWS = new Set<RowLabel>(["Opening Stock", "Closing Stock - Weeks"]);
 
 // Always-editable rows (any period)
-const ALWAYS_EDITABLE_ROWS = new Set<RowLabel>(["Opening Stock", "Adjustments"]);
+const ALWAYS_EDITABLE_ROWS = new Set<RowLabel>(["Adjustments"]);
 // Rows editable only for current/future periods
 const FUTURE_EDITABLE_ROWS = new Set<RowLabel>(["IMS", "Production"]);
 
@@ -385,10 +385,8 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
     }
     const ids: string[] = [];
     for (const sku of filteredSkus) {
-      for (const label of ["Opening Stock", "Adjustments"] as RowLabel[]) {
-        for (const p of visiblePeriods) {
-          ids.push(`${sku.id}-${p.id}-${label}`);
-        }
+      for (const p of visiblePeriods) {
+        ids.push(`${sku.id}-${p.id}-Adjustments`);
       }
       for (const label of ["IMS", "Production"] as RowLabel[]) {
         for (const p of visiblePeriods) {
@@ -421,8 +419,7 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
       // Get current value
       const planData = planningMap.get(`${skuId}-${periodId}`);
       let val = 0;
-      if (label === "Opening Stock") val = planData?.openingStock ?? 0;
-      else if (label === "Adjustments") val = planData?.adjustments ?? 0;
+      if (label === "Adjustments") val = planData?.adjustments ?? 0;
       else if (label === "IMS") val = imsMap.get(`${skuId}-${periodId}`) ?? 0;
       else if (label === "Production") val = shipmentMap.get(`${skuId}-${periodId}`) ?? 0;
       setEditingCell({ skuId, periodId, label });
@@ -720,6 +717,12 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
                           )}
                           {isFutureEditable && (
                             <span className="ml-1 text-[9px] text-blue-400">(editable: future)</span>
+                          )}
+                          {label === "Opening Stock" && (
+                            <span className="ml-1 text-[9px] text-gray-400">(auto)</span>
+                          )}
+                          {(label === "Closing Stock" || label === "Closing Stock - Weeks") && (
+                            <span className="ml-1 text-[9px] text-gray-400">(auto)</span>
                           )}
                           {isArrivals && (
                             <span className="ml-1 text-[9px] text-emerald-500">(Cleared only)</span>
