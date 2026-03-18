@@ -1,0 +1,1 @@
+ALTER TABLE `skus` ADD `category` enum('Core','NPI') DEFAULT 'Core' NOT NULL;

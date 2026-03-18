@@ -1,0 +1,30 @@
+{
+  "query": "\nSELECT 'skus' AS tbl, country, COUNT(*) AS cnt FROM skus GROUP BY country\nUNION ALL\nSELECT 'periods', country, COUNT(*) FROM periods GROUP BY country\nUNION ALL\nSELECT 'forecast_data', s.country, COUNT(*) FROM forecast_data fd JOIN skus s ON fd.skuId = s.id GROUP BY s.country\nUNION ALL\nSELECT 'ssof_versions', country, COUNT(*) FROM ssof_versions GROUP BY country;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2U7jjLaYec9RfmS.90c6e09afd89 --database RkmLGi4aoyDhsEeQFGiadn --execute \nSELECT 'skus' AS tbl, country, COUNT(*) AS cnt FROM skus GROUP BY country\nUNION ALL\nSELECT 'periods', country, COUNT(*) FROM periods GROUP BY country\nUNION ALL\nSELECT 'forecast_data', s.country, COUNT(*) FROM forecast_data fd JOIN skus s ON fd.skuId = s.id GROUP BY s.country\nUNION ALL\nSELECT 'ssof_versions', country, COUNT(*) FROM ssof_versions GROUP BY country;\n",
+  "rows": [
+    {
+      "tbl": "skus",
+      "country": "Lebanon",
+      "cnt": "29"
+    },
+    {
+      "tbl": "periods",
+      "country": "Lebanon",
+      "cnt": "36"
+    },
+    {
+      "tbl": "ssof_versions",
+      "country": "Lebanon",
+      "cnt": "1"
+    },
+    {
+      "tbl": "forecast_data",
+      "country": "Lebanon",
+      "cnt": "1044"
+    }
+  ],
+  "messages": [],
+  "stdout": "tbl\tcountry\tcnt\nskus\tLebanon\t29\nperiods\tLebanon\t36\nssof_versions\tLebanon\t1\nforecast_data\tLebanon\t1044\n",
+  "stderr": "",
+  "execution_time_ms": 1574
+}

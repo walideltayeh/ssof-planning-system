@@ -1,0 +1,55 @@
+{
+  "query": "SELECT sd.id, sd.skuId, sd.periodId, sd.week1, sd.week2, sd.week3, sd.week4 FROM shipment_data sd LIMIT 5",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2U7jjLaYec9RfmS.90c6e09afd89 --database RkmLGi4aoyDhsEeQFGiadn --execute SELECT sd.id, sd.skuId, sd.periodId, sd.week1, sd.week2, sd.week3, sd.week4 FROM shipment_data sd LIMIT 5",
+  "rows": [
+    {
+      "id": "30001",
+      "skuId": "30001",
+      "periodId": "1",
+      "week1": "0.00",
+      "week2": "0.00",
+      "week3": "0.00",
+      "week4": "0.00"
+    },
+    {
+      "id": "30002",
+      "skuId": "30001",
+      "periodId": "2",
+      "week1": "0.00",
+      "week2": "0.00",
+      "week3": "0.00",
+      "week4": "0.00"
+    },
+    {
+      "id": "30003",
+      "skuId": "30001",
+      "periodId": "3",
+      "week1": "0.00",
+      "week2": "0.00",
+      "week3": "0.00",
+      "week4": "0.00"
+    },
+    {
+      "id": "30004",
+      "skuId": "30001",
+      "periodId": "4",
+      "week1": "0.00",
+      "week2": "0.00",
+      "week3": "0.00",
+      "week4": "0.00"
+    },
+    {
+      "id": "30005",
+      "skuId": "30001",
+      "periodId": "5",
+      "week1": "0.00",
+      "week2": "0.00",
+      "week3": "0.00",
+      "week4": "0.00"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tskuId\tperiodId\tweek1\tweek2\tweek3\tweek4\n30001\t30001\t1\t0.00\t0.00\t0.00\t0.00\n30002\t30001\t2\t0.00\t0.00\t0.00\t0.00\n30003\t30001\t3\t0.00\t0.00\t0.00\t0.00\n30004\t30001\t4\t0.00\t0.00\t0.00\t0.00\n30005\t30001\t5\t0.00\t0.00\t0.00\t0.00\n",
+  "stderr": "",
+  "execution_time_ms": 1564
+}

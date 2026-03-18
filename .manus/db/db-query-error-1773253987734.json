@@ -1,0 +1,8 @@
+{
+  "query": "SELECT 'forecast_data' as tbl, sku_id, period_id, COUNT(*) as cnt FROM forecast_data GROUP BY sku_id, period_id HAVING COUNT(*) > 1 LIMIT 5;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2U7jjLaYec9RfmS.90c6e09afd89 --database RkmLGi4aoyDhsEeQFGiadn --execute SELECT 'forecast_data' as tbl, sku_id, period_id, COUNT(*) as cnt FROM forecast_data GROUP BY sku_id, period_id HAVING COUNT(*) > 1 LIMIT 5;",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1054 (42S22) at line 1: Unknown column 'sku_id' in 'group statement'"
+  ]
+}

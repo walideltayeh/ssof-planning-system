@@ -1,0 +1,12 @@
+{
+  "query": "\n-- Syria SKUs\nSELECT COUNT(*) as syria_sku_count FROM skus WHERE country = 'Syria';\n\n-- Syria periods\nSELECT COUNT(*) as syria_period_count FROM periods WHERE country = 'Syria';\n\n-- Syria forecast data rows\nSELECT COUNT(*) as forecast_rows FROM forecast_data fd \nJOIN skus s ON fd.sku_id = s.id WHERE s.country = 'Syria';\n\n-- Syria IMS data rows\nSELECT COUNT(*) as ims_rows FROM ims_data id2 \nJOIN skus s ON id2.sku_id = s.id WHERE s.country = 'Syria';\n\n-- Syria shipment data rows\nSELECT COUNT(*) as shipment_rows FROM shipment_data sd \nJOIN skus s ON sd.sku_id = s.id WHERE s.country = 'Syria';\n\n-- Syria arrival data rows\nSELECT COUNT(*) as arrival_rows FROM arrival_data ad \nJOIN skus s ON ad.sku_id = s.id WHERE s.country = 'Syria';\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2U7jjLaYec9RfmS.90c6e09afd89 --database RkmLGi4aoyDhsEeQFGiadn --execute \n-- Syria SKUs\nSELECT COUNT(*) as syria_sku_count FROM skus WHERE country = 'Syria';\n\n-- Syria periods\nSELECT COUNT(*) as syria_period_count FROM periods WHERE country = 'Syria';\n\n-- Syria forecast data rows\nSELECT COUNT(*) as forecast_rows FROM forecast_data fd \nJOIN skus s ON fd.sku_id = s.id WHERE s.country = 'Syria';\n\n-- Syria IMS data rows\nSELECT COUNT(*) as ims_rows FROM ims_data id2 \nJOIN skus s ON id2.sku_id = s.id WHERE s.country = 'Syria';\n\n-- Syria shipment data rows\nSELECT COUNT(*) as shipment_rows FROM shipment_data sd \nJOIN skus s ON sd.sku_id = s.id WHERE s.country = 'Syria';\n\n-- Syria arrival data rows\nSELECT COUNT(*) as arrival_rows FROM arrival_data ad \nJOIN skus s ON ad.sku_id = s.id WHERE s.country = 'Syria';\n",
+  "returncode": 1,
+  "logs": [
+    "syria_sku_count",
+    "18",
+    "syria_period_count",
+    "36",
+    "ERROR 1054 (42S22) at line 9: Unknown column 'fd.sku_id' in 'on clause'"
+  ]
+}

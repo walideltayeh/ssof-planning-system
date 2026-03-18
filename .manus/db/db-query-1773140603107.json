@@ -1,0 +1,9 @@
+{
+  "query": "CREATE TABLE IF NOT EXISTS `revised_forecast_data` (\n  `id` int AUTO_INCREMENT NOT NULL,\n  `skuId` int NOT NULL,\n  `periodId` int NOT NULL,\n  `value` decimal(12,2) DEFAULT '0',\n  `updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n  CONSTRAINT `revised_forecast_data_id` PRIMARY KEY(`id`)\n);",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2U7jjLaYec9RfmS.90c6e09afd89 --database RkmLGi4aoyDhsEeQFGiadn --execute CREATE TABLE IF NOT EXISTS `revised_forecast_data` (\n  `id` int AUTO_INCREMENT NOT NULL,\n  `skuId` int NOT NULL,\n  `periodId` int NOT NULL,\n  `value` decimal(12,2) DEFAULT '0',\n  `updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,\n  CONSTRAINT `revised_forecast_data_id` PRIMARY KEY(`id`)\n);",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 1540
+}

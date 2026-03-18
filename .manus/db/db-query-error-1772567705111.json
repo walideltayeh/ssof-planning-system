@@ -1,0 +1,8 @@
+{
+  "query": "\nSELECT s.name, p.label, p.year, p.month,\n  pf.opening_stock, pf.adjustments, pf.invoiced, pf.arrivals,\n  im.value as ims_value,\n  fd.value as forecast_value\nFROM skus s\nJOIN periods p ON 1=1\nLEFT JOIN planning_fg_data pf ON pf.sku_id = s.id AND pf.period_id = p.id\nLEFT JOIN ims_data im ON im.sku_id = s.id AND im.period_id = p.id\nLEFT JOIN forecast_data fd ON fd.sku_id = s.id AND fd.period_id = p.id\nWHERE s.name LIKE '%Blueberry Mint%' AND s.weight = '50g'\n  AND p.year = 2025\nORDER BY p.year, p.month;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2U7jjLaYec9RfmS.90c6e09afd89 --database RkmLGi4aoyDhsEeQFGiadn --execute \nSELECT s.name, p.label, p.year, p.month,\n  pf.opening_stock, pf.adjustments, pf.invoiced, pf.arrivals,\n  im.value as ims_value,\n  fd.value as forecast_value\nFROM skus s\nJOIN periods p ON 1=1\nLEFT JOIN planning_fg_data pf ON pf.sku_id = s.id AND pf.period_id = p.id\nLEFT JOIN ims_data im ON im.sku_id = s.id AND im.period_id = p.id\nLEFT JOIN forecast_data fd ON fd.sku_id = s.id AND fd.period_id = p.id\nWHERE s.name LIKE '%Blueberry Mint%' AND s.weight = '50g'\n  AND p.year = 2025\nORDER BY p.year, p.month;\n",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1054 (42S22) at line 2: Unknown column 'pf.sku_id' in 'on clause'"
+  ]
+}

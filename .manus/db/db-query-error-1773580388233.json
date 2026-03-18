@@ -1,0 +1,8 @@
+{
+  "query": "SELECT s.name, s.weight, s.category, i.value, p.year, p.month, p.label \nFROM ims_data i \nJOIN skus s ON s.id = i.sku_id \nJOIN periods p ON p.id = i.period_id \nWHERE p.year = 2026 AND p.month = 4 AND s.country IN ('Syria', 'Libya')\nORDER BY s.category, s.weight, s.name",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2U7jjLaYec9RfmS.90c6e09afd89 --database RkmLGi4aoyDhsEeQFGiadn --execute SELECT s.name, s.weight, s.category, i.value, p.year, p.month, p.label \nFROM ims_data i \nJOIN skus s ON s.id = i.sku_id \nJOIN periods p ON p.id = i.period_id \nWHERE p.year = 2026 AND p.month = 4 AND s.country IN ('Syria', 'Libya')\nORDER BY s.category, s.weight, s.name",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1054 (42S22) at line 1: Unknown column 'i.sku_id' in 'on clause'"
+  ]
+}

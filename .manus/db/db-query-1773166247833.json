@@ -1,0 +1,80 @@
+{
+  "query": "SELECT id, country, name, weight, packagingType FROM skus WHERE country IN ('Syria', 'Libya') LIMIT 10;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2U7jjLaYec9RfmS.90c6e09afd89 --database RkmLGi4aoyDhsEeQFGiadn --execute SELECT id, country, name, weight, packagingType FROM skus WHERE country IN ('Syria', 'Libya') LIMIT 10;",
+  "rows": [
+    {
+      "id": "150001",
+      "country": "Syria",
+      "name": "Double Apple",
+      "weight": "50g",
+      "packagingType": "Old"
+    },
+    {
+      "id": "150002",
+      "country": "Syria",
+      "name": "Double Apple",
+      "weight": "250g",
+      "packagingType": "Old"
+    },
+    {
+      "id": "150003",
+      "country": "Syria",
+      "name": "Double Apple",
+      "weight": "1kg",
+      "packagingType": "Old"
+    },
+    {
+      "id": "150004",
+      "country": "Syria",
+      "name": "Double Apple",
+      "weight": "50g",
+      "packagingType": "New"
+    },
+    {
+      "id": "150005",
+      "country": "Syria",
+      "name": "Double Apple",
+      "weight": "250g",
+      "packagingType": "New"
+    },
+    {
+      "id": "150006",
+      "country": "Syria",
+      "name": "Double Apple",
+      "weight": "1kg",
+      "packagingType": "New"
+    },
+    {
+      "id": "150007",
+      "country": "Syria",
+      "name": "Grape",
+      "weight": "50g",
+      "packagingType": "New"
+    },
+    {
+      "id": "150008",
+      "country": "Syria",
+      "name": "Grape",
+      "weight": "250g",
+      "packagingType": "New"
+    },
+    {
+      "id": "150009",
+      "country": "Syria",
+      "name": "Grape",
+      "weight": "1kg",
+      "packagingType": "New"
+    },
+    {
+      "id": "150010",
+      "country": "Syria",
+      "name": "Blueberry",
+      "weight": "50g",
+      "packagingType": "New"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tcountry\tname\tweight\tpackagingType\n150001\tSyria\tDouble Apple\t50g\tOld\n150002\tSyria\tDouble Apple\t250g\tOld\n150003\tSyria\tDouble Apple\t1kg\tOld\n150004\tSyria\tDouble Apple\t50g\tNew\n150005\tSyria\tDouble Apple\t250g\tNew\n150006\tSyria\tDouble Apple\t1kg\tNew\n150007\tSyria\tGrape\t50g\tNew\n150008\tSyria\tGrape\t250g\tNew\n150009\tSyria\tGrape\t1kg\tNew\n150010\tSyria\tBlueberry\t50g\tNew\n",
+  "stderr": "",
+  "execution_time_ms": 1562
+}

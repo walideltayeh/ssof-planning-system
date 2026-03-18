@@ -1,0 +1,13 @@
+{
+  "query": "SELECT COUNT(*) as shipment_count FROM shipment_data",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2U7jjLaYec9RfmS.90c6e09afd89 --database RkmLGi4aoyDhsEeQFGiadn --execute SELECT COUNT(*) as shipment_count FROM shipment_data",
+  "rows": [
+    {
+      "shipment_count": "1044"
+    }
+  ],
+  "messages": [],
+  "stdout": "shipment_count\n1044\n",
+  "stderr": "",
+  "execution_time_ms": 1603
+}

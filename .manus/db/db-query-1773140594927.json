@@ -1,0 +1,9 @@
+{
+  "query": "\nALTER TABLE skus ADD COLUMN IF NOT EXISTS country ENUM('Lebanon','Syria','Libya') DEFAULT 'Lebanon' NOT NULL;\nALTER TABLE skus ADD COLUMN IF NOT EXISTS packagingType ENUM('Old','New') DEFAULT 'New';\nALTER TABLE periods ADD COLUMN IF NOT EXISTS country ENUM('Lebanon','Syria','Libya') DEFAULT 'Lebanon' NOT NULL;\nALTER TABLE ssof_versions ADD COLUMN IF NOT EXISTS country ENUM('Lebanon','Syria','Libya') DEFAULT 'Lebanon' NOT NULL;\nALTER TABLE upload_history ADD COLUMN IF NOT EXISTS country ENUM('Lebanon','Syria','Libya') DEFAULT 'Lebanon';\nALTER TABLE arrival_data ADD COLUMN IF NOT EXISTS arrivalOffsetWeeks INT DEFAULT 0;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2U7jjLaYec9RfmS.90c6e09afd89 --database RkmLGi4aoyDhsEeQFGiadn --execute \nALTER TABLE skus ADD COLUMN IF NOT EXISTS country ENUM('Lebanon','Syria','Libya') DEFAULT 'Lebanon' NOT NULL;\nALTER TABLE skus ADD COLUMN IF NOT EXISTS packagingType ENUM('Old','New') DEFAULT 'New';\nALTER TABLE periods ADD COLUMN IF NOT EXISTS country ENUM('Lebanon','Syria','Libya') DEFAULT 'Lebanon' NOT NULL;\nALTER TABLE ssof_versions ADD COLUMN IF NOT EXISTS country ENUM('Lebanon','Syria','Libya') DEFAULT 'Lebanon' NOT NULL;\nALTER TABLE upload_history ADD COLUMN IF NOT EXISTS country ENUM('Lebanon','Syria','Libya') DEFAULT 'Lebanon';\nALTER TABLE arrival_data ADD COLUMN IF NOT EXISTS arrivalOffsetWeeks INT DEFAULT 0;\n",
+  "rows": [],
+  "messages": [],
+  "stdout": "",
+  "stderr": "",
+  "execution_time_ms": 2590
+}

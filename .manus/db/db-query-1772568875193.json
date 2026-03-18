@@ -1,0 +1,106 @@
+{
+  "query": "\nSELECT pf.skuId, p.label, pf.openingStock, pf.arrivals, pf.invoiced,\n       im.value as ims\nFROM planning_fg_data pf\nJOIN periods p ON p.id = pf.periodId\nLEFT JOIN ims_data im ON im.skuId = pf.skuId AND im.periodId = pf.periodId\nWHERE pf.skuId = 30011\nORDER BY p.year, p.month\nLIMIT 12;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2U7jjLaYec9RfmS.90c6e09afd89 --database RkmLGi4aoyDhsEeQFGiadn --execute \nSELECT pf.skuId, p.label, pf.openingStock, pf.arrivals, pf.invoiced,\n       im.value as ims\nFROM planning_fg_data pf\nJOIN periods p ON p.id = pf.periodId\nLEFT JOIN ims_data im ON im.skuId = pf.skuId AND im.periodId = pf.periodId\nWHERE pf.skuId = 30011\nORDER BY p.year, p.month\nLIMIT 12;\n",
+  "rows": [
+    {
+      "skuId": "30011",
+      "label": "Jan 25",
+      "openingStock": "75.00",
+      "arrivals": "0.00",
+      "invoiced": "0.00",
+      "ims": "0.00"
+    },
+    {
+      "skuId": "30011",
+      "label": "Feb 25",
+      "openingStock": "75.00",
+      "arrivals": "0.00",
+      "invoiced": "0.00",
+      "ims": "1.00"
+    },
+    {
+      "skuId": "30011",
+      "label": "Mar 25",
+      "openingStock": "74.00",
+      "arrivals": "0.00",
+      "invoiced": "0.00",
+      "ims": "0.00"
+    },
+    {
+      "skuId": "30011",
+      "label": "Apr 25",
+      "openingStock": "74.00",
+      "arrivals": "0.00",
+      "invoiced": "0.00",
+      "ims": "0.00"
+    },
+    {
+      "skuId": "30011",
+      "label": "May 25",
+      "openingStock": "74.00",
+      "arrivals": "0.00",
+      "invoiced": "0.00",
+      "ims": "0.00"
+    },
+    {
+      "skuId": "30011",
+      "label": "Jun 25",
+      "openingStock": "74.00",
+      "arrivals": "0.00",
+      "invoiced": "0.00",
+      "ims": "25.00"
+    },
+    {
+      "skuId": "30011",
+      "label": "Jul 25",
+      "openingStock": "49.00",
+      "arrivals": "0.00",
+      "invoiced": "0.00",
+      "ims": "3.00"
+    },
+    {
+      "skuId": "30011",
+      "label": "Aug 25",
+      "openingStock": "46.00",
+      "arrivals": "0.00",
+      "invoiced": "0.00",
+      "ims": "5.00"
+    },
+    {
+      "skuId": "30011",
+      "label": "Sep 25",
+      "openingStock": "41.00",
+      "arrivals": "0.00",
+      "invoiced": "0.00",
+      "ims": "20.00"
+    },
+    {
+      "skuId": "30011",
+      "label": "Oct 25",
+      "openingStock": "21.00",
+      "arrivals": "0.00",
+      "invoiced": "0.00",
+      "ims": "21.00"
+    },
+    {
+      "skuId": "30011",
+      "label": "Nov 25",
+      "openingStock": "0.00",
+      "arrivals": "0.00",
+      "invoiced": "0.00",
+      "ims": "0.00"
+    },
+    {
+      "skuId": "30011",
+      "label": "Dec 25",
+      "openingStock": "0.00",
+      "arrivals": "0.00",
+      "invoiced": "0.00",
+      "ims": "0.00"
+    }
+  ],
+  "messages": [],
+  "stdout": "skuId\tlabel\topeningStock\tarrivals\tinvoiced\tims\n30011\tJan 25\t75.00\t0.00\t0.00\t0.00\n30011\tFeb 25\t75.00\t0.00\t0.00\t1.00\n30011\tMar 25\t74.00\t0.00\t0.00\t0.00\n30011\tApr 25\t74.00\t0.00\t0.00\t0.00\n30011\tMay 25\t74.00\t0.00\t0.00\t0.00\n30011\tJun 25\t74.00\t0.00\t0.00\t25.00\n30011\tJul 25\t49.00\t0.00\t0.00\t3.00\n30011\tAug 25\t46.00\t0.00\t0.00\t5.00\n30011\tSep 25\t41.00\t0.00\t0.00\t20.00\n30011\tOct 25\t21.00\t0.00\t0.00\t21.00\n30011\tNov 25\t0.00\t0.00\t0.00\t0.00\n30011\tDec 25\t0.00\t0.00\t0.00\t0.00\n",
+  "stderr": "",
+  "execution_time_ms": 1522
+}

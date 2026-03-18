@@ -1,0 +1,8 @@
+{
+  "query": "\nDELETE FROM forecast_data WHERE country IN ('Syria', 'Libya');\nDELETE FROM ims_data WHERE country IN ('Syria', 'Libya');\nDELETE FROM shipment_data WHERE country IN ('Syria', 'Libya');\nDELETE FROM arrival_data WHERE country IN ('Syria', 'Libya');\nDELETE FROM planning_fg_data WHERE country IN ('Syria', 'Libya');\nDELETE FROM skus WHERE country IN ('Syria', 'Libya');\nDELETE FROM periods WHERE country IN ('Syria', 'Libya');\nDELETE FROM ssof_versions WHERE country IN ('Syria', 'Libya');\nDELETE FROM revised_forecast_data WHERE country IN ('Syria', 'Libya');\nDELETE FROM audit_trail WHERE country IN ('Syria', 'Libya');\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2U7jjLaYec9RfmS.90c6e09afd89 --database RkmLGi4aoyDhsEeQFGiadn --execute \nDELETE FROM forecast_data WHERE country IN ('Syria', 'Libya');\nDELETE FROM ims_data WHERE country IN ('Syria', 'Libya');\nDELETE FROM shipment_data WHERE country IN ('Syria', 'Libya');\nDELETE FROM arrival_data WHERE country IN ('Syria', 'Libya');\nDELETE FROM planning_fg_data WHERE country IN ('Syria', 'Libya');\nDELETE FROM skus WHERE country IN ('Syria', 'Libya');\nDELETE FROM periods WHERE country IN ('Syria', 'Libya');\nDELETE FROM ssof_versions WHERE country IN ('Syria', 'Libya');\nDELETE FROM revised_forecast_data WHERE country IN ('Syria', 'Libya');\nDELETE FROM audit_trail WHERE country IN ('Syria', 'Libya');\n",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1054 (42S22) at line 2: Unknown column 'country' in 'where clause'"
+  ]
+}

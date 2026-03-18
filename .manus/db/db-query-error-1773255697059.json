@@ -1,0 +1,12 @@
+{
+  "query": "SELECT country, COUNT(*) as sku_count FROM skus GROUP BY country ORDER BY country;\nSELECT country, name, weight, is_active FROM skus WHERE country = 'Lebanon' ORDER BY name;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2U7jjLaYec9RfmS.90c6e09afd89 --database RkmLGi4aoyDhsEeQFGiadn --execute SELECT country, COUNT(*) as sku_count FROM skus GROUP BY country ORDER BY country;\nSELECT country, name, weight, is_active FROM skus WHERE country = 'Lebanon' ORDER BY name;",
+  "returncode": 1,
+  "logs": [
+    "country\tsku_count",
+    "Lebanon\t29",
+    "Syria\t18",
+    "Libya\t2",
+    "ERROR 1054 (42S22) at line 2: Unknown column 'is_active' in 'field list'"
+  ]
+}

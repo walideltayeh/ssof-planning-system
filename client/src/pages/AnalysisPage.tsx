@@ -1,0 +1,1204 @@
+import { useState, useMemo } from "react";
+import { trpc } from "@/lib/trpc";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+
+// ==================== HELPER COMPONENTS ====================
+
+function KpiCard({ title, value, subtitle, color }: { title: string; value: string; subtitle?: string; color: string }) {
+  return (
+    <Card className="relative overflow-hidden">
+      <div className={`absolute top-0 left-0 w-1 h-full`} style={{ backgroundColor: color }} />
+      <CardContent className="p-4 pl-5">
+        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{title}</p>
+        <p className="text-2xl font-bold mt-1" style={{ color }}>{value}</p>
+        {subtitle && <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
+function MiniBar({ value, max, color, label }: { value: number; max: number; color: string; label?: string }) {
+  const pct = max > 0 ? Math.min(value / max * 100, 100) : 0;
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex-1 h-3 bg-muted rounded-full overflow-hidden">
+        <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, backgroundColor: color }} />
+      </div>
+      {label && <span className="text-xs text-muted-foreground min-w-[40px] text-right">{label}</span>}
+    </div>
+  );
+}
+
+function HorizontalBarChart({ items, maxValue, colorFn }: {
+  items: { label: string; value: number; sublabel?: string }[];
+  maxValue: number;
+  colorFn: (idx: number) => string;
+}) {
+  return (
+    <div className="space-y-2">
+      {items.map((item, idx) => (
+        <div key={item.label} className="flex items-center gap-3">
+          <div className="min-w-[120px] text-xs font-medium truncate" title={item.label}>{item.label}</div>
+          <div className="flex-1 h-5 bg-muted rounded overflow-hidden relative">
+            <div
+              className="h-full rounded transition-all duration-700 flex items-center justify-end pr-1"
+              style={{ width: `${maxValue > 0 ? Math.min(item.value / maxValue * 100, 100) : 0}%`, backgroundColor: colorFn(idx) }}
+            >
+              {item.value / maxValue > 0.15 && (
+                <span className="text-[10px] font-semibold text-white">{item.value.toLocaleString()}</span>
+              )}
+            </div>
+          </div>
+          {item.value / maxValue <= 0.15 && (
+            <span className="text-xs text-muted-foreground">{item.value.toLocaleString()}</span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SparkLine({ data, color, height = 40 }: { data: number[]; color: string; height?: number }) {
+  if (data.length < 2) return null;
+  const max = Math.max(...data, 1);
+  const min = Math.min(...data, 0);
+  const range = max - min || 1;
+  const w = 200;
+  const points = data.map((v, i) => `${(i / (data.length - 1)) * w},${height - ((v - min) / range) * (height - 4)}`).join(" ");
+  return (
+    <svg viewBox={`0 0 ${w} ${height}`} className="w-full" style={{ height }}>
+      <polyline fill="none" stroke={color} strokeWidth="2" points={points} strokeLinecap="round" strokeLinejoin="round" />
+      <polyline fill={`${color}20`} stroke="none" points={`0,${height} ${points} ${w},${height}`} />
+    </svg>
+  );
+}
+
+function DonutChart({ segments, size = 120 }: { segments: { label: string; value: number; color: string }[]; size?: number }) {
+  const total = segments.reduce((s, seg) => s + seg.value, 0);
+  if (total === 0) return <div className="text-xs text-muted-foreground">No data</div>;
+  const radius = size / 2 - 10;
+  const innerRadius = radius * 0.6;
+  let startAngle = -90;
+
+  return (
+    <div className="flex items-center gap-4">
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        {segments.map((seg, idx) => {
+          const angle = (seg.value / total) * 360;
+          const endAngle = startAngle + angle;
+          const largeArc = angle > 180 ? 1 : 0;
+          const cx = size / 2, cy = size / 2;
+          const x1 = cx + radius * Math.cos((startAngle * Math.PI) / 180);
+          const y1 = cy + radius * Math.sin((startAngle * Math.PI) / 180);
+          const x2 = cx + radius * Math.cos((endAngle * Math.PI) / 180);
+          const y2 = cy + radius * Math.sin((endAngle * Math.PI) / 180);
+          const ix1 = cx + innerRadius * Math.cos((startAngle * Math.PI) / 180);
+          const iy1 = cy + innerRadius * Math.sin((startAngle * Math.PI) / 180);
+          const ix2 = cx + innerRadius * Math.cos((endAngle * Math.PI) / 180);
+          const iy2 = cy + innerRadius * Math.sin((endAngle * Math.PI) / 180);
+          const d = `M ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2} L ${ix2} ${iy2} A ${innerRadius} ${innerRadius} 0 ${largeArc} 0 ${ix1} ${iy1} Z`;
+          startAngle = endAngle;
+          return <path key={idx} d={d} fill={seg.color} stroke="white" strokeWidth="1.5" />;
+        })}
+        <text x={size / 2} y={size / 2 - 4} textAnchor="middle" className="text-lg font-bold fill-foreground">{total.toLocaleString()}</text>
+        <text x={size / 2} y={size / 2 + 12} textAnchor="middle" className="text-[9px] fill-muted-foreground">Total</text>
+      </svg>
+      <div className="space-y-1">
+        {segments.map((seg, idx) => (
+          <div key={idx} className="flex items-center gap-2 text-xs">
+            <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: seg.color }} />
+            <span className="text-muted-foreground">{seg.label}</span>
+            <span className="font-semibold ml-auto">{Math.round(seg.value / total * 100)}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function StackedBarChart({ data, keys, colors, labels }: {
+  data: { label: string; values: Record<string, number> }[];
+  keys: string[];
+  colors: Record<string, string>;
+  labels: Record<string, string>;
+}) {
+  const maxTotal = Math.max(...data.map(d => keys.reduce((s, k) => s + (d.values[k] || 0), 0)), 1);
+  return (
+    <div className="space-y-1">
+      <div className="flex gap-3 mb-2">
+        {keys.map(k => (
+          <div key={k} className="flex items-center gap-1 text-[10px]">
+            <div className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: colors[k] }} />
+            <span className="text-muted-foreground">{labels[k]}</span>
+          </div>
+        ))}
+      </div>
+      {data.map(d => {
+        const total = keys.reduce((s, k) => s + (d.values[k] || 0), 0);
+        return (
+          <div key={d.label} className="flex items-center gap-2">
+            <div className="min-w-[60px] text-[10px] text-muted-foreground text-right truncate">{d.label}</div>
+            <div className="flex-1 h-4 bg-muted rounded overflow-hidden flex">
+              {keys.map(k => {
+                const pct = maxTotal > 0 ? (d.values[k] || 0) / maxTotal * 100 : 0;
+                return pct > 0 ? (
+                  <div key={k} className="h-full transition-all duration-500" style={{ width: `${pct}%`, backgroundColor: colors[k] }} />
+                ) : null;
+              })}
+            </div>
+            <span className="text-[10px] text-muted-foreground min-w-[40px] text-right">{total.toLocaleString()}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function HeatmapGrid({ rows, cols, getValue, getColor }: {
+  rows: { label: string; key: string }[];
+  cols: { label: string; key: string }[];
+  getValue: (rowKey: string, colKey: string) => number;
+  getColor: (value: number) => string;
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="text-[10px] border-collapse">
+        <thead>
+          <tr>
+            <th className="px-2 py-1 text-left font-medium text-muted-foreground sticky left-0 bg-background z-10"></th>
+            {cols.map(c => (
+              <th key={c.key} className="px-2 py-1 text-center font-medium text-muted-foreground min-w-[50px]">{c.label}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(r => (
+            <tr key={r.key}>
+              <td className="px-2 py-1 font-medium text-muted-foreground whitespace-nowrap sticky left-0 bg-background z-10">{r.label}</td>
+              {cols.map(c => {
+                const val = getValue(r.key, c.key);
+                return (
+                  <td key={c.key} className="px-2 py-1 text-center font-semibold" style={{ backgroundColor: getColor(val), color: val > 6 || val < 2 ? "white" : "inherit" }}>
+                    {val > 0 ? val.toFixed(1) : "-"}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ==================== MAIN ANALYSIS PAGE ====================
+
+const PALETTE = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316", "#6366f1", "#84cc16"];
+
+export default function AnalysisPage() {
+  const [activeTab, setActiveTab] = useState("overview");
+
+  const { data: overview, isLoading: loadingOverview } = trpc.analysis.overview.useQuery();
+  const { data: bySkuData, isLoading: loadingSku } = trpc.analysis.bySku.useQuery();
+  const { data: byWeightData, isLoading: loadingWeight } = trpc.analysis.byWeight.useQuery();
+  const { data: byCategoryData, isLoading: loadingCategory } = trpc.analysis.byCategory.useQuery();
+  const { data: byFlavorData, isLoading: loadingFlavor } = trpc.analysis.byFlavor.useQuery();
+  const { data: productionData, isLoading: loadingProduction } = trpc.analysis.production.useQuery();
+  const { data: stockHealthData, isLoading: loadingHealth } = trpc.analysis.stockHealth.useQuery();
+  const { data: stockSnapshot, isLoading: loadingSnapshot } = trpc.analysis.stockSnapshot.useQuery();
+
+  const formatNum = (n: number) => n.toLocaleString("en-US");
+
+  // ==================== OVERVIEW TAB ====================
+  const OverviewTab = () => {
+    if (loadingOverview || !overview) return <div className="p-4 text-sm text-muted-foreground">Loading overview...</div>;
+    return (
+      <div className="space-y-6">
+        {/* KPI Cards */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <KpiCard title="Total SKUs" value={String(overview.totalSkus)} color="#3b82f6" />
+          <KpiCard title="Total Forecast" value={formatNum(overview.totalForecast)} subtitle="All periods" color="#10b981" />
+          <KpiCard title="Total Production" value={formatNum(overview.totalProduction)} subtitle="Shipment" color="#f59e0b" />
+          <KpiCard title="Total Arrival" value={formatNum(overview.totalArrival)} subtitle="To Regie" color="#8b5cf6" />
+          <KpiCard title="Avg Stock Weeks" value={`${overview.avgWeeksOfStock}w`} subtitle="Closing stock" color={overview.avgWeeksOfStock >= 4 && overview.avgWeeksOfStock <= 6 ? "#10b981" : "#ef4444"} />
+        </div>
+
+        {/* Monthly Trend */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Monthly Trend: Forecast vs Production vs Arrival</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-3 gap-4 mb-4">
+              <div>
+                <p className="text-[10px] text-muted-foreground uppercase mb-1">Forecast Trend</p>
+                <SparkLine data={overview.monthlyTrend.map(m => m.forecast)} color="#10b981" height={50} />
+              </div>
+              <div>
+                <p className="text-[10px] text-muted-foreground uppercase mb-1">Production Trend</p>
+                <SparkLine data={overview.monthlyTrend.map(m => m.production)} color="#f59e0b" height={50} />
+              </div>
+              <div>
+                <p className="text-[10px] text-muted-foreground uppercase mb-1">Arrival Trend</p>
+                <SparkLine data={overview.monthlyTrend.map(m => m.arrival)} color="#8b5cf6" height={50} />
+              </div>
+            </div>
+            <StackedBarChart
+              data={overview.monthlyTrend.map(m => ({
+                label: m.period.slice(0, 3) + "'" + m.period.slice(-2),
+                values: { forecast: m.forecast, production: m.production, arrival: m.arrival },
+              }))}
+              keys={["forecast", "production", "arrival"]}
+              colors={{ forecast: "#10b981", production: "#f59e0b", arrival: "#8b5cf6" }}
+              labels={{ forecast: "Forecast", production: "Production", arrival: "Arrival" }}
+            />
+          </CardContent>
+        </Card>
+      </div>
+    );
+  };
+
+  // ==================== BY SKU TAB ====================
+  const BySkuTab = () => {
+    const [sortBy, setSortBy] = useState<"forecast" | "production" | "accuracy" | "stock">("forecast");
+    if (loadingSku || !bySkuData) return <div className="p-4 text-sm text-muted-foreground">Loading SKU analysis...</div>;
+
+    const sorted = [...bySkuData].sort((a, b) => {
+      switch (sortBy) {
+        case "forecast": return b.totalForecast - a.totalForecast;
+        case "production": return b.totalProduction - a.totalProduction;
+        case "accuracy": return b.forecastAccuracy - a.forecastAccuracy;
+        case "stock": return b.avgWeeksOfStock - a.avgWeeksOfStock;
+      }
+    });
+
+    const maxForecast = Math.max(...bySkuData.map(s => s.totalForecast), 1);
+
+    return (
+      <div className="space-y-4">
+        {/* Sort controls */}
+        <div className="flex gap-2 items-center">
+          <span className="text-xs text-muted-foreground">Sort by:</span>
+          {(["forecast", "production", "accuracy", "stock"] as const).map(s => (
+            <button
+              key={s}
+              onClick={() => setSortBy(s)}
+              className={`px-2 py-1 text-xs rounded transition-colors ${sortBy === s ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}
+            >
+              {s === "forecast" ? "Forecast" : s === "production" ? "Production" : s === "accuracy" ? "Accuracy" : "Stock Weeks"}
+            </button>
+          ))}
+        </div>
+
+        {/* SKU Cards Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+          {sorted.map((sku, idx) => (
+            <Card key={sku.id} className="relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-1 h-full" style={{ backgroundColor: PALETTE[idx % PALETTE.length] }} />
+              <CardContent className="p-3 pl-4">
+                <div className="flex items-start justify-between mb-2">
+                  <div>
+                    <p className="text-sm font-semibold">{sku.name}</p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                        sku.weight === '50g' ? 'bg-blue-100 text-blue-700' :
+                        sku.weight === '250g' ? 'bg-amber-100 text-amber-700' :
+                        'bg-rose-100 text-rose-700'
+                      }`}>{sku.weight}</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${sku.category === "Core" ? "bg-emerald-100 text-emerald-700" : "bg-violet-100 text-violet-700"}`}>{sku.category}</span>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-lg font-bold" style={{ color: sku.avgWeeksOfStock >= 4 && sku.avgWeeksOfStock <= 6 ? "#10b981" : sku.avgWeeksOfStock < 4 ? "#ef4444" : "#f59e0b" }}>
+                      {sku.avgWeeksOfStock}w
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">Avg Stock</p>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5 mt-3">
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-muted-foreground">Forecast</span>
+                    <span className="font-semibold">{formatNum(sku.totalForecast)}</span>
+                  </div>
+                  <MiniBar value={sku.totalForecast} max={maxForecast} color="#10b981" />
+
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-muted-foreground">Production</span>
+                    <span className="font-semibold">{formatNum(sku.totalProduction)}</span>
+                  </div>
+                  <MiniBar value={sku.totalProduction} max={maxForecast} color="#f59e0b" />
+
+                  <div className="flex justify-between text-[10px]">
+                    <span className="text-muted-foreground">IMS (Actual)</span>
+                    <span className="font-semibold">{formatNum(sku.totalIms)}</span>
+                  </div>
+                  <MiniBar value={sku.totalIms} max={maxForecast} color="#3b82f6" />
+                </div>
+
+                <div className="flex items-center justify-between mt-3 pt-2 border-t">
+                  <div className="text-[10px]">
+                    <span className="text-muted-foreground">Forecast Accuracy: </span>
+                    <span className={`font-bold ${sku.forecastAccuracy >= 80 ? "text-emerald-600" : sku.forecastAccuracy >= 60 ? "text-amber-600" : "text-red-600"}`}>
+                      {sku.forecastAccuracy}%
+                    </span>
+                  </div>
+                  <SparkLine data={sku.monthly.map(m => m.forecast)} color={PALETTE[idx % PALETTE.length]} height={20} />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  // ==================== BY WEIGHT TAB ====================
+  const ByWeightTab = () => {
+    if (loadingWeight || !byWeightData) return <div className="p-4 text-sm text-muted-foreground">Loading weight analysis...</div>;
+
+    const weightColors: Record<string, string> = { "1kg": "#ef4444", "250g": "#f59e0b", "50g": "#3b82f6" };
+    const totalForecast = byWeightData.reduce((s, w) => s + w.totalForecast, 0);
+
+    return (
+      <div className="space-y-6">
+        {/* Weight Distribution Donut */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Forecast Distribution by Weight</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <DonutChart
+                segments={byWeightData.map(w => ({
+                  label: `${w.weight} (${w.skuCount} SKUs)`,
+                  value: w.totalForecast,
+                  color: weightColors[w.weight] || "#6b7280",
+                }))}
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Production Distribution by Weight</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <DonutChart
+                segments={byWeightData.map(w => ({
+                  label: `${w.weight} (${w.skuCount} SKUs)`,
+                  value: w.totalProduction,
+                  color: weightColors[w.weight] || "#6b7280",
+                }))}
+              />
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Weight Comparison Bars */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Weight Category Comparison</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {byWeightData.map(w => (
+                <div key={w.weight} className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-bold ${
+                      w.weight === '50g' ? 'bg-blue-100 text-blue-700' :
+                      w.weight === '250g' ? 'bg-amber-100 text-amber-700' :
+                      'bg-rose-100 text-rose-700'
+                    }`}>{w.weight}</span>
+                    <span className="text-xs text-muted-foreground">{w.skuCount} SKUs</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-[10px]">
+                    <div>
+                      <span className="text-muted-foreground">Forecast</span>
+                      <MiniBar value={w.totalForecast} max={totalForecast} color="#10b981" label={formatNum(w.totalForecast)} />
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Production</span>
+                      <MiniBar value={w.totalProduction} max={totalForecast} color="#f59e0b" label={formatNum(w.totalProduction)} />
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">IMS</span>
+                      <MiniBar value={w.totalIms} max={totalForecast} color="#3b82f6" label={formatNum(w.totalIms)} />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Monthly Trend by Weight */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Monthly Forecast Trend by Weight</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {byWeightData.map(w => (
+                <div key={w.weight}>
+                  <p className="text-xs font-semibold mb-1" style={{ color: weightColors[w.weight] }}>{w.weight} Forecast</p>
+                  <SparkLine data={w.monthly.map(m => m.forecast)} color={weightColors[w.weight]} height={50} />
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  };
+
+  // ==================== BY CATEGORY TAB ====================
+  const ByCategoryTab = () => {
+    if (loadingCategory || !byCategoryData) return <div className="p-4 text-sm text-muted-foreground">Loading category analysis...</div>;
+
+    const catColors: Record<string, string> = { "Core": "#10b981", "NPI": "#8b5cf6" };
+
+    return (
+      <div className="space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {byCategoryData.map(cat => (
+            <Card key={cat.category}>
+              <CardHeader className="pb-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded" style={{ backgroundColor: catColors[cat.category] }} />
+                  <CardTitle className="text-sm">{cat.category}</CardTitle>
+                  <span className="text-xs text-muted-foreground ml-auto">{cat.skuCount} SKUs</span>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="text-center p-2 bg-muted rounded">
+                    <p className="text-lg font-bold text-emerald-600">{formatNum(cat.totalForecast)}</p>
+                    <p className="text-[10px] text-muted-foreground">Forecast</p>
+                  </div>
+                  <div className="text-center p-2 bg-muted rounded">
+                    <p className="text-lg font-bold text-amber-600">{formatNum(cat.totalProduction)}</p>
+                    <p className="text-[10px] text-muted-foreground">Production</p>
+                  </div>
+                  <div className="text-center p-2 bg-muted rounded">
+                    <p className="text-lg font-bold text-blue-600">{formatNum(cat.totalIms)}</p>
+                    <p className="text-[10px] text-muted-foreground">IMS</p>
+                  </div>
+                </div>
+
+                {/* Weight breakdown within category */}
+                <div>
+                  <p className="text-[10px] text-muted-foreground uppercase mb-1">Weight Breakdown</p>
+                  <DonutChart
+                    segments={cat.weightBreakdown.map(wb => ({
+                      label: `${wb.weight} (${wb.count})`,
+                      value: wb.forecast,
+                      color: wb.weight === "1kg" ? "#ef4444" : wb.weight === "250g" ? "#f59e0b" : "#3b82f6",
+                    }))}
+                    size={100}
+                  />
+                </div>
+
+                <div>
+                  <p className="text-[10px] text-muted-foreground uppercase mb-1">Monthly Trend</p>
+                  <SparkLine data={cat.monthly.map(m => m.forecast)} color={catColors[cat.category]} height={40} />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        {/* Side-by-side comparison */}
+        {byCategoryData.length >= 2 && (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Core vs NPI Monthly Comparison</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <StackedBarChart
+                data={byCategoryData[0].monthly.map((m, idx) => ({
+                  label: m.period.slice(0, 3) + "'" + m.period.slice(-2),
+                  values: byCategoryData.reduce((acc, cat) => {
+                    acc[cat.category] = cat.monthly[idx]?.forecast || 0;
+                    return acc;
+                  }, {} as Record<string, number>),
+                }))}
+                keys={byCategoryData.map(c => c.category)}
+                colors={catColors}
+                labels={byCategoryData.reduce((acc, c) => { acc[c.category] = c.category; return acc; }, {} as Record<string, string>)}
+              />
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    );
+  };
+
+  // ==================== BY FLAVOR TAB ====================
+  const ByFlavorTab = () => {
+    if (loadingFlavor || !byFlavorData) return <div className="p-4 text-sm text-muted-foreground">Loading flavor analysis...</div>;
+
+    const maxForecast = Math.max(...byFlavorData.map(f => f.totalForecast), 1);
+
+    return (
+      <div className="space-y-6">
+        {/* Top Flavors Ranking */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Flavor Ranking by Total Forecast</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <HorizontalBarChart
+              items={byFlavorData.slice(0, 15).map(f => ({
+                label: f.flavor,
+                value: f.totalForecast,
+                sublabel: f.weights.join(", "),
+              }))}
+              maxValue={maxForecast}
+              colorFn={(idx) => PALETTE[idx % PALETTE.length]}
+            />
+          </CardContent>
+        </Card>
+
+        {/* Flavor Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+          {byFlavorData.map((f, idx) => (
+            <Card key={f.flavor} className="relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-1 h-full" style={{ backgroundColor: PALETTE[idx % PALETTE.length] }} />
+              <CardContent className="p-3 pl-4">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <p className="text-sm font-semibold">{f.flavor}</p>
+                    <div className="flex gap-1 mt-1">
+                      {f.weights.map(w => (
+                        <span key={w} className={`text-[10px] px-1 py-0.5 rounded font-medium ${
+                          w === '50g' ? 'bg-blue-100 text-blue-700' :
+                          w === '250g' ? 'bg-amber-100 text-amber-700' :
+                          'bg-rose-100 text-rose-700'
+                        }`}>{w}</span>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-xs font-bold text-muted-foreground">#{idx + 1}</span>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-2 mt-3 text-center">
+                  <div className="bg-emerald-50 rounded p-1.5">
+                    <p className="text-xs font-bold text-emerald-700">{formatNum(f.totalForecast)}</p>
+                    <p className="text-[9px] text-emerald-600">Forecast</p>
+                  </div>
+                  <div className="bg-blue-50 rounded p-1.5">
+                    <p className="text-xs font-bold text-blue-700">{formatNum(f.totalIms)}</p>
+                    <p className="text-[9px] text-blue-600">IMS</p>
+                  </div>
+                  <div className="bg-amber-50 rounded p-1.5">
+                    <p className="text-xs font-bold text-amber-700">{formatNum(f.totalProduction)}</p>
+                    <p className="text-[9px] text-amber-600">Production</p>
+                  </div>
+                </div>
+                <div className="mt-2 text-[10px] text-muted-foreground">
+                  {f.skus.length} variant{f.skus.length > 1 ? "s" : ""}: {f.skus.map(s => s.weight).join(", ")}
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  // ==================== PRODUCTION TAB ====================
+  const ProductionTab = () => {
+    if (loadingProduction || !productionData) return <div className="p-4 text-sm text-muted-foreground">Loading production analysis...</div>;
+
+    const maxShipped = Math.max(...productionData.monthly.map(m => Math.max(m.shipped, m.arrived)), 1);
+
+    return (
+      <div className="space-y-6">
+        {/* Monthly Shipped vs Arrived */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Monthly: Shipped vs Arrived</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <StackedBarChart
+              data={productionData.monthly.map(m => ({
+                label: m.period.slice(0, 3) + "'" + m.period.slice(-2),
+                values: { shipped: m.shipped, arrived: m.arrived },
+              }))}
+              keys={["shipped", "arrived"]}
+              colors={{ shipped: "#f59e0b", arrived: "#8b5cf6" }}
+              labels={{ shipped: "Shipped", arrived: "Arrived" }}
+            />
+          </CardContent>
+        </Card>
+
+        {/* Gap Analysis */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Production-Arrival Gap (Shipped - Arrived)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-1">
+              {productionData.monthly.filter(m => m.shipped > 0 || m.arrived > 0).map(m => (
+                <div key={m.period} className="flex items-center gap-2">
+                  <div className="min-w-[60px] text-[10px] text-muted-foreground text-right">{m.period.slice(0, 3) + "'" + m.period.slice(-2)}</div>
+                  <div className="flex-1 h-4 bg-muted rounded overflow-hidden relative flex items-center">
+                    {m.gap >= 0 ? (
+                      <div className="h-full bg-amber-400 rounded" style={{ width: `${maxShipped > 0 ? Math.abs(m.gap) / maxShipped * 100 : 0}%` }} />
+                    ) : (
+                      <div className="h-full bg-violet-400 rounded" style={{ width: `${maxShipped > 0 ? Math.abs(m.gap) / maxShipped * 100 : 0}%` }} />
+                    )}
+                  </div>
+                  <span className={`text-[10px] font-semibold min-w-[60px] text-right ${m.gap >= 0 ? "text-amber-600" : "text-violet-600"}`}>
+                    {m.gap >= 0 ? "+" : ""}{formatNum(m.gap)}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground min-w-[35px] text-right">{m.efficiency}%</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Per-SKU Efficiency Table */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">SKU Delivery Efficiency (Arrived / Shipped)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b bg-muted">
+                    <th className="px-2 py-1.5 text-left font-medium">SKU</th>
+                    <th className="px-2 py-1.5 text-left font-medium">Weight</th>
+                    <th className="px-2 py-1.5 text-right font-medium">Shipped</th>
+                    <th className="px-2 py-1.5 text-right font-medium">Arrived</th>
+                    <th className="px-2 py-1.5 text-right font-medium">Gap</th>
+                    <th className="px-2 py-1.5 text-right font-medium">Efficiency</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {productionData.skuEfficiency.filter(s => s.totalShipped > 0).map(s => (
+                    <tr key={s.id} className="border-b hover:bg-muted/50">
+                      <td className="px-2 py-1.5 font-medium">{s.name}</td>
+                      <td className="px-2 py-1.5">
+                        <span className={`px-1 py-0.5 rounded text-[10px] font-semibold ${
+                          s.weight === '50g' ? 'bg-blue-100 text-blue-700' :
+                          s.weight === '250g' ? 'bg-amber-100 text-amber-700' :
+                          'bg-rose-100 text-rose-700'
+                        }`}>{s.weight}</span>
+                      </td>
+                      <td className="px-2 py-1.5 text-right tabular-nums">{formatNum(s.totalShipped)}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums">{formatNum(s.totalArrived)}</td>
+                      <td className={`px-2 py-1.5 text-right tabular-nums ${s.gap > 0 ? "text-amber-600" : "text-violet-600"}`}>
+                        {s.gap >= 0 ? "+" : ""}{formatNum(s.gap)}
+                      </td>
+                      <td className="px-2 py-1.5 text-right">
+                        <span className={`font-semibold ${s.efficiency >= 90 ? "text-emerald-600" : s.efficiency >= 70 ? "text-amber-600" : "text-red-600"}`}>
+                          {s.efficiency}%
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  };
+
+  // ==================== STOCK SNAPSHOT TAB ====================
+  const StockSnapshotTab = () => {
+    const [expandedSku, setExpandedSku] = useState<number | null>(null);
+    const [heatmapFilter, setHeatmapFilter] = useState<"all" | "critical" | "overstock">("all");
+
+    if (loadingSnapshot || !stockSnapshot) return <div className="p-4 text-sm text-muted-foreground">Loading stock snapshot...</div>;
+
+    const { summary, criticalSkus, overstockedSkus, heatmap, periodLabels, actionSummary } = stockSnapshot;
+
+    const zoneColor: Record<string, string> = {
+      "Healthy": "#10b981",
+      "Critical": "#ef4444",
+      "Overstock": "#f59e0b",
+      "Out of Stock": "#6b7280",
+      "Negative": "#1f2937",
+      "Warning": "#f97316",
+    };
+    const zoneBg: Record<string, string> = {
+      "Healthy": "#d1fae5",
+      "Critical": "#fee2e2",
+      "Overstock": "#fef3c7",
+      "Out of Stock": "#f3f4f6",
+      "Negative": "#e5e7eb",
+      "Warning": "#ffedd5",
+    };
+    const trendIcon = (t: string) => t === "improving" ? "↑" : t === "deteriorating" ? "↓" : "→";
+    const trendColor = (t: string) => t === "improving" ? "text-emerald-600" : t === "deteriorating" ? "text-red-600" : "text-muted-foreground";
+
+    const filteredHeatmap = heatmapFilter === "critical"
+      ? heatmap.filter(r => r.periods.some(p => p.zone === "Critical" || p.zone === "Negative" || p.zone === "Out of Stock"))
+      : heatmapFilter === "overstock"
+      ? heatmap.filter(r => r.periods.some(p => p.zone === "Overstock"))
+      : heatmap;
+
+    const healthPct = summary.total > 0 ? Math.round(summary.healthy / summary.total * 100) : 0;
+
+    return (
+      <div className="space-y-6">
+        {/* ---- RISK TIER SUMMARY CARDS ---- */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <Card className="border-red-200 bg-red-50">
+            <CardContent className="p-4">
+              <p className="text-xs font-medium text-red-600 uppercase tracking-wider">Critical</p>
+              <p className="text-3xl font-bold text-red-600 mt-1">{summary.critical}</p>
+              <p className="text-xs text-red-500 mt-0.5">SKUs below 4w stock</p>
+            </CardContent>
+          </Card>
+          <Card className="border-amber-200 bg-amber-50">
+            <CardContent className="p-4">
+              <p className="text-xs font-medium text-amber-600 uppercase tracking-wider">Overstock</p>
+              <p className="text-3xl font-bold text-amber-600 mt-1">{summary.overstock}</p>
+              <p className="text-xs text-amber-500 mt-0.5">SKUs above 6w stock</p>
+            </CardContent>
+          </Card>
+          <Card className="border-orange-200 bg-orange-50">
+            <CardContent className="p-4">
+              <p className="text-xs font-medium text-orange-600 uppercase tracking-wider">At Risk</p>
+              <p className="text-3xl font-bold text-orange-600 mt-1">{summary.warning}</p>
+              <p className="text-xs text-orange-500 mt-0.5">Healthy now, critical ahead</p>
+            </CardContent>
+          </Card>
+          <Card className="border-emerald-200 bg-emerald-50">
+            <CardContent className="p-4">
+              <p className="text-xs font-medium text-emerald-600 uppercase tracking-wider">Healthy</p>
+              <p className="text-3xl font-bold text-emerald-600 mt-1">{summary.healthy}</p>
+              <p className="text-xs text-emerald-500 mt-0.5">4–6 weeks, no issues</p>
+            </CardContent>
+          </Card>
+          <Card className="border-blue-200 bg-blue-50">
+            <CardContent className="p-4">
+              <p className="text-xs font-medium text-blue-600 uppercase tracking-wider">Health Rate</p>
+              <p className="text-3xl font-bold text-blue-600 mt-1">{healthPct}%</p>
+              <p className="text-xs text-blue-500 mt-0.5">of {summary.total} total SKUs</p>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* ---- ACTION SUMMARY ---- */}
+        <Card className="border-slate-200">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Recommended Actions</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="flex items-start gap-3 p-3 bg-red-50 rounded-lg border border-red-100">
+                <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center text-red-600 font-bold text-sm flex-shrink-0">{actionSummary.needProductionIncrease}</div>
+                <div>
+                  <p className="text-xs font-semibold text-red-700">Increase Production</p>
+                  <p className="text-[11px] text-red-600 mt-0.5">SKUs with insufficient shipment vs forecast</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3 p-3 bg-amber-50 rounded-lg border border-amber-100">
+                <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-600 font-bold text-sm flex-shrink-0">{actionSummary.needForecastReduction}</div>
+                <div>
+                  <p className="text-xs font-semibold text-amber-700">Reduce Forecast</p>
+                  <p className="text-[11px] text-amber-600 mt-0.5">Overstocked SKUs with excess forecast</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3 p-3 bg-violet-50 rounded-lg border border-violet-100">
+                <div className="w-8 h-8 rounded-full bg-violet-100 flex items-center justify-center text-violet-600 font-bold text-sm flex-shrink-0">{actionSummary.needBoth}</div>
+                <div>
+                  <p className="text-xs font-semibold text-violet-700">Mixed Strategy</p>
+                  <p className="text-[11px] text-violet-600 mt-0.5">SKUs needing both adjustments</p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* ---- CRITICAL SKUs ALERT PANEL ---- */}
+        {criticalSkus.length > 0 && (
+          <Card className="border-red-200">
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm text-red-700">Critical SKUs Alert Panel</CardTitle>
+                <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-semibold">{criticalSkus.length} SKU{criticalSkus.length > 1 ? "s" : ""}</span>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {criticalSkus.map(sku => (
+                  <div key={sku.id} className="border border-red-100 rounded-lg overflow-hidden">
+                    <button
+                      className="w-full flex items-center justify-between p-3 bg-red-50 hover:bg-red-100 transition-colors text-left"
+                      onClick={() => setExpandedSku(expandedSku === sku.id ? null : sku.id)}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: zoneColor[sku.currentZone] }} />
+                        <div>
+                          <span className="text-xs font-semibold">{sku.name}</span>
+                          <span className={`ml-2 text-[10px] px-1 py-0.5 rounded font-medium ${
+                            sku.weight === '50g' ? 'bg-blue-100 text-blue-700' :
+                            sku.weight === '250g' ? 'bg-amber-100 text-amber-700' :
+                            'bg-rose-100 text-rose-700'
+                          }`}>{sku.weight}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <span className="text-xs font-bold" style={{ color: zoneColor[sku.currentZone] }}>{sku.currentWeeks}w</span>
+                          <span className="text-[10px] text-muted-foreground ml-1">now</span>
+                        </div>
+                        <div className={`text-sm font-bold ${trendColor(sku.trend)}`}>{trendIcon(sku.trend)}</div>
+                        <div className="text-[10px] text-muted-foreground">
+                          {sku.criticalCount > 0 && <span className="text-red-600 font-medium">{sku.criticalCount} critical period{sku.criticalCount > 1 ? "s" : ""}</span>}
+                          {sku.firstCriticalPeriod && <span className="ml-1">from {sku.firstCriticalPeriod}</span>}
+                        </div>
+                        <span className="text-[10px] text-muted-foreground">{expandedSku === sku.id ? "▲" : "▼"}</span>
+                      </div>
+                    </button>
+                    {expandedSku === sku.id && (
+                      <div className="p-3 bg-white border-t border-red-100">
+                        <div className="flex gap-4 mb-3 text-xs">
+                          <div><span className="text-muted-foreground">Health Score: </span><span className={`font-bold ${sku.healthScore >= 60 ? "text-emerald-600" : sku.healthScore >= 30 ? "text-amber-600" : "text-red-600"}`}>{sku.healthScore}%</span></div>
+                          <div><span className="text-muted-foreground">Trend: </span><span className={`font-semibold ${trendColor(sku.trend)}`}>{sku.trend}</span></div>
+                          <div><span className="text-muted-foreground">Category: </span><span className="font-medium">{sku.category}</span></div>
+                        </div>
+                        <div className="overflow-x-auto">
+                          <div className="flex gap-1 min-w-max">
+                            {sku.periodWeeks.map(pw => (
+                              <div key={pw.label} className="text-center min-w-[52px]">
+                                <div className="text-[9px] text-muted-foreground mb-1">{pw.label}</div>
+                                <div
+                                  className="rounded py-1 px-1 text-[10px] font-bold"
+                                  style={{ backgroundColor: zoneBg[pw.zone], color: zoneColor[pw.zone] }}
+                                >
+                                  {pw.weeks > 0 ? `${pw.weeks}w` : "0w"}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ---- OVERSTOCKED SKUs PANEL ---- */}
+        {overstockedSkus.length > 0 && (
+          <Card className="border-amber-200">
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-sm text-amber-700">Overstocked SKUs</CardTitle>
+                <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold">{overstockedSkus.length} SKU{overstockedSkus.length > 1 ? "s" : ""}</span>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {overstockedSkus.map(sku => (
+                  <div key={sku.id} className="flex items-center justify-between p-2.5 bg-amber-50 rounded-lg border border-amber-100">
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />
+                      <span className="text-xs font-medium">{sku.name}</span>
+                      <span className={`text-[10px] px-1 py-0.5 rounded font-medium ${
+                        sku.weight === '50g' ? 'bg-blue-100 text-blue-700' :
+                        sku.weight === '250g' ? 'bg-amber-100 text-amber-700' :
+                        'bg-rose-100 text-rose-700'
+                      }`}>{sku.weight}</span>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <span className="text-xs font-bold text-amber-600">{sku.currentWeeks}w</span>
+                      <span className={`text-xs ${trendColor(sku.trend)}`}>{trendIcon(sku.trend)}</span>
+                      <span className="text-[10px] text-muted-foreground">{sku.overstockCount} overstock period{sku.overstockCount > 1 ? "s" : ""}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ---- FULL HEATMAP ---- */}
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <CardTitle className="text-sm">Stock Health Heatmap (All SKUs × All Periods)</CardTitle>
+              <div className="flex gap-1">
+                {(["all", "critical", "overstock"] as const).map(f => (
+                  <button
+                    key={f}
+                    onClick={() => setHeatmapFilter(f)}
+                    className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
+                      heatmapFilter === f
+                        ? f === "critical" ? "bg-red-500 text-white border-red-500"
+                          : f === "overstock" ? "bg-amber-500 text-white border-amber-500"
+                          : "bg-slate-700 text-white border-slate-700"
+                        : "bg-background border-border text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    {f === "all" ? "All SKUs" : f === "critical" ? "Critical Only" : "Overstock Only"}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {/* Legend */}
+            <div className="flex gap-3 mt-2 flex-wrap">
+              {Object.entries(zoneBg).map(([zone, bg]) => (
+                <div key={zone} className="flex items-center gap-1">
+                  <div className="w-3 h-3 rounded-sm border" style={{ backgroundColor: bg, borderColor: zoneColor[zone] }} />
+                  <span className="text-[10px] text-muted-foreground">{zone}</span>
+                </div>
+              ))}
+            </div>
+          </CardHeader>
+          <CardContent>
+            {filteredHeatmap.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4 text-center">No SKUs match the selected filter.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="text-[10px] border-collapse w-full">
+                  <thead>
+                    <tr>
+                      <th className="px-2 py-1.5 text-left font-medium text-muted-foreground sticky left-0 bg-background z-10 min-w-[140px] border-b">SKU</th>
+                      <th className="px-1 py-1.5 text-center font-medium text-muted-foreground min-w-[28px] border-b">Wt</th>
+                      <th className="px-1 py-1.5 text-center font-medium text-muted-foreground min-w-[32px] border-b">Score</th>
+                      {periodLabels.map(label => (
+                        <th key={label} className="px-1 py-1.5 text-center font-medium text-muted-foreground min-w-[44px] border-b">{label}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredHeatmap.map((row, rowIdx) => (
+                      <tr key={row.skuId} className={rowIdx % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                        <td className="px-2 py-1 font-medium sticky left-0 z-10 border-b" style={{ backgroundColor: rowIdx % 2 === 0 ? "white" : "#f8fafc" }}>
+                          {row.skuName}
+                        </td>
+                        <td className="px-1 py-1 text-center border-b">
+                          <span className={`text-[9px] px-1 rounded font-medium ${
+                            row.weight === '50g' ? 'bg-blue-100 text-blue-700' :
+                            row.weight === '250g' ? 'bg-amber-100 text-amber-700' :
+                            'bg-rose-100 text-rose-700'
+                          }`}>{row.weight}</span>
+                        </td>
+                        <td className="px-1 py-1 text-center border-b">
+                          <span className={`font-bold text-[10px] ${
+                            row.healthScore >= 60 ? "text-emerald-600" :
+                            row.healthScore >= 30 ? "text-amber-600" : "text-red-600"
+                          }`}>{row.healthScore}%</span>
+                        </td>
+                        {row.periods.map(pw => (
+                          <td
+                            key={pw.label}
+                            className="px-1 py-1 text-center border-b font-semibold"
+                            style={{ backgroundColor: zoneBg[pw.zone] || "#f9fafb", color: zoneColor[pw.zone] || "#374151" }}
+                            title={`${row.skuName} - ${pw.label}: ${pw.weeks}w (${pw.zone})`}
+                          >
+                            {pw.weeks > 0 ? pw.weeks : "-"}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  };
+
+  // ==================== STOCK HEALTH TAB ====================
+  const StockHealthTab = () => {
+    if (loadingHealth || !stockHealthData) return <div className="p-4 text-sm text-muted-foreground">Loading stock health...</div>;
+
+    const zoneColorMap: Record<string, string> = {
+      "Healthy": "#10b981",
+      "Critical": "#ef4444",
+      "Overstock": "#f59e0b",
+      "Out of Stock": "#6b7280",
+      "Negative": "#111827",
+    };
+
+    // Heatmap data
+    const heatmapRows = stockHealthData.skuHealth.map(s => ({ label: s.name, key: String(s.id) }));
+    const heatmapCols = stockHealthData.periodHealth.map(p => ({ label: p.period.slice(0, 3) + "'" + p.period.slice(-2), key: p.period }));
+
+    // Build lookup for heatmap
+    const pfLookup = useMemo(() => {
+      const map = new Map<string, number>();
+      // We need the raw planning FG data - approximate from skuHealth
+      return map;
+    }, []);
+
+    return (
+      <div className="space-y-6">
+        {/* Zone Distribution */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Stock Zone Distribution</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <DonutChart
+                segments={stockHealthData.zones.map(z => ({
+                  label: z.zone,
+                  value: z.count,
+                  color: zoneColorMap[z.zone] || "#6b7280",
+                }))}
+              />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Zone Breakdown</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {stockHealthData.zones.map(z => (
+                  <div key={z.zone}>
+                    <div className="flex justify-between text-xs mb-1">
+                      <span className="font-medium" style={{ color: zoneColorMap[z.zone] }}>{z.zone}</span>
+                      <span className="text-muted-foreground">{z.count} periods ({z.percentage}%)</span>
+                    </div>
+                    <div className="h-3 bg-muted rounded-full overflow-hidden">
+                      <div className="h-full rounded-full" style={{ width: `${z.percentage}%`, backgroundColor: zoneColorMap[z.zone] }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Period Health Timeline */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">Monthly Stock Health Timeline</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <StackedBarChart
+              data={stockHealthData.periodHealth.filter(p => p.totalSkus > 0).map(p => ({
+                label: p.period.slice(0, 3) + "'" + p.period.slice(-2),
+                values: p.zoneBreakdown,
+              }))}
+              keys={["Healthy", "Critical", "Overstock", "Out of Stock", "Negative"]}
+              colors={zoneColorMap}
+              labels={{ "Healthy": "Healthy (4-6w)", "Critical": "Critical (<4w)", "Overstock": "Overstock (>6w)", "Out of Stock": "Out of Stock", "Negative": "Negative" }}
+            />
+          </CardContent>
+        </Card>
+
+        {/* SKU Health Scoreboard */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm">SKU Health Scoreboard</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b bg-muted">
+                    <th className="px-2 py-1.5 text-left font-medium">SKU</th>
+                    <th className="px-2 py-1.5 text-left font-medium">Weight</th>
+                    <th className="px-2 py-1.5 text-left font-medium">Category</th>
+                    <th className="px-2 py-1.5 text-right font-medium">Avg Weeks</th>
+                    <th className="px-2 py-1.5 text-right font-medium">Health Score</th>
+                    <th className="px-2 py-1.5 text-center font-medium">Zone Distribution</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {stockHealthData.skuHealth.map(s => (
+                    <tr key={s.id} className="border-b hover:bg-muted/50">
+                      <td className="px-2 py-1.5 font-medium">{s.name}</td>
+                      <td className="px-2 py-1.5">
+                        <span className={`px-1 py-0.5 rounded text-[10px] font-semibold ${
+                          s.weight === '50g' ? 'bg-blue-100 text-blue-700' :
+                          s.weight === '250g' ? 'bg-amber-100 text-amber-700' :
+                          'bg-rose-100 text-rose-700'
+                        }`}>{s.weight}</span>
+                      </td>
+                      <td className="px-2 py-1.5">
+                        <span className={`text-[10px] px-1 py-0.5 rounded font-medium ${s.category === "Core" ? "bg-emerald-100 text-emerald-700" : "bg-violet-100 text-violet-700"}`}>{s.category}</span>
+                      </td>
+                      <td className="px-2 py-1.5 text-right">
+                        <span className={`font-semibold ${s.avgWeeksOfStock >= 4 && s.avgWeeksOfStock <= 6 ? "text-emerald-600" : s.avgWeeksOfStock < 4 ? "text-red-600" : "text-amber-600"}`}>
+                          {s.avgWeeksOfStock}w
+                        </span>
+                      </td>
+                      <td className="px-2 py-1.5 text-right">
+                        <span className={`font-bold ${s.healthScore >= 60 ? "text-emerald-600" : s.healthScore >= 30 ? "text-amber-600" : "text-red-600"}`}>
+                          {s.healthScore}%
+                        </span>
+                      </td>
+                      <td className="px-2 py-1.5">
+                        {s.totalPeriods > 0 && (
+                          <div className="flex h-3 rounded-full overflow-hidden">
+                            {Object.entries(s.zoneBreakdown).map(([zone, count]) => (
+                              <div
+                                key={zone}
+                                className="h-full"
+                                style={{
+                                  width: `${(count / s.totalPeriods) * 100}%`,
+                                  backgroundColor: zoneColorMap[zone] || "#6b7280",
+                                }}
+                                title={`${zone}: ${count}/${s.totalPeriods}`}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h1 className="text-xl font-semibold tracking-tight">Analysis Dashboard</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Comprehensive analytics across all SSOF data dimensions
+        </p>
+      </div>
+
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="flex flex-wrap h-auto gap-1 bg-muted p-1 rounded-lg">
+          <TabsTrigger value="overview" className="text-xs">Overview</TabsTrigger>
+          <TabsTrigger value="sku" className="text-xs">By SKU</TabsTrigger>
+          <TabsTrigger value="weight" className="text-xs">By Weight</TabsTrigger>
+          <TabsTrigger value="category" className="text-xs">By Category</TabsTrigger>
+          <TabsTrigger value="flavor" className="text-xs">By Flavor</TabsTrigger>
+          <TabsTrigger value="production" className="text-xs">Production</TabsTrigger>
+          <TabsTrigger value="health" className="text-xs">Stock Health</TabsTrigger>
+          <TabsTrigger value="snapshot" className="text-xs font-semibold text-red-600">Snapshot</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="overview"><OverviewTab /></TabsContent>
+        <TabsContent value="sku"><BySkuTab /></TabsContent>
+        <TabsContent value="weight"><ByWeightTab /></TabsContent>
+        <TabsContent value="category"><ByCategoryTab /></TabsContent>
+        <TabsContent value="flavor"><ByFlavorTab /></TabsContent>
+        <TabsContent value="production"><ProductionTab /></TabsContent>
+        <TabsContent value="health"><StockHealthTab /></TabsContent>
+        <TabsContent value="snapshot"><StockSnapshotTab /></TabsContent>
+      </Tabs>
+    </div>
+  );
+}

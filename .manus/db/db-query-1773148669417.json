@@ -1,0 +1,30 @@
+{
+  "query": "SELECT TABLE_NAME, COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND COLUMN_NAME = 'country' ORDER BY TABLE_NAME;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2U7jjLaYec9RfmS.90c6e09afd89 --database RkmLGi4aoyDhsEeQFGiadn --execute SELECT TABLE_NAME, COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND COLUMN_NAME = 'country' ORDER BY TABLE_NAME;",
+  "rows": [
+    {
+      "TABLE_NAME": "audit_trail",
+      "COLUMN_NAME": "country"
+    },
+    {
+      "TABLE_NAME": "periods",
+      "COLUMN_NAME": "country"
+    },
+    {
+      "TABLE_NAME": "skus",
+      "COLUMN_NAME": "country"
+    },
+    {
+      "TABLE_NAME": "ssof_versions",
+      "COLUMN_NAME": "country"
+    },
+    {
+      "TABLE_NAME": "upload_history",
+      "COLUMN_NAME": "country"
+    }
+  ],
+  "messages": [],
+  "stdout": "TABLE_NAME\tCOLUMN_NAME\naudit_trail\tcountry\nperiods\tcountry\nskus\tcountry\nssof_versions\tcountry\nupload_history\tcountry\n",
+  "stderr": "",
+  "execution_time_ms": 1603
+}

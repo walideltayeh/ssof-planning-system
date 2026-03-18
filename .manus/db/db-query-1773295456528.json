@@ -1,0 +1,13 @@
+{
+  "query": "\nSELECT COUNT(*) as syria_sku_count FROM skus WHERE country = 'Syria';\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2U7jjLaYec9RfmS.90c6e09afd89 --database RkmLGi4aoyDhsEeQFGiadn --execute \nSELECT COUNT(*) as syria_sku_count FROM skus WHERE country = 'Syria';\n",
+  "rows": [
+    {
+      "syria_sku_count": "18"
+    }
+  ],
+  "messages": [],
+  "stdout": "syria_sku_count\n18\n",
+  "stderr": "",
+  "execution_time_ms": 1482
+}

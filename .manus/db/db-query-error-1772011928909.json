@@ -1,0 +1,8 @@
+{
+  "query": "SELECT s.id as sku_id, s.name, pf.period_id, pf.opening_stock, pf.adjustments, p.label, p.sort_order \nFROM planning_fg pf \nJOIN skus s ON s.id = pf.sku_id \nJOIN periods p ON p.id = pf.period_id \nWHERE s.name LIKE '%Blueberry Mint%' AND s.weight = '50g'\nORDER BY p.sort_order \nLIMIT 12",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2U7jjLaYec9RfmS.90c6e09afd89 --database RkmLGi4aoyDhsEeQFGiadn --execute SELECT s.id as sku_id, s.name, pf.period_id, pf.opening_stock, pf.adjustments, p.label, p.sort_order \nFROM planning_fg pf \nJOIN skus s ON s.id = pf.sku_id \nJOIN periods p ON p.id = pf.period_id \nWHERE s.name LIKE '%Blueberry Mint%' AND s.weight = '50g'\nORDER BY p.sort_order \nLIMIT 12",
+  "returncode": 1,
+  "logs": [
+    "ERROR 1146 (42S02) at line 1: Table 'rkmlgi4aoydhseeqfgiadn.planning_fg' doesn't exist"
+  ]
+}

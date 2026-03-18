@@ -1,0 +1,46 @@
+{
+  "query": "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_NAME = 'audit_trail' AND TABLE_SCHEMA = DATABASE();",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2U7jjLaYec9RfmS.90c6e09afd89 --database RkmLGi4aoyDhsEeQFGiadn --execute SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_NAME = 'audit_trail' AND TABLE_SCHEMA = DATABASE();",
+  "rows": [
+    {
+      "COLUMN_NAME": "id"
+    },
+    {
+      "COLUMN_NAME": "username"
+    },
+    {
+      "COLUMN_NAME": "action"
+    },
+    {
+      "COLUMN_NAME": "sheet"
+    },
+    {
+      "COLUMN_NAME": "skuName"
+    },
+    {
+      "COLUMN_NAME": "periodLabel"
+    },
+    {
+      "COLUMN_NAME": "field"
+    },
+    {
+      "COLUMN_NAME": "oldValue"
+    },
+    {
+      "COLUMN_NAME": "newValue"
+    },
+    {
+      "COLUMN_NAME": "details"
+    },
+    {
+      "COLUMN_NAME": "createdAt"
+    },
+    {
+      "COLUMN_NAME": "country"
+    }
+  ],
+  "messages": [],
+  "stdout": "COLUMN_NAME\nid\nusername\naction\nsheet\nskuName\nperiodLabel\nfield\noldValue\nnewValue\ndetails\ncreatedAt\ncountry\n",
+  "stderr": "",
+  "execution_time_ms": 1610
+}

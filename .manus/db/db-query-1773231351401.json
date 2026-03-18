@@ -1,0 +1,18 @@
+{
+  "query": "SELECT id, username, displayName, role, countries, isOwner FROM app_users;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2U7jjLaYec9RfmS.90c6e09afd89 --database RkmLGi4aoyDhsEeQFGiadn --execute SELECT id, username, displayName, role, countries, isOwner FROM app_users;",
+  "rows": [
+    {
+      "id": "1",
+      "username": "walid",
+      "displayName": "Walid El Tayeh",
+      "role": "admin",
+      "countries": "[\"Lebanon\",\"Syria\",\"Libya\"]",
+      "isOwner": "1"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tusername\tdisplayName\trole\tcountries\tisOwner\n1\twalid\tWalid El Tayeh\tadmin\t[\"Lebanon\",\"Syria\",\"Libya\"]\t1\n",
+  "stderr": "",
+  "execution_time_ms": 1566
+}

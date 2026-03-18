@@ -1,0 +1,21 @@
+{
+  "query": "SELECT * FROM app_users ORDER BY id;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2U7jjLaYec9RfmS.90c6e09afd89 --database RkmLGi4aoyDhsEeQFGiadn --execute SELECT * FROM app_users ORDER BY id;",
+  "rows": [
+    {
+      "id": "1",
+      "username": "walid",
+      "displayName": "Walid El Tayeh",
+      "password": "walid",
+      "role": "admin",
+      "countries": "[\"Lebanon\",\"Syria\",\"Libya\"]",
+      "isOwner": "1",
+      "createdAt": "2026-03-11 12:13:17",
+      "updatedAt": "2026-03-11 12:13:17"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tusername\tdisplayName\tpassword\trole\tcountries\tisOwner\tcreatedAt\tupdatedAt\n1\twalid\tWalid El Tayeh\twalid\tadmin\t[\"Lebanon\",\"Syria\",\"Libya\"]\t1\t2026-03-11 12:13:17\t2026-03-11 12:13:17\n",
+  "stderr": "",
+  "execution_time_ms": 1527
+}

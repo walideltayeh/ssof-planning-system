@@ -1,0 +1,15 @@
+{
+  "query": "SELECT id, name, weight FROM skus WHERE weight NOT IN ('50g', '250g', '1kg') OR (name LIKE '%250g%' AND weight != '250g');",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2U7jjLaYec9RfmS.90c6e09afd89 --database RkmLGi4aoyDhsEeQFGiadn --execute SELECT id, name, weight FROM skus WHERE weight NOT IN ('50g', '250g', '1kg') OR (name LIKE '%250g%' AND weight != '250g');",
+  "rows": [
+    {
+      "id": "30008",
+      "name": "Al Fakher Lemon Mint 250g",
+      "weight": "100"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\tweight\n30008\tAl Fakher Lemon Mint 250g\t100\n",
+  "stderr": "",
+  "execution_time_ms": 1565
+}

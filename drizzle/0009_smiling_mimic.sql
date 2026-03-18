@@ -1,0 +1,1 @@
+ALTER TABLE `shipment_data` ADD `arrivalStatus` enum('Pending','In Transit','Arrived','Delayed') DEFAULT 'Pending';

@@ -1,0 +1,40 @@
+{
+  "query": "SELECT id, name, weight FROM skus WHERE name LIKE '%Lemon Mint%';",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2U7jjLaYec9RfmS.90c6e09afd89 --database RkmLGi4aoyDhsEeQFGiadn --execute SELECT id, name, weight FROM skus WHERE name LIKE '%Lemon Mint%';",
+  "rows": [
+    {
+      "id": "30003",
+      "name": "Al Fakher Lemon Mint 1kg",
+      "weight": "1kg"
+    },
+    {
+      "id": "30008",
+      "name": "Al Fakher Lemon Mint 250g",
+      "weight": "250g"
+    },
+    {
+      "id": "30018",
+      "name": "Al Fakher Lemon Mint 50g",
+      "weight": "50g"
+    },
+    {
+      "id": "30027",
+      "name": "Al Fakher Italian Lemon Mint 50g",
+      "weight": "50g"
+    },
+    {
+      "id": "30028",
+      "name": "Al Fakher Italian Lemon Mint 250g",
+      "weight": "250g"
+    },
+    {
+      "id": "30029",
+      "name": "Al Fakher Italian Lemon Mint 1Kg",
+      "weight": "1kg"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\tweight\n30003\tAl Fakher Lemon Mint 1kg\t1kg\n30008\tAl Fakher Lemon Mint 250g\t250g\n30018\tAl Fakher Lemon Mint 50g\t50g\n30027\tAl Fakher Italian Lemon Mint 50g\t50g\n30028\tAl Fakher Italian Lemon Mint 250g\t250g\n30029\tAl Fakher Italian Lemon Mint 1Kg\t1kg\n",
+  "stderr": "",
+  "execution_time_ms": 1532
+}

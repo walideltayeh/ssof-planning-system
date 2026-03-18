@@ -1,0 +1,114 @@
+{
+  "query": "SELECT s.name, s.weight, s.category, i.value, p.year, p.month \nFROM ims_data i \nJOIN skus s ON s.id = i.skuId \nJOIN periods p ON p.id = i.periodId \nWHERE p.year = 2026 AND p.month = 4 AND s.country IN ('Syria', 'Libya')\nORDER BY s.category, s.weight, s.name",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2U7jjLaYec9RfmS.90c6e09afd89 --database RkmLGi4aoyDhsEeQFGiadn --execute SELECT s.name, s.weight, s.category, i.value, p.year, p.month \nFROM ims_data i \nJOIN skus s ON s.id = i.skuId \nJOIN periods p ON p.id = i.periodId \nWHERE p.year = 2026 AND p.month = 4 AND s.country IN ('Syria', 'Libya')\nORDER BY s.category, s.weight, s.name",
+  "rows": [
+    {
+      "name": "Double Apple",
+      "weight": "1kg",
+      "category": "Core",
+      "value": "0.00",
+      "year": "2026",
+      "month": "4"
+    },
+    {
+      "name": "Mint",
+      "weight": "1kg",
+      "category": "Core",
+      "value": "0.00",
+      "year": "2026",
+      "month": "4"
+    },
+    {
+      "name": "Double Apple",
+      "weight": "250g",
+      "category": "Core",
+      "value": "0.00",
+      "year": "2026",
+      "month": "4"
+    },
+    {
+      "name": "Double Apple",
+      "weight": "250g",
+      "category": "Core",
+      "value": "0.00",
+      "year": "2026",
+      "month": "4"
+    },
+    {
+      "name": "Mint",
+      "weight": "250g",
+      "category": "Core",
+      "value": "0.00",
+      "year": "2026",
+      "month": "4"
+    },
+    {
+      "name": "Mint",
+      "weight": "250g",
+      "category": "Core",
+      "value": "0.00",
+      "year": "2026",
+      "month": "4"
+    },
+    {
+      "name": "Double Apple",
+      "weight": "50g",
+      "category": "Core",
+      "value": "0.00",
+      "year": "2026",
+      "month": "4"
+    },
+    {
+      "name": "Double Apple",
+      "weight": "50g",
+      "category": "Core",
+      "value": "0.00",
+      "year": "2026",
+      "month": "4"
+    },
+    {
+      "name": "Grape",
+      "weight": "50g",
+      "category": "Core",
+      "value": "0.00",
+      "year": "2026",
+      "month": "4"
+    },
+    {
+      "name": "Gum",
+      "weight": "50g",
+      "category": "Core",
+      "value": "0.00",
+      "year": "2026",
+      "month": "4"
+    },
+    {
+      "name": "Gum and Mint",
+      "weight": "50g",
+      "category": "Core",
+      "value": "0.00",
+      "year": "2026",
+      "month": "4"
+    },
+    {
+      "name": "Mint",
+      "weight": "50g",
+      "category": "Core",
+      "value": "0.00",
+      "year": "2026",
+      "month": "4"
+    },
+    {
+      "name": "Mint",
+      "weight": "50g",
+      "category": "Core",
+      "value": "0.00",
+      "year": "2026",
+      "month": "4"
+    }
+  ],
+  "messages": [],
+  "stdout": "name\tweight\tcategory\tvalue\tyear\tmonth\nDouble Apple\t1kg\tCore\t0.00\t2026\t4\nMint\t1kg\tCore\t0.00\t2026\t4\nDouble Apple\t250g\tCore\t0.00\t2026\t4\nDouble Apple\t250g\tCore\t0.00\t2026\t4\nMint\t250g\tCore\t0.00\t2026\t4\nMint\t250g\tCore\t0.00\t2026\t4\nDouble Apple\t50g\tCore\t0.00\t2026\t4\nDouble Apple\t50g\tCore\t0.00\t2026\t4\nGrape\t50g\tCore\t0.00\t2026\t4\nGum\t50g\tCore\t0.00\t2026\t4\nGum and Mint\t50g\tCore\t0.00\t2026\t4\nMint\t50g\tCore\t0.00\t2026\t4\nMint\t50g\tCore\t0.00\t2026\t4\n",
+  "stderr": "",
+  "execution_time_ms": 1573
+}

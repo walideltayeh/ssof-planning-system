@@ -1,0 +1,58 @@
+{
+  "query": "SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'audit_trail' ORDER BY ORDINAL_POSITION;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2U7jjLaYec9RfmS.90c6e09afd89 --database RkmLGi4aoyDhsEeQFGiadn --execute SELECT COLUMN_NAME, DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'audit_trail' ORDER BY ORDINAL_POSITION;",
+  "rows": [
+    {
+      "COLUMN_NAME": "id",
+      "DATA_TYPE": "int"
+    },
+    {
+      "COLUMN_NAME": "username",
+      "DATA_TYPE": "varchar"
+    },
+    {
+      "COLUMN_NAME": "action",
+      "DATA_TYPE": "varchar"
+    },
+    {
+      "COLUMN_NAME": "sheet",
+      "DATA_TYPE": "varchar"
+    },
+    {
+      "COLUMN_NAME": "skuName",
+      "DATA_TYPE": "varchar"
+    },
+    {
+      "COLUMN_NAME": "periodLabel",
+      "DATA_TYPE": "varchar"
+    },
+    {
+      "COLUMN_NAME": "field",
+      "DATA_TYPE": "varchar"
+    },
+    {
+      "COLUMN_NAME": "oldValue",
+      "DATA_TYPE": "text"
+    },
+    {
+      "COLUMN_NAME": "newValue",
+      "DATA_TYPE": "text"
+    },
+    {
+      "COLUMN_NAME": "details",
+      "DATA_TYPE": "text"
+    },
+    {
+      "COLUMN_NAME": "createdAt",
+      "DATA_TYPE": "timestamp"
+    },
+    {
+      "COLUMN_NAME": "country",
+      "DATA_TYPE": "enum"
+    }
+  ],
+  "messages": [],
+  "stdout": "COLUMN_NAME\tDATA_TYPE\nid\tint\nusername\tvarchar\naction\tvarchar\nsheet\tvarchar\nskuName\tvarchar\nperiodLabel\tvarchar\nfield\tvarchar\noldValue\ttext\nnewValue\ttext\ndetails\ttext\ncreatedAt\ttimestamp\ncountry\tenum\n",
+  "stderr": "",
+  "execution_time_ms": 1576
+}

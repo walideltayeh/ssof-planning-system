@@ -1,0 +1,2 @@
+ALTER TABLE `shipment_data` MODIFY COLUMN `arrivalStatus` enum('Pending','In Transit','Arrived','Delayed','Cleared','Partially Cleared') DEFAULT 'Pending';--> statement-breakpoint
+ALTER TABLE `shipment_data` ADD `clearedQty` decimal(12,2);

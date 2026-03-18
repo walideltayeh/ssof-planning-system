@@ -1,0 +1,1 @@
+ALTER TABLE `shipment_data` ADD `clearedDate` date;

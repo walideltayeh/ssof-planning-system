@@ -1,0 +1,82 @@
+{
+  "query": "SELECT pfd.periodId, pfd.openingStock, pfd.adjustments, p.label \nFROM planning_fg_data pfd \nJOIN skus s ON s.id = pfd.skuId \nJOIN periods p ON p.id = pfd.periodId \nWHERE s.name = 'Al Fakher Blueberry Mint 50g'\nORDER BY p.sortOrder \nLIMIT 12",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2U7jjLaYec9RfmS.90c6e09afd89 --database RkmLGi4aoyDhsEeQFGiadn --execute SELECT pfd.periodId, pfd.openingStock, pfd.adjustments, p.label \nFROM planning_fg_data pfd \nJOIN skus s ON s.id = pfd.skuId \nJOIN periods p ON p.id = pfd.periodId \nWHERE s.name = 'Al Fakher Blueberry Mint 50g'\nORDER BY p.sortOrder \nLIMIT 12",
+  "rows": [
+    {
+      "periodId": "1",
+      "openingStock": "0.00",
+      "adjustments": "0.00",
+      "label": "Jan 25"
+    },
+    {
+      "periodId": "2",
+      "openingStock": "0.00",
+      "adjustments": "0.00",
+      "label": "Feb 25"
+    },
+    {
+      "periodId": "3",
+      "openingStock": "0.00",
+      "adjustments": "0.00",
+      "label": "Mar 25"
+    },
+    {
+      "periodId": "4",
+      "openingStock": "0.00",
+      "adjustments": "0.00",
+      "label": "Apr 25"
+    },
+    {
+      "periodId": "5",
+      "openingStock": "0.00",
+      "adjustments": "0.00",
+      "label": "May 25"
+    },
+    {
+      "periodId": "6",
+      "openingStock": "0.00",
+      "adjustments": "0.00",
+      "label": "Jun 25"
+    },
+    {
+      "periodId": "7",
+      "openingStock": "0.00",
+      "adjustments": "0.00",
+      "label": "Jul 25"
+    },
+    {
+      "periodId": "8",
+      "openingStock": "0.00",
+      "adjustments": "0.00",
+      "label": "Aug 25"
+    },
+    {
+      "periodId": "9",
+      "openingStock": "0.00",
+      "adjustments": "0.00",
+      "label": "Sep 25"
+    },
+    {
+      "periodId": "10",
+      "openingStock": "0.00",
+      "adjustments": "0.00",
+      "label": "Oct 25"
+    },
+    {
+      "periodId": "11",
+      "openingStock": "0.00",
+      "adjustments": "0.00",
+      "label": "Nov 25"
+    },
+    {
+      "periodId": "12",
+      "openingStock": "0.00",
+      "adjustments": "0.00",
+      "label": "Dec 25"
+    }
+  ],
+  "messages": [],
+  "stdout": "periodId\topeningStock\tadjustments\tlabel\n1\t0.00\t0.00\tJan 25\n2\t0.00\t0.00\tFeb 25\n3\t0.00\t0.00\tMar 25\n4\t0.00\t0.00\tApr 25\n5\t0.00\t0.00\tMay 25\n6\t0.00\t0.00\tJun 25\n7\t0.00\t0.00\tJul 25\n8\t0.00\t0.00\tAug 25\n9\t0.00\t0.00\tSep 25\n10\t0.00\t0.00\tOct 25\n11\t0.00\t0.00\tNov 25\n12\t0.00\t0.00\tDec 25\n",
+  "stderr": "",
+  "execution_time_ms": 1514
+}

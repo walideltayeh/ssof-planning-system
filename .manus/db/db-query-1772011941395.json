@@ -1,0 +1,118 @@
+{
+  "query": "SELECT s.id as sku_id, s.name, pfd.periodId, pfd.openingStock, pfd.adjustments, p.label, p.sortOrder \nFROM planning_fg_data pfd \nJOIN skus s ON s.id = pfd.skuId \nJOIN periods p ON p.id = pfd.periodId \nWHERE s.name LIKE '%Blueberry Mint%' AND s.weight = '50g'\nORDER BY p.sortOrder \nLIMIT 12",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2U7jjLaYec9RfmS.90c6e09afd89 --database RkmLGi4aoyDhsEeQFGiadn --execute SELECT s.id as sku_id, s.name, pfd.periodId, pfd.openingStock, pfd.adjustments, p.label, p.sortOrder \nFROM planning_fg_data pfd \nJOIN skus s ON s.id = pfd.skuId \nJOIN periods p ON p.id = pfd.periodId \nWHERE s.name LIKE '%Blueberry Mint%' AND s.weight = '50g'\nORDER BY p.sortOrder \nLIMIT 12",
+  "rows": [
+    {
+      "sku_id": "30011",
+      "name": "Al Fakher Blueberry Mint 50g",
+      "periodId": "1",
+      "openingStock": "0.00",
+      "adjustments": "0.00",
+      "label": "Jan 25",
+      "sortOrder": "0"
+    },
+    {
+      "sku_id": "30011",
+      "name": "Al Fakher Blueberry Mint 50g",
+      "periodId": "2",
+      "openingStock": "0.00",
+      "adjustments": "0.00",
+      "label": "Feb 25",
+      "sortOrder": "1"
+    },
+    {
+      "sku_id": "30011",
+      "name": "Al Fakher Blueberry Mint 50g",
+      "periodId": "3",
+      "openingStock": "0.00",
+      "adjustments": "0.00",
+      "label": "Mar 25",
+      "sortOrder": "2"
+    },
+    {
+      "sku_id": "30011",
+      "name": "Al Fakher Blueberry Mint 50g",
+      "periodId": "4",
+      "openingStock": "0.00",
+      "adjustments": "0.00",
+      "label": "Apr 25",
+      "sortOrder": "3"
+    },
+    {
+      "sku_id": "30011",
+      "name": "Al Fakher Blueberry Mint 50g",
+      "periodId": "5",
+      "openingStock": "0.00",
+      "adjustments": "0.00",
+      "label": "May 25",
+      "sortOrder": "4"
+    },
+    {
+      "sku_id": "30011",
+      "name": "Al Fakher Blueberry Mint 50g",
+      "periodId": "6",
+      "openingStock": "0.00",
+      "adjustments": "0.00",
+      "label": "Jun 25",
+      "sortOrder": "5"
+    },
+    {
+      "sku_id": "30011",
+      "name": "Al Fakher Blueberry Mint 50g",
+      "periodId": "7",
+      "openingStock": "0.00",
+      "adjustments": "0.00",
+      "label": "Jul 25",
+      "sortOrder": "6"
+    },
+    {
+      "sku_id": "30011",
+      "name": "Al Fakher Blueberry Mint 50g",
+      "periodId": "8",
+      "openingStock": "0.00",
+      "adjustments": "0.00",
+      "label": "Aug 25",
+      "sortOrder": "7"
+    },
+    {
+      "sku_id": "30011",
+      "name": "Al Fakher Blueberry Mint 50g",
+      "periodId": "9",
+      "openingStock": "0.00",
+      "adjustments": "0.00",
+      "label": "Sep 25",
+      "sortOrder": "8"
+    },
+    {
+      "sku_id": "30011",
+      "name": "Al Fakher Blueberry Mint 50g",
+      "periodId": "10",
+      "openingStock": "0.00",
+      "adjustments": "0.00",
+      "label": "Oct 25",
+      "sortOrder": "9"
+    },
+    {
+      "sku_id": "30011",
+      "name": "Al Fakher Blueberry Mint 50g",
+      "periodId": "11",
+      "openingStock": "0.00",
+      "adjustments": "0.00",
+      "label": "Nov 25",
+      "sortOrder": "10"
+    },
+    {
+      "sku_id": "30011",
+      "name": "Al Fakher Blueberry Mint 50g",
+      "periodId": "12",
+      "openingStock": "0.00",
+      "adjustments": "0.00",
+      "label": "Dec 25",
+      "sortOrder": "11"
+    }
+  ],
+  "messages": [],
+  "stdout": "sku_id\tname\tperiodId\topeningStock\tadjustments\tlabel\tsortOrder\n30011\tAl Fakher Blueberry Mint 50g\t1\t0.00\t0.00\tJan 25\t0\n30011\tAl Fakher Blueberry Mint 50g\t2\t0.00\t0.00\tFeb 25\t1\n30011\tAl Fakher Blueberry Mint 50g\t3\t0.00\t0.00\tMar 25\t2\n30011\tAl Fakher Blueberry Mint 50g\t4\t0.00\t0.00\tApr 25\t3\n30011\tAl Fakher Blueberry Mint 50g\t5\t0.00\t0.00\tMay 25\t4\n30011\tAl Fakher Blueberry Mint 50g\t6\t0.00\t0.00\tJun 25\t5\n30011\tAl Fakher Blueberry Mint 50g\t7\t0.00\t0.00\tJul 25\t6\n30011\tAl Fakher Blueberry Mint 50g\t8\t0.00\t0.00\tAug 25\t7\n30011\tAl Fakher Blueberry Mint 50g\t9\t0.00\t0.00\tSep 25\t8\n30011\tAl Fakher Blueberry Mint 50g\t10\t0.00\t0.00\tOct 25\t9\n30011\tAl Fakher Blueberry Mint 50g\t11\t0.00\t0.00\tNov 25\t10\n30011\tAl Fakher Blueberry Mint 50g\t12\t0.00\t0.00\tDec 25\t11\n",
+  "stderr": "",
+  "execution_time_ms": 1516
+}

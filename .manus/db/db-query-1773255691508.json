@@ -1,0 +1,22 @@
+{
+  "query": "SELECT country, COUNT(*) as sku_count FROM skus GROUP BY country ORDER BY country;",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2U7jjLaYec9RfmS.90c6e09afd89 --database RkmLGi4aoyDhsEeQFGiadn --execute SELECT country, COUNT(*) as sku_count FROM skus GROUP BY country ORDER BY country;",
+  "rows": [
+    {
+      "country": "Lebanon",
+      "sku_count": "29"
+    },
+    {
+      "country": "Syria",
+      "sku_count": "18"
+    },
+    {
+      "country": "Libya",
+      "sku_count": "2"
+    }
+  ],
+  "messages": [],
+  "stdout": "country\tsku_count\nLebanon\t29\nSyria\t18\nLibya\t2\n",
+  "stderr": "",
+  "execution_time_ms": 1550
+}

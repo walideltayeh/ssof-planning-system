@@ -1,0 +1,14 @@
+{
+  "query": "SELECT COUNT(*) as total, SUM(CASE WHEN week1 != '0.00' OR week2 != '0.00' OR week3 != '0.00' OR week4 != '0.00' THEN 1 ELSE 0 END) as nonzero FROM shipment_data",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2U7jjLaYec9RfmS.90c6e09afd89 --database RkmLGi4aoyDhsEeQFGiadn --execute SELECT COUNT(*) as total, SUM(CASE WHEN week1 != '0.00' OR week2 != '0.00' OR week3 != '0.00' OR week4 != '0.00' THEN 1 ELSE 0 END) as nonzero FROM shipment_data",
+  "rows": [
+    {
+      "total": "1044",
+      "nonzero": "0"
+    }
+  ],
+  "messages": [],
+  "stdout": "total\tnonzero\n1044\t0\n",
+  "stderr": "",
+  "execution_time_ms": 1608
+}

@@ -1,0 +1,1 @@
+ALTER TABLE `forecast_data` ADD `targetWeek` varchar(10) DEFAULT 'week1';

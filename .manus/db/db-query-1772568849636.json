@@ -1,0 +1,160 @@
+{
+  "query": "\nSELECT id, name, weight FROM skus ORDER BY weight, name LIMIT 30;\n",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 2U7jjLaYec9RfmS.90c6e09afd89 --database RkmLGi4aoyDhsEeQFGiadn --execute \nSELECT id, name, weight FROM skus ORDER BY weight, name LIMIT 30;\n",
+  "rows": [
+    {
+      "id": "30026",
+      "name": "Al Fakher Double Apple Classic 1Kg",
+      "weight": "1kg"
+    },
+    {
+      "id": "30001",
+      "name": "Al Fakher Grapes & Mint 1kg",
+      "weight": "1kg"
+    },
+    {
+      "id": "30002",
+      "name": "Al Fakher Grapes 1kg",
+      "weight": "1kg"
+    },
+    {
+      "id": "30029",
+      "name": "Al Fakher Italian Lemon Mint 1Kg",
+      "weight": "1kg"
+    },
+    {
+      "id": "30003",
+      "name": "Al Fakher Lemon Mint 1kg",
+      "weight": "1kg"
+    },
+    {
+      "id": "30004",
+      "name": "Al Fakher Mint 1kg",
+      "weight": "1kg"
+    },
+    {
+      "id": "30005",
+      "name": "Al Fakher Two apple 1kg",
+      "weight": "1kg"
+    },
+    {
+      "id": "30025",
+      "name": "Al Fakher Double Apple Classic 250g",
+      "weight": "250g"
+    },
+    {
+      "id": "30006",
+      "name": "Al Fakher Grapes & Mint 250g",
+      "weight": "250g"
+    },
+    {
+      "id": "30007",
+      "name": "Al Fakher Grapes 250g",
+      "weight": "250g"
+    },
+    {
+      "id": "30028",
+      "name": "Al Fakher Italian Lemon Mint 250g",
+      "weight": "250g"
+    },
+    {
+      "id": "30008",
+      "name": "Al Fakher Lemon Mint 250g",
+      "weight": "250g"
+    },
+    {
+      "id": "30009",
+      "name": "Al Fakher Two apple 250g",
+      "weight": "250g"
+    },
+    {
+      "id": "30010",
+      "name": "Al Fakher Two Apple Bahraini  250g",
+      "weight": "250g"
+    },
+    {
+      "id": "30012",
+      "name": "Al Fakher Blueberry 50g",
+      "weight": "50g"
+    },
+    {
+      "id": "30011",
+      "name": "Al Fakher Blueberry Mint 50g",
+      "weight": "50g"
+    },
+    {
+      "id": "30013",
+      "name": "Al Fakher Buble Gum 50g",
+      "weight": "50g"
+    },
+    {
+      "id": "30024",
+      "name": "Al Fakher Double Apple Classic 50g",
+      "weight": "50g"
+    },
+    {
+      "id": "30014",
+      "name": "Al Fakher Grapes & Mint 50g",
+      "weight": "50g"
+    },
+    {
+      "id": "30015",
+      "name": "Al Fakher Grapes 50g",
+      "weight": "50g"
+    },
+    {
+      "id": "30017",
+      "name": "Al Fakher Gum  50g",
+      "weight": "50g"
+    },
+    {
+      "id": "30016",
+      "name": "Al Fakher Gum Mint 50g",
+      "weight": "50g"
+    },
+    {
+      "id": "30027",
+      "name": "Al Fakher Italian Lemon Mint 50g",
+      "weight": "50g"
+    },
+    {
+      "id": "30018",
+      "name": "Al Fakher Lemon Mint 50g",
+      "weight": "50g"
+    },
+    {
+      "id": "30019",
+      "name": "Al Fakher Magic Love 50g",
+      "weight": "50g"
+    },
+    {
+      "id": "30020",
+      "name": "Al Fakher Mint 50g",
+      "weight": "50g"
+    },
+    {
+      "id": "30021",
+      "name": "Al Fakher Two apple 50g",
+      "weight": "50g"
+    },
+    {
+      "id": "30022",
+      "name": "Lemonade Mint 50g",
+      "weight": "50g"
+    },
+    {
+      "id": "30023",
+      "name": "Lemonade Pear 50g",
+      "weight": "50g"
+    },
+    {
+      "id": "60001",
+      "name": "Test",
+      "weight": "50g"
+    }
+  ],
+  "messages": [],
+  "stdout": "id\tname\tweight\n30026\tAl Fakher Double Apple Classic 1Kg\t1kg\n30001\tAl Fakher Grapes & Mint 1kg\t1kg\n30002\tAl Fakher Grapes 1kg\t1kg\n30029\tAl Fakher Italian Lemon Mint 1Kg\t1kg\n30003\tAl Fakher Lemon Mint 1kg\t1kg\n30004\tAl Fakher Mint 1kg\t1kg\n30005\tAl Fakher Two apple 1kg\t1kg\n30025\tAl Fakher Double Apple Classic 250g\t250g\n30006\tAl Fakher Grapes & Mint 250g\t250g\n30007\tAl Fakher Grapes 250g\t250g\n30028\tAl Fakher Italian Lemon Mint 250g\t250g\n30008\tAl Fakher Lemon Mint 250g\t250g\n30009\tAl Fakher Two apple 250g\t250g\n30010\tAl Fakher Two Apple Bahraini  250g\t250g\n30012\tAl Fakher Blueberry 50g\t50g\n30011\tAl Fakher Blueberry Mint 50g\t50g\n30013\tAl Fakher Buble Gum 50g\t50g\n30024\tAl Fakher Double Apple Classic 50g\t50g\n30014\tAl Fakher Grapes & Mint 50g\t50g\n30015\tAl Fakher Grapes 50g\t50g\n30017\tAl Fakher Gum  50g\t50g\n30016\tAl Fakher Gum Mint 50g\t50g\n30027\tAl Fakher Italian Lemon Mint 50g\t50g\n30018\tAl Fakher Lemon Mint 50g\t50g\n30019\tAl Fakher Magic Love 50g\t50g\n30020\tAl Fakher Mint 50g\t50g\n30021\tAl Fakher Two apple 50g\t50g\n30022\tLemonade Mint 50g\t50g\n30023\tLemonade Pear 50g\t50g\n60001\tTest\t50g\n",
+  "stderr": "",
+  "execution_time_ms": 1516
+}
