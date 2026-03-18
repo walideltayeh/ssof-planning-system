@@ -7,6 +7,8 @@ import { useGridNav } from "@/hooks/useGridNav";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Settings } from "lucide-react";
 import { toast } from "sonner";
 import { computeArrivalDate } from "./ShipmentPage";
 
@@ -25,22 +27,22 @@ type RowLabel = typeof ROW_LABELS[number];
 // Rows where year total should show "—" (not summable)
 const NO_TOTAL_ROWS = new Set<RowLabel>(["Opening Stock", "Closing Stock - Weeks"]);
 
-// Always-editable rows (any period)
-const ALWAYS_EDITABLE_ROWS = new Set<RowLabel>(["Adjustments"]);
-// Rows editable only for current/future periods
-// Editable for current month + future
-const FUTURE_EDITABLE_ROWS = new Set<RowLabel>(["Production"]);
-// Editable for strictly future months only (not current month)
-const STRICTLY_FUTURE_EDITABLE_ROWS = new Set<RowLabel>(["IMS"]);
+// Editable for current month + future (uses isFuturePeriod: month >= currentMonth)
+const FUTURE_EDITABLE_ROWS = new Set<RowLabel>(["Adjustments"]);
+// Editable for strictly future months only — next month and beyond (uses isStrictlyFuture: month > currentMonth)
+const STRICTLY_FUTURE_EDITABLE_ROWS = new Set<RowLabel>(["IMS", "Production"]);
+
+const DEFAULT_HEALTHY_MIN = 4;
+const DEFAULT_HEALTHY_MAX = 6;
 
 // Conditional formatting for Closing Stock - Weeks
-function getWeeksStyle(weeks: number): string {
+function getWeeksStyle(weeks: number, minHealthy = DEFAULT_HEALTHY_MIN, maxHealthy = DEFAULT_HEALTHY_MAX): string {
   if (weeks === 0) return "bg-gray-200 text-gray-500 font-bold";
   if (weeks < 0) return "bg-gray-900 text-white font-bold";
-  if (weeks < 4) return "bg-red-600 text-white font-bold";
-  if (weeks <= 6) return "text-emerald-700 font-bold";
   if (!isFinite(weeks)) return "bg-purple-200 text-purple-900 font-bold";
-  return "bg-red-600 text-white font-bold";
+  if (weeks < minHealthy) return "bg-red-600 text-white font-bold";
+  if (weeks <= maxHealthy) return "text-emerald-700 font-bold";
+  return "bg-orange-400 text-white font-bold";
 }
 
 function getClosingStockStyle(val: number): string {
@@ -149,6 +151,26 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
       else next.add(year);
       return next;
     });
+  };
+
+  // ── Healthy weeks config (per-SKU, persisted to localStorage) ────────────
+  const STORAGE_KEY = `healthyWeeks-${country}`;
+  const [healthyWeeksConfig, setHealthyWeeksConfig] = useState<Record<number, { min: number; max: number }>>(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      return stored ? JSON.parse(stored) : {};
+    } catch { return {}; }
+  });
+  const [showHealthySettings, setShowHealthySettings] = useState(false);
+
+  const getHealthy = useCallback((skuId: number) => {
+    return healthyWeeksConfig[skuId] ?? { min: DEFAULT_HEALTHY_MIN, max: DEFAULT_HEALTHY_MAX };
+  }, [healthyWeeksConfig]);
+
+  const setHealthy = (skuId: number, min: number, max: number) => {
+    const next = { ...healthyWeeksConfig, [skuId]: { min, max } };
+    setHealthyWeeksConfig(next);
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); } catch {}
   };
 
   // ── Filter state ──────────────────────────────────────────────────────────
@@ -287,13 +309,10 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
 
   // ── Cell editing ──────────────────────────────────────────────────────────
   const handleCellClick = (skuId: number, period: Period, label: RowLabel, currentValue: number) => {
-    if (ALWAYS_EDITABLE_ROWS.has(label)) {
+    if (FUTURE_EDITABLE_ROWS.has(label) && isFuturePeriod(period)) {
       setEditingCell({ skuId, periodId: period.id, label });
       setEditValue(currentValue === 0 ? "" : currentValue.toString());
     } else if (STRICTLY_FUTURE_EDITABLE_ROWS.has(label) && isStrictlyFuture(period)) {
-      setEditingCell({ skuId, periodId: period.id, label });
-      setEditValue(currentValue === 0 ? "" : currentValue.toString());
-    } else if (FUTURE_EDITABLE_ROWS.has(label) && isFuturePeriod(period)) {
       setEditingCell({ skuId, periodId: period.id, label });
       setEditValue(currentValue === 0 ? "" : currentValue.toString());
     }
@@ -396,13 +415,13 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
     const ids: string[] = [];
     for (const sku of filteredSkus) {
       for (const p of visiblePeriods) {
-        ids.push(`${sku.id}-${p.id}-Adjustments`);
+        if (isFuturePeriod(p)) ids.push(`${sku.id}-${p.id}-Adjustments`);
       }
       for (const p of visiblePeriods) {
         if (isStrictlyFuture(p)) ids.push(`${sku.id}-${p.id}-IMS`);
       }
       for (const p of visiblePeriods) {
-        if (isFuturePeriod(p)) ids.push(`${sku.id}-${p.id}-Production`);
+        if (isStrictlyFuture(p)) ids.push(`${sku.id}-${p.id}-Production`);
       }
     }
     return ids;
@@ -705,13 +724,12 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
                 </thead>
                 <tbody>
                   {ROW_LABELS.map((label) => {
-                    const isAlwaysEditable = ALWAYS_EDITABLE_ROWS.has(label);
                     const isFutureEditable = FUTURE_EDITABLE_ROWS.has(label);
+                    const isStrictlyFutureEditable = STRICTLY_FUTURE_EDITABLE_ROWS.has(label);
                     const isClosingWeeks = label === "Closing Stock - Weeks";
                     const isClosingStock = label === "Closing Stock";
                     const isArrivals = label === "Actual arrivals / Planned Orders";
                     const isIms = label === "IMS";
-                    const isProduction = label === "Production";
                     const isSeparatorBefore = label === "Closing Stock";
                     const showTotal = !NO_TOTAL_ROWS.has(label);
 
@@ -722,25 +740,33 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
                       >
                         {/* Row label */}
                         <td className={`sticky left-0 z-10 px-3 py-1.5 font-medium whitespace-nowrap ${labelStyle[label]}`}>
-                          {label}
-                          {isAlwaysEditable && (
-                            <span className="ml-1 text-[9px] text-blue-400">(editable)</span>
-                          )}
-                          {isFutureEditable && (
-                            <span className="ml-1 text-[9px] text-blue-400">(editable: current+future)</span>
-                          )}
-                          {STRICTLY_FUTURE_EDITABLE_ROWS.has(label) && (
-                            <span className="ml-1 text-[9px] text-blue-400">(editable: future only)</span>
-                          )}
-                          {label === "Opening Stock" && (
-                            <span className="ml-1 text-[9px] text-gray-400">(auto)</span>
-                          )}
-                          {(label === "Closing Stock" || label === "Closing Stock - Weeks") && (
-                            <span className="ml-1 text-[9px] text-gray-400">(auto)</span>
-                          )}
-                          {isArrivals && (
-                            <span className="ml-1 text-[9px] text-emerald-500">(Cleared only)</span>
-                          )}
+                          <span className="flex items-center gap-1">
+                            {label}
+                            {isClosingWeeks && (
+                              <button
+                                onClick={() => setShowHealthySettings(true)}
+                                className="ml-1 text-muted-foreground hover:text-primary transition-colors"
+                                title="Configure healthy stock weeks per SKU"
+                              >
+                                <Settings size={12} />
+                              </button>
+                            )}
+                            {isFutureEditable && (
+                              <span className="text-[9px] text-blue-400">(editable: current+future)</span>
+                            )}
+                            {isStrictlyFutureEditable && (
+                              <span className="text-[9px] text-blue-400">(editable: future only)</span>
+                            )}
+                            {label === "Opening Stock" && (
+                              <span className="text-[9px] text-gray-400">(auto)</span>
+                            )}
+                            {(label === "Closing Stock" || label === "Closing Stock - Weeks") && (
+                              <span className="text-[9px] text-gray-400">(auto)</span>
+                            )}
+                            {isArrivals && (
+                              <span className="text-[9px] text-emerald-500">(Cleared only)</span>
+                            )}
+                          </span>
                         </td>
 
                         {/* Data cells */}
@@ -755,8 +781,9 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
                             );
                             if (isClosingWeeks) {
                               const avgWeeks = yearTotal / yearPeriods.length;
+                              const { min: hMin, max: hMax } = getHealthy(sku.id);
                               return (
-                                <td key={year} className={`px-2 py-1.5 text-center border-l border-muted ${getWeeksStyle(avgWeeks)}`}>
+                                <td key={year} className={`px-2 py-1.5 text-center border-l border-muted ${getWeeksStyle(avgWeeks, hMin, hMax)}`}>
                                   {!isFinite(avgWeeks) ? "∞" : avgWeeks.toFixed(1)}
                                 </td>
                               );
@@ -780,8 +807,9 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
                               editingCell?.label === label;
 
                             if (isClosingWeeks) {
+                              const { min: hMin, max: hMax } = getHealthy(sku.id);
                               return (
-                                <td key={p.id} className={`px-2 py-1.5 text-center ${getWeeksStyle(val)}`}>
+                                <td key={p.id} className={`px-2 py-1.5 text-center ${getWeeksStyle(val, hMin, hMax)}`}>
                                   {!isFinite(val) ? "∞" : val.toFixed(1)}
                                 </td>
                               );
@@ -795,9 +823,8 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
                               );
                             }
 
-                            const cellEditable = isAlwaysEditable
-                              || (STRICTLY_FUTURE_EDITABLE_ROWS.has(label) && isStrictlyFuture(p))
-                              || (isFutureEditable && !STRICTLY_FUTURE_EDITABLE_ROWS.has(label) && isFuturePeriod(p));
+                            const cellEditable = (isFutureEditable && isFuturePeriod(p))
+                              || (isStrictlyFutureEditable && isStrictlyFuture(p));
 
                             if (cellEditable) {
                               return (
@@ -853,8 +880,9 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
                             );
                           } else if (isClosingWeeks) {
                             const avgWeeks = yearTotal / yearPeriods.length;
+                            const { min: hMin, max: hMax } = getHealthy(sku.id);
                             totalCell = (
-                              <td key={`total-${year}`} className={`px-2 py-1.5 text-center border-l-2 border-amber-400 bg-amber-50 font-bold ${getWeeksStyle(avgWeeks)}`}>
+                              <td key={`total-${year}`} className={`px-2 py-1.5 text-center border-l-2 border-amber-400 bg-amber-50 font-bold ${getWeeksStyle(avgWeeks, hMin, hMax)}`}>
                                 {!isFinite(avgWeeks) ? "∞" : avgWeeks.toFixed(1)}
                               </td>
                             );
@@ -890,6 +918,64 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
           </Card>
         );
       })}
+
+      {/* ── Healthy Weeks Settings Dialog ──────────────────────────────────── */}
+      <Dialog open={showHealthySettings} onOpenChange={setShowHealthySettings}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Healthy Stock Weeks — Per SKU Settings</DialogTitle>
+          </DialogHeader>
+          <DialogDescription className="mb-3">
+            Set the healthy closing stock range (in weeks) for each SKU. Cells outside this range will be highlighted in red (too low) or orange (too high). Default: {DEFAULT_HEALTHY_MIN}–{DEFAULT_HEALTHY_MAX} weeks.
+          </DialogDescription>
+          <div className="space-y-2">
+            {/* Header row */}
+            <div className="grid grid-cols-[1fr_80px_80px_80px] gap-2 text-xs font-semibold text-muted-foreground px-1">
+              <span>SKU</span>
+              <span className="text-center">Min wks</span>
+              <span className="text-center">Max wks</span>
+              <span className="text-center">Reset</span>
+            </div>
+            {filteredSkus.map(sku => {
+              const { min, max } = getHealthy(sku.id);
+              const isDefault = min === DEFAULT_HEALTHY_MIN && max === DEFAULT_HEALTHY_MAX;
+              return (
+                <div key={sku.id} className="grid grid-cols-[1fr_80px_80px_80px] gap-2 items-center px-1 py-0.5 rounded hover:bg-muted/30">
+                  <span className="text-sm truncate" title={sku.name}>{sku.name}</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={52}
+                    value={min}
+                    onChange={e => setHealthy(sku.id, Number(e.target.value), max)}
+                    className="w-full text-center border border-input rounded px-1 py-0.5 text-sm bg-background"
+                  />
+                  <input
+                    type="number"
+                    min={0}
+                    max={52}
+                    value={max}
+                    onChange={e => setHealthy(sku.id, min, Number(e.target.value))}
+                    className="w-full text-center border border-input rounded px-1 py-0.5 text-sm bg-background"
+                  />
+                  <button
+                    onClick={() => setHealthy(sku.id, DEFAULT_HEALTHY_MIN, DEFAULT_HEALTHY_MAX)}
+                    className={`text-xs px-1 py-0.5 rounded ${isDefault ? "text-muted-foreground/40 cursor-default" : "text-blue-500 hover:bg-blue-50"}`}
+                    disabled={isDefault}
+                  >
+                    Reset
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-4 flex items-center gap-3 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-600 inline-block" /> Below min</span>
+            <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-100 border border-emerald-500 inline-block" /> In range</span>
+            <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded bg-orange-400 inline-block" /> Above max</span>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
