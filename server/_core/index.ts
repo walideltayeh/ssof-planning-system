@@ -7,6 +7,7 @@ import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
+import { runStartupMigration } from "../startup-migration";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -167,15 +168,28 @@ async function startServer() {
       }
       const countries = ["Lebanon", "Syria", "Libya"] as const;
       const results: Record<string, string> = {};
+
+      // Merge all country snapshots into one combined snapshot, then do a single
+      // global restore (clears everything first to avoid PK conflicts).
+      const combined: any = { skus: [], periods: [], forecast: [], ims: [], shipment: [], arrival: [], planningFg: [] };
       for (const country of countries) {
         const snap = payload.snapshots[country];
         if (snap) {
-          await db.restoreSnapshot(snap, country);
-          results[country] = "restored";
+          combined.skus.push(...(snap.skus ?? []));
+          combined.periods.push(...(snap.periods ?? []));
+          combined.forecast.push(...(snap.forecast ?? []));
+          combined.ims.push(...(snap.ims ?? []));
+          combined.shipment.push(...(snap.shipment ?? []));
+          combined.arrival.push(...(snap.arrival ?? []));
+          combined.planningFg.push(...(snap.planningFg ?? []));
+          results[country] = `${(snap.skus ?? []).length} skus`;
         } else {
           results[country] = "no data";
         }
       }
+      // Global restore: clears all tables first, then inserts combined data
+      await db.restoreSnapshot(combined);
+
       // Import clearance events if present
       if (payload.clearanceEvents) {
         for (const country of countries) {
@@ -212,6 +226,9 @@ async function startServer() {
   } else {
     serveStatic(app);
   }
+
+  // Run startup migration (seeds DB from seed-data.json if empty)
+  await runStartupMigration();
 
   const preferredPort = parseInt(process.env.PORT || "5000");
   const port = await findAvailablePort(preferredPort);
