@@ -1667,6 +1667,21 @@ export const appRouter = router({
           },
         };
       }),
+    // Change own password - any authenticated user
+    changePassword: publicProcedure
+      .input(z.object({
+        userId: z.number(),
+        currentPassword: z.string(),
+        newPassword: z.string().min(1),
+        confirmPassword: z.string(),
+      }))
+      .mutation(async ({ input }) => {
+        if (input.newPassword !== input.confirmPassword) {
+          return { success: false, error: "New passwords do not match" };
+        }
+        const result = await db.changeAppUserPassword(input.userId, input.currentPassword, input.newPassword);
+        return result;
+      }),
     // List all users - owner only
     list: publicProcedure
       .input(z.object({ requestingUsername: z.string() }))

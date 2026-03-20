@@ -2205,6 +2205,25 @@ export async function deleteAppUser(id: number) {
   await db.delete(appUsers).where(eq(appUsers.id, id));
 }
 
+export async function changeAppUserPassword(
+  userId: number,
+  currentPassword: string,
+  newPassword: string
+): Promise<{ success: boolean; error?: string }> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const rows = await db.select().from(appUsers).where(eq(appUsers.id, userId)).limit(1);
+  if (rows.length === 0) return { success: false, error: "User not found" };
+  const user = rows[0];
+  if (user.password !== currentPassword.toLowerCase().trim()) {
+    return { success: false, error: "Current password is incorrect" };
+  }
+  const trimmedNew = newPassword.toLowerCase().trim();
+  if (!trimmedNew) return { success: false, error: "New password cannot be empty" };
+  await db.update(appUsers).set({ password: trimmedNew, updatedAt: new Date() }).where(eq(appUsers.id, userId));
+  return { success: true };
+}
+
 export async function verifyAppUserLogin(username: string, password: string, country: string): Promise<{ success: boolean; user?: AppUserRow; error?: string }> {
   const user = await getAppUserByUsername(username);
   if (!user) return { success: false, error: "Invalid username or password" };

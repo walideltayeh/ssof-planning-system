@@ -25,12 +25,14 @@ import {
 } from "@/components/ui/sidebar";
 import { getLoginUrl } from "@/const";
 import { useIsMobile } from "@/hooks/useMobile";
-import { LogOut, PanelLeft, Globe, Users } from "lucide-react";
+import { LogOut, PanelLeft, Globe, Users, KeyRound } from "lucide-react";
 import { trpc } from "@/lib/trpc";
-import { CSSProperties, useEffect, useRef, useState } from "react";
+import { CSSProperties, useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { Button } from "./ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { toast } from "sonner";
 import type { Country } from "@/contexts/CountryContext";
 
 // Lebanon menu items (original)
@@ -162,8 +164,36 @@ function DashboardLayoutContent({
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
   const activeMenuItem = menuItems.find(item => item.path === location);
-  const isMobile = useIsMobile();
 
+  // Change password dialog state
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [cpCurrent, setCpCurrent] = useState("");
+  const [cpNew, setCpNew] = useState("");
+  const [cpConfirm, setCpConfirm] = useState("");
+  const [cpError, setCpError] = useState("");
+
+  const changePasswordMutation = trpc.appUsers.changePassword.useMutation({
+    onSuccess: (result) => {
+      if (result.success) {
+        toast.success("Password changed successfully");
+        setShowChangePassword(false);
+        setCpCurrent(""); setCpNew(""); setCpConfirm(""); setCpError("");
+      } else {
+        setCpError(result.error ?? "Failed to change password");
+      }
+    },
+    onError: (err) => setCpError(err.message),
+  });
+
+  const handleChangePassword = useCallback(() => {
+    setCpError("");
+    if (!cpCurrent || !cpNew || !cpConfirm) { setCpError("All fields are required"); return; }
+    if (cpNew !== cpConfirm) { setCpError("New passwords do not match"); return; }
+    if (!appUser?.id) { setCpError("Not authenticated"); return; }
+    changePasswordMutation.mutate({ userId: appUser.id, currentPassword: cpCurrent, newPassword: cpNew, confirmPassword: cpConfirm });
+  }, [cpCurrent, cpNew, cpConfirm, appUser, changePasswordMutation]);
+
+  const isMobile = useIsMobile();
   const displayName = appUser?.displayName || user?.name || "-";
   const displayRole = appUser?.role || "admin";
   const displayInitial = displayName.charAt(0).toUpperCase();
@@ -423,6 +453,18 @@ function DashboardLayoutContent({
                     <DropdownMenuSeparator />
                   </>
                 )}
+                {appUser && (
+                  <>
+                    <DropdownMenuItem
+                      onClick={() => { setCpCurrent(""); setCpNew(""); setCpConfirm(""); setCpError(""); setShowChangePassword(true); }}
+                      className="cursor-pointer"
+                    >
+                      <KeyRound className="mr-2 h-4 w-4" />
+                      <span>Change Password</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                  </>
+                )}
                 <DropdownMenuItem
                   onClick={handleLogout}
                   className="cursor-pointer text-destructive focus:text-destructive"
@@ -432,6 +474,63 @@ function DashboardLayoutContent({
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+
+            {/* Change Password Dialog */}
+            <Dialog open={showChangePassword} onOpenChange={setShowChangePassword}>
+              <DialogContent className="max-w-sm">
+                <DialogHeader>
+                  <DialogTitle>Change Password</DialogTitle>
+                  <DialogDescription>Enter your current password and choose a new one.</DialogDescription>
+                </DialogHeader>
+                <div className="space-y-3 py-2">
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Current Password</label>
+                    <input
+                      type="password"
+                      className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                      value={cpCurrent}
+                      onChange={e => setCpCurrent(e.target.value)}
+                      placeholder="Current password"
+                      autoComplete="current-password"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">New Password</label>
+                    <input
+                      type="password"
+                      className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                      value={cpNew}
+                      onChange={e => setCpNew(e.target.value)}
+                      placeholder="New password"
+                      autoComplete="new-password"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Confirm New Password</label>
+                    <input
+                      type="password"
+                      className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                      value={cpConfirm}
+                      onChange={e => setCpConfirm(e.target.value)}
+                      placeholder="Confirm new password"
+                      autoComplete="new-password"
+                      onKeyDown={e => { if (e.key === "Enter") handleChangePassword(); }}
+                    />
+                  </div>
+                  {cpError && <p className="text-xs text-destructive font-medium">{cpError}</p>}
+                </div>
+                <DialogFooter className="gap-2">
+                  <Button variant="outline" size="sm" onClick={() => setShowChangePassword(false)}>Cancel</Button>
+                  <Button
+                    size="sm"
+                    onClick={handleChangePassword}
+                    disabled={changePasswordMutation.isPending}
+                  >
+                    {changePasswordMutation.isPending ? "Saving..." : "Change Password"}
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </SidebarFooter>
         </Sidebar>
         <div
