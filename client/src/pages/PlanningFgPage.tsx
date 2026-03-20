@@ -413,6 +413,7 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
   const [editingCell, setEditingCell] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [oldValue, setOldValue] = useState("");
+  const skipBlurRef = useRef(false);
 
   // ── Invoiced SHP dialog state ─────────────────────────────────────────────
   const [invoicedDialog, setInvoicedDialog] = useState<{
@@ -760,6 +761,7 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
       const periodId = parseInt(cellId.slice(firstDash + 1, secondDash));
       const label = cellId.slice(secondDash + 1) as RowLabel;
       handleCellSave(skuId, periodId, label);
+      skipBlurRef.current = true;
     },
     onCancel: () => setEditingCell(null),
     colCount: visiblePeriodCount,
@@ -1086,9 +1088,9 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
                                       min="0"
                                       value={editValue}
                                       onChange={e => setEditValue(e.target.value)}
-                                      onBlur={() => handleForecastSave(sku.id, p.id)}
+                                      onBlur={() => { if (skipBlurRef.current) { skipBlurRef.current = false; return; } handleForecastSave(sku.id, p.id); }}
                                       onKeyDown={e => {
-                                        if (e.key === "Enter") handleForecastSave(sku.id, p.id);
+                                        if (e.key === "Enter") { handleForecastSave(sku.id, p.id); skipBlurRef.current = true; }
                                         else if (e.key === "Escape") setEditingCell(null);
                                       }}
                                       autoFocus
@@ -1183,7 +1185,7 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
                                           type="number"
                                           value={editValue}
                                           onChange={e => setEditValue(e.target.value)}
-                                          onBlur={() => handleCellSave(sku.id, p.id, label)}
+                                          onBlur={() => { if (skipBlurRef.current) { skipBlurRef.current = false; return; } handleCellSave(sku.id, p.id, label); }}
                                           onKeyDown={e => handleCellKeyDown(e, sku.id, p.id, label)}
                                           autoFocus
                                           className="w-full px-1 py-0.5 text-right text-xs border border-primary rounded bg-primary/5 focus:outline-none focus:ring-1 focus:ring-primary"

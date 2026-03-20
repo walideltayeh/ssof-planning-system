@@ -136,6 +136,7 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
   } | null>(null);
   const [editValue, setEditValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const skipBlurRef = useRef(false);
 
   useEffect(() => {
     if (editingCell && inputRef.current) inputRef.current.focus();
@@ -318,11 +319,11 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
     }
   };
 
-  const handleCellBlur = () => {
+  const doSaveCurrentCell = () => {
     if (!editingCell) return;
     const newVal = editValue.trim() === "" ? "0" : editValue;
     const numVal = parseFloat(newVal);
-    if (isNaN(numVal)) { setEditingCell(null); return; }
+    if (isNaN(numVal)) return;
 
     const { label } = editingCell;
     const period = allPeriods.find(p => p.id === editingCell.periodId);
@@ -361,6 +362,14 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
         username: appUser?.displayName,
       });
     }
+  };
+
+  const handleCellBlur = () => {
+    if (skipBlurRef.current) {
+      skipBlurRef.current = false;
+      return;
+    }
+    doSaveCurrentCell();
     setEditingCell(null);
   };
 
@@ -456,7 +465,8 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
       setEditValue(val === 0 ? "" : val.toString());
     },
     onSave: (_cellId) => {
-      handleCellBlur();
+      doSaveCurrentCell();
+      skipBlurRef.current = true;
     },
     onCancel: () => setEditingCell(null),
     colCount: visiblePeriodCount,

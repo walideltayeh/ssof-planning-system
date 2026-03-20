@@ -72,6 +72,7 @@ export default function ForecastPage() {
   const [weekPickerOpen, setWeekPickerOpen] = useState<string | null>(null);
 
   const [editingCell, setEditingCell] = useState<string | null>(null);
+  const skipBlurRef = useRef(false);
   const [editValue, setEditValue] = useState("");
   const [oldValue, setOldValue] = useState("");
   const [excludedSkuIds, setExcludedSkuIds] = useState<Set<number>>(new Set());
@@ -309,6 +310,7 @@ export default function ForecastPage() {
     onSave: (cellId) => {
       const parts = cellId.split("-");
       handleCellSave(parseInt(parts[0]), parseInt(parts[1]));
+      skipBlurRef.current = true;
     },
     onCancel: () => setEditingCell(null),
     colCount: visiblePeriodCount,
@@ -679,7 +681,7 @@ export default function ForecastPage() {
                                       type="number"
                                       value={editValue}
                                       onChange={e => setEditValue(e.target.value)}
-                                      onBlur={() => handleCellSave(sku.id, p.id)}
+                                      onBlur={() => { if (skipBlurRef.current) { skipBlurRef.current = false; return; } handleCellSave(sku.id, p.id); }}
                                       onKeyDown={e => handleCellKeyDown(e, sku.id, p.id)}
                                       autoFocus
                                       className="w-full px-1 py-0.5 text-right text-xs border border-primary rounded bg-primary/5 focus:outline-none focus:ring-1 focus:ring-primary"

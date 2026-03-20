@@ -1,7 +1,7 @@
 import { Fragment } from "react";
 import { trpc } from "@/lib/trpc";
 import { TableSkeleton } from "@/components/TableSkeleton";
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useRef } from "react";
 import { useGridNav } from "@/hooks/useGridNav";
 import { useAppAuth } from "@/contexts/AuthContext";
 import { useCountry } from "@/contexts/CountryContext";
@@ -47,6 +47,7 @@ export default function ImsVsForecastPage() {
   };
 
   const [editingCell, setEditingCell] = useState<string | null>(null);
+  const skipBlurRef = useRef(false);
   const [editValue, setEditValue] = useState("");
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
   const [collapsedYears, setCollapsedYears] = useState<Set<number>>(new Set());
@@ -247,6 +248,7 @@ export default function ImsVsForecastPage() {
     onSave: (cellId) => {
       const parts = cellId.split("-");
       handleCellSave(parseInt(parts[0]), parseInt(parts[1]));
+      skipBlurRef.current = true;
     },
     onCancel: () => setEditingCell(null),
     colCount: visiblePeriodCount,
@@ -647,7 +649,7 @@ export default function ImsVsForecastPage() {
                                           type="number"
                                           value={editValue}
                                           onChange={e => setEditValue(e.target.value)}
-                                          onBlur={() => handleCellSave(sku.id, p.id)}
+                                          onBlur={() => { if (skipBlurRef.current) { skipBlurRef.current = false; return; } handleCellSave(sku.id, p.id); }}
                                           onKeyDown={e => handleCellKeyDown(e, sku.id, p.id)}
                                           autoFocus
                                           className="w-full px-1 py-0.5 text-right text-xs border border-primary rounded bg-primary/5 focus:outline-none focus:ring-1 focus:ring-primary"

@@ -60,6 +60,7 @@ export default function ShipmentPage() {
   });
 
   const [editingCell, setEditingCell] = useState<string | null>(null);
+  const skipBlurRef = useRef(false);
   const [editValue, setEditValue] = useState("");
   const [oldValue, setOldValue] = useState("");
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
@@ -293,6 +294,7 @@ export default function ShipmentPage() {
     onSave: (cellId) => {
       const parts = cellId.split("-");
       handleCellSave(parseInt(parts[0]), parseInt(parts[1]), parts[2]);
+      skipBlurRef.current = true;
     },
     onCancel: () => setEditingCell(null),
     colCount: visibleWeekColCount,
@@ -555,7 +557,7 @@ export default function ShipmentPage() {
                                                 value={editValue}
                                                 autoFocus
                                                 onChange={e => setEditValue(e.target.value)}
-                                                onBlur={() => handleCellSave(sku.id, p.id, wk)}
+                                                onBlur={() => { if (skipBlurRef.current) { skipBlurRef.current = false; return; } handleCellSave(sku.id, p.id, wk); }}
                                                 onKeyDown={e => handleCellKeyDown(e, sku.id, p.id, wk)}
                                               />
                                             ) : (

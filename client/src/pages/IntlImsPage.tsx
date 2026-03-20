@@ -28,6 +28,7 @@ export default function IntlImsPage() {
   });
 
   const [editingCell, setEditingCell] = useState<string | null>(null);
+  const skipBlurRef = useRef(false);
   const [editValue, setEditValue] = useState("");
   const [collapsedYears, setCollapsedYears] = useState<Set<number>>(new Set());
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
@@ -201,6 +202,7 @@ export default function IntlImsPage() {
     onSave: (cellId) => {
       const parts = cellId.split("-");
       handleCellSave(parseInt(parts[0]), parseInt(parts[1]));
+      skipBlurRef.current = true;
     },
     onCancel: () => setEditingCell(null),
     colCount: visiblePeriodCount,
@@ -353,7 +355,7 @@ export default function IntlImsPage() {
                                           className="w-full text-right bg-primary/10 border border-primary rounded px-1 py-0.5 text-xs focus:outline-none"
                                           value={editValue}
                                           onChange={(e) => setEditValue(e.target.value)}
-                                          onBlur={() => handleCellSave(sku.id, p.id)}
+                                          onBlur={() => { if (skipBlurRef.current) { skipBlurRef.current = false; return; } handleCellSave(sku.id, p.id); }}
                                           onKeyDown={(e) => handleKeyDown(e, sku.id, p.id)}
                                         />
                                       ) : (
