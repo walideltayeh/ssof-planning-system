@@ -395,7 +395,7 @@ export async function getShipmentData() {
 export async function upsertShipmentData(
   skuId: number,
   periodId: number,
-  data: { week1?: string; week2?: string; week3?: string; week4?: string; arrivalOffsetValue?: number; arrivalOffsetUnit?: string; note?: string | null }
+  data: { week1?: string; week2?: string; week3?: string; week4?: string; arrivalOffsetValue?: number; arrivalOffsetUnit?: string; note?: string | null; invoiceRef?: string | null; containerRef?: string | null }
 ) {
   const db = await getDb();
   if (!db) return;
@@ -1023,6 +1023,8 @@ export async function restoreSnapshot(snapshot: any, country?: Country) {
         clearedDate: d.clearedDate ?? null,
         pendingClearDate: d.pendingClearDate ?? null,
         note: d.note ?? null,
+        invoiceRef: d.invoiceRef ?? null,
+        containerRef: d.containerRef ?? null,
       })));
     }
   }

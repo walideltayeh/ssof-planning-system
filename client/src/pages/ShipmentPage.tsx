@@ -72,6 +72,17 @@ export default function ShipmentPage() {
   const [offsetValue, setOffsetValue] = useState<string>("");
   const [offsetUnit, setOffsetUnit] = useState<"days" | "weeks" | "months">("days");
 
+  // Invoice / Container ref editing state
+  const [editingInvoice, setEditingInvoice] = useState<string | null>(null);
+  const [invoiceValue, setInvoiceValue] = useState<string>("");
+  const [editingContainer, setEditingContainer] = useState<string | null>(null);
+  const [containerValue, setContainerValue] = useState<string>("");
+
+  const updateRefsIntl = trpc.country.updateProductionRefs.useMutation({
+    onSuccess: () => utils.country.data.invalidate(),
+    onError: (err) => toast.error("Failed to save: " + err.message),
+  });
+
   const toggleYear = useCallback((year: number) => {
     setCollapsedYears(prev => {
       const next = new Set(prev);
@@ -107,11 +118,12 @@ export default function ShipmentPage() {
     });
   }, []);
 
-  // Map: skuId-periodId -> full shipment row (including arrivalOffset fields)
+  // Map: skuId-periodId -> full shipment row (including arrivalOffset + refs)
   const dataMap = useMemo(() => {
     const map = new Map<string, {
       week1: string; week2: string; week3: string; week4: string;
       arrivalOffsetValue?: number | null; arrivalOffsetUnit?: string | null;
+      invoiceRef?: string | null; containerRef?: string | null;
     }>();
     if (data?.data) {
       for (const d of data.data) {
@@ -120,6 +132,8 @@ export default function ShipmentPage() {
           week3: d.week3 ?? "0", week4: d.week4 ?? "0",
           arrivalOffsetValue: (d as any).arrivalOffsetValue ?? 0,
           arrivalOffsetUnit: (d as any).arrivalOffsetUnit ?? "days",
+          invoiceRef: (d as any).invoiceRef ?? null,
+          containerRef: (d as any).containerRef ?? null,
         });
       }
     }
@@ -203,6 +217,22 @@ export default function ShipmentPage() {
     });
     setOffsetEditing(null);
   }, [offsetValue, offsetUnit, updateCellIntl, country, appUser, data, dataMap]);
+
+  // Save invoice or container ref for a Syria/Libya production entry
+  const handleRefSave = useCallback((skuId: number, periodId: number, field: "invoiceRef" | "containerRef", value: string) => {
+    const sku = data?.skus.find(s => s.id === skuId);
+    const period = data?.periods.find(p => p.id === periodId);
+    updateRefsIntl.mutate({
+      skuId, periodId,
+      [field]: value || null,
+      country: country as "Syria" | "Libya",
+      username: appUser?.displayName,
+      skuName: sku?.name,
+      periodLabel: period?.label,
+    });
+    if (field === "invoiceRef") setEditingInvoice(null);
+    else setEditingContainer(null);
+  }, [updateRefsIntl, country, appUser, data]);
 
   const years = Array.from(new Set(periods.map(p => p.year))).sort();
   const periodsByYear = years.map(year => ({
@@ -543,48 +573,102 @@ export default function ShipmentPage() {
                                       <td className="px-1 py-1 text-right border-l-2 border-amber-400 bg-amber-50 font-bold text-amber-900 min-w-[50px]">
                                         {formatNumber(monthTotal)}
                                       </td>
-                                      {/* Arrival offset column (Syria/Libya only) */}
-                                      {!isLebanon && !isPeriodCollapsed && (
-                                        <td className="px-1 py-1 text-center border-l border-border/30 min-w-[90px]">
-                                          {isEditingOffset ? (
-                                            <div className="flex items-center gap-0.5">
-                                              <input
-                                                type="number"
-                                                min={0}
-                                                className="w-10 text-right bg-amber-50 border border-amber-400 rounded px-1 py-0.5 text-xs focus:outline-none"
-                                                value={offsetValue}
-                                                autoFocus
-                                                onChange={e => setOffsetValue(e.target.value)}
-                                                onKeyDown={e => { if (e.key === "Enter") handleOffsetSave(sku.id, p.id); if (e.key === "Escape") setOffsetEditing(null); }}
-                                              />
-                                              <select
-                                                className="text-[10px] border border-amber-400 rounded px-0.5 py-0.5 bg-amber-50 focus:outline-none"
-                                                value={offsetUnit}
-                                                onChange={e => setOffsetUnit(e.target.value as "days" | "weeks" | "months")}
-                                              >
-                                                <option value="days">d</option>
-                                                <option value="weeks">w</option>
-                                                <option value="months">m</option>
-                                              </select>
-                                              <button onClick={() => handleOffsetSave(sku.id, p.id)} className="text-[10px] bg-amber-500 text-white rounded px-1 py-0.5 hover:bg-amber-600">✓</button>
+                                      {/* Arrival offset + Invoice + Container (Syria/Libya only) */}
+                                      {!isLebanon && !isPeriodCollapsed && (() => {
+                                        const refData = dataMap.get(`${sku.id}-${p.id}`);
+                                        const savedInvoice = refData?.invoiceRef ?? "";
+                                        const savedContainer = refData?.containerRef ?? "";
+                                        const refKey = `${sku.id}-${p.id}`;
+                                        // For Libya, treat 0 offset as 30d for display purposes
+                                        const displayOffVal = (!hasOffset && country === "Libya") ? 30 : offVal;
+                                        const displayArrivalDate = displayOffVal > 0 ? computeArrivalDate(p.year, p.month, displayOffVal, offUnit) : null;
+                                        return (
+                                          <td className="px-1 py-1 text-center border-l border-border/30 min-w-[110px]">
+                                            <div className="flex flex-col gap-0.5">
+                                              {/* Offset row */}
+                                              {isEditingOffset ? (
+                                                <div className="flex items-center gap-0.5">
+                                                  <input
+                                                    type="number"
+                                                    min={0}
+                                                    className="w-10 text-right bg-amber-50 border border-amber-400 rounded px-1 py-0.5 text-xs focus:outline-none"
+                                                    value={offsetValue}
+                                                    autoFocus
+                                                    onChange={e => setOffsetValue(e.target.value)}
+                                                    onKeyDown={e => { if (e.key === "Enter") handleOffsetSave(sku.id, p.id); if (e.key === "Escape") setOffsetEditing(null); }}
+                                                  />
+                                                  <select
+                                                    className="text-[10px] border border-amber-400 rounded px-0.5 py-0.5 bg-amber-50 focus:outline-none"
+                                                    value={offsetUnit}
+                                                    onChange={e => setOffsetUnit(e.target.value as "days" | "weeks" | "months")}
+                                                  >
+                                                    <option value="days">d</option>
+                                                    <option value="weeks">w</option>
+                                                    <option value="months">m</option>
+                                                  </select>
+                                                  <button onClick={() => handleOffsetSave(sku.id, p.id)} className="text-[10px] bg-amber-500 text-white rounded px-1 py-0.5 hover:bg-amber-600">✓</button>
+                                                </div>
+                                              ) : (
+                                                <button
+                                                  className={`text-[10px] rounded px-1.5 py-0.5 transition-colors w-full text-center ${(hasOffset || (country === "Libya" && !hasOffset)) ? "bg-amber-100 text-amber-700 hover:bg-amber-200 font-medium" : "text-muted-foreground hover:bg-muted"}`}
+                                                  onClick={() => {
+                                                    setOffsetEditing(offsetKey);
+                                                    setOffsetValue(offVal > 0 ? offVal.toString() : (country === "Libya" ? "30" : ""));
+                                                    setOffsetUnit(offUnit);
+                                                  }}
+                                                  title="Set arrival offset"
+                                                >
+                                                  {(hasOffset || displayOffVal > 0)
+                                                    ? `+${displayOffVal}${offUnit === "days" ? "d" : offUnit === "weeks" ? "w" : "m"} → ${displayArrivalDate ? formatArrivalDate(displayArrivalDate) : ""}`
+                                                    : "Set offset"}
+                                                </button>
+                                              )}
+                                              {/* Invoice box */}
+                                              {editingInvoice === refKey ? (
+                                                <input
+                                                  type="text"
+                                                  autoFocus
+                                                  placeholder="Invoice #"
+                                                  className="w-full text-[10px] border border-blue-300 rounded px-1 py-0.5 bg-blue-50 focus:outline-none focus:border-blue-500"
+                                                  value={invoiceValue}
+                                                  onChange={e => setInvoiceValue(e.target.value)}
+                                                  onBlur={() => handleRefSave(sku.id, p.id, "invoiceRef", invoiceValue)}
+                                                  onKeyDown={e => { if (e.key === "Enter") handleRefSave(sku.id, p.id, "invoiceRef", invoiceValue); if (e.key === "Escape") setEditingInvoice(null); }}
+                                                />
+                                              ) : (
+                                                <button
+                                                  className={`text-[10px] rounded px-1.5 py-0.5 w-full text-left transition-colors truncate ${savedInvoice ? "bg-blue-50 text-blue-700 font-medium hover:bg-blue-100" : "text-muted-foreground/60 hover:bg-muted"}`}
+                                                  onClick={() => { setEditingInvoice(refKey); setInvoiceValue(savedInvoice); }}
+                                                  title={savedInvoice ? `Invoice: ${savedInvoice}` : "Add invoice #"}
+                                                >
+                                                  {savedInvoice || <span className="italic">Invoice #</span>}
+                                                </button>
+                                              )}
+                                              {/* Container box */}
+                                              {editingContainer === refKey ? (
+                                                <input
+                                                  type="text"
+                                                  autoFocus
+                                                  placeholder="Container #"
+                                                  className="w-full text-[10px] border border-emerald-300 rounded px-1 py-0.5 bg-emerald-50 focus:outline-none focus:border-emerald-500"
+                                                  value={containerValue}
+                                                  onChange={e => setContainerValue(e.target.value)}
+                                                  onBlur={() => handleRefSave(sku.id, p.id, "containerRef", containerValue)}
+                                                  onKeyDown={e => { if (e.key === "Enter") handleRefSave(sku.id, p.id, "containerRef", containerValue); if (e.key === "Escape") setEditingContainer(null); }}
+                                                />
+                                              ) : (
+                                                <button
+                                                  className={`text-[10px] rounded px-1.5 py-0.5 w-full text-left transition-colors truncate ${savedContainer ? "bg-emerald-50 text-emerald-700 font-medium hover:bg-emerald-100" : "text-muted-foreground/60 hover:bg-muted"}`}
+                                                  onClick={() => { setEditingContainer(refKey); setContainerValue(savedContainer); }}
+                                                  title={savedContainer ? `Container: ${savedContainer}` : "Add container #"}
+                                                >
+                                                  {savedContainer || <span className="italic">Container #</span>}
+                                                </button>
+                                              )}
                                             </div>
-                                          ) : (
-                                            <button
-                                              className={`text-[10px] rounded px-1.5 py-0.5 transition-colors w-full text-center ${hasOffset ? "bg-amber-100 text-amber-700 hover:bg-amber-200 font-medium" : "text-muted-foreground hover:bg-muted"}`}
-                                              onClick={() => {
-                                                setOffsetEditing(offsetKey);
-                                                setOffsetValue(offVal > 0 ? offVal.toString() : (country === "Libya" ? "30" : ""));
-                                                setOffsetUnit(offUnit);
-                                              }}
-                                              title="Set arrival offset"
-                                            >
-                                              {hasOffset
-                                                ? `+${offVal}${offUnit === "days" ? "d" : offUnit === "weeks" ? "w" : "m"} → ${arrivalDate ? formatArrivalDate(arrivalDate) : ""}`
-                                                : "Set offset"}
-                                            </button>
-                                          )}
-                                        </td>
-                                      )}
+                                          </td>
+                                        );
+                                      })()}
                                     </Fragment>
                                   );
                                 })}

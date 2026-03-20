@@ -7,6 +7,21 @@ import * as db from "./db";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+async function ensureSchemaColumns(dbInstance: any) {
+  // Add any missing columns that may not exist in older production schemas
+  const alterStatements = [
+    `ALTER TABLE shipment_data ADD COLUMN IF NOT EXISTS "invoiceRef" varchar(200)`,
+    `ALTER TABLE shipment_data ADD COLUMN IF NOT EXISTS "containerRef" varchar(200)`,
+  ];
+  for (const sql of alterStatements) {
+    try {
+      await dbInstance.execute(sql);
+    } catch (e: any) {
+      console.warn(`[Migration] Schema alter skip: ${e.message}`);
+    }
+  }
+}
+
 export async function runStartupMigration() {
   try {
     const dbInstance = await (db as any).getDb?.();
@@ -14,6 +29,9 @@ export async function runStartupMigration() {
       console.log("[Migration] DB not available, skipping startup migration.");
       return;
     }
+
+    // Ensure any new columns exist in the schema (idempotent)
+    await ensureSchemaColumns(dbInstance);
 
     // Check if DB is already seeded
     const { getSkusForCountry, restoreSnapshot, importClearanceEvent } = db;

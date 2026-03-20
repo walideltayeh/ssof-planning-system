@@ -1221,6 +1221,8 @@ export const appRouter = router({
         arrivalOffsetValue: z.number().optional(),
         arrivalOffsetUnit: z.enum(["days", "weeks", "months"]).optional(),
         note: z.string().nullable().optional(),
+        invoiceRef: z.string().nullable().optional(),
+        containerRef: z.string().nullable().optional(),
         country: z.enum(["Lebanon", "Syria", "Libya"]),
         username: z.string().optional(), skuName: z.string().optional(), periodLabel: z.string().optional(),
       }))
@@ -1230,12 +1232,35 @@ export const appRouter = router({
           arrivalOffsetValue: input.arrivalOffsetValue,
           arrivalOffsetUnit: input.arrivalOffsetUnit,
           note: input.note,
+          invoiceRef: input.invoiceRef,
+          containerRef: input.containerRef,
         });
         await db.logAudit({
           country: input.country, username: input.username || "System",
           action: "edit", sheet: "Production",
           skuName: input.skuName, periodLabel: input.periodLabel,
           details: `Updated production weeks`,
+        });
+        return { success: true };
+      }),
+    updateProductionRefs: publicProcedure
+      .input(z.object({
+        skuId: z.number(), periodId: z.number(),
+        invoiceRef: z.string().nullable().optional(),
+        containerRef: z.string().nullable().optional(),
+        country: z.enum(["Lebanon", "Syria", "Libya"]),
+        username: z.string().optional(), skuName: z.string().optional(), periodLabel: z.string().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        await db.upsertShipmentData(input.skuId, input.periodId, {
+          invoiceRef: input.invoiceRef,
+          containerRef: input.containerRef,
+        });
+        await db.logAudit({
+          country: input.country, username: input.username || "System",
+          action: "edit", sheet: "Production",
+          skuName: input.skuName, periodLabel: input.periodLabel,
+          details: `Updated refs — Invoice: ${input.invoiceRef ?? ""}, Container: ${input.containerRef ?? ""}`,
         });
         return { success: true };
       }),

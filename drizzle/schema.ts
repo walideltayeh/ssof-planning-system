@@ -101,6 +101,8 @@ export const shipmentData = pgTable("shipment_data", {
   clearedDate: date("clearedDate"),
   pendingClearDate: date("pendingClearDate"),
   note: text("note"),
+  invoiceRef: varchar("invoiceRef", { length: 200 }),
+  containerRef: varchar("containerRef", { length: 200 }),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
 export type ShipmentData = typeof shipmentData.$inferSelect;
