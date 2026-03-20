@@ -14,30 +14,22 @@
  *   onKeyDown={e => handleNavKeyDown(e, cellId)}
  *
  * Navigation rules:
- *   ArrowRight / Tab           → next cell in list (wraps to next row)
- *   ArrowLeft  / Shift+Tab     → previous cell in list
- *   ArrowDown                  → cell in same column, next row
- *   ArrowUp                    → cell in same column, previous row
- *   Enter                      → save + move to next cell (same as ArrowRight)
+ *   ArrowRight / Tab           → save + next cell in list
+ *   ArrowLeft  / Shift+Tab     → save + previous cell in list
+ *   ArrowDown                  → save + cell in same column, next row (falls back to idx+1)
+ *   ArrowUp                    → save + cell in same column, previous row (falls back to idx-1)
+ *   Enter                      → save + next cell (idx+1), or just save if at end
  *   Escape                     → cancel without saving
  */
 
 import { useCallback } from "react";
 
 interface UseGridNavOptions {
-  /** Flat ordered list of all navigable cell IDs in reading order (left→right, top→bottom). */
   cellIds: string[];
   editingCell: string | null;
   setEditingCell: (id: string | null) => void;
-  /** Called with the current cell ID to commit the current edit value before moving. */
   onSave: (cellId: string) => void;
-  /** Called when Escape is pressed — should cancel the edit without saving. */
   onCancel: () => void;
-  /**
-   * Number of columns in the grid (i.e. how many cells per row).
-   * Used to compute ArrowUp/ArrowDown jumps.
-   * If omitted, Up/Down behave like Left/Right (sequential).
-   */
   colCount?: number;
 }
 
@@ -53,60 +45,60 @@ export function useGridNav({
     (e: React.KeyboardEvent, cellId: string) => {
       const idx = cellIds.indexOf(cellId);
 
-      const moveToIndex = (targetIdx: number) => {
-        if (targetIdx < 0 || targetIdx >= cellIds.length) return;
-        // Save current cell first
+      // Always save first, then navigate to target (or close editor if no valid target).
+      const saveAndMove = (targetIdx: number) => {
         onSave(cellId);
-        // Open the target cell
-        setEditingCell(cellIds[targetIdx]);
+        if (targetIdx >= 0 && targetIdx < cellIds.length) {
+          setEditingCell(cellIds[targetIdx]);
+        } else {
+          setEditingCell(null);
+        }
       };
 
       switch (e.key) {
         case "ArrowRight":
           e.preventDefault();
-          moveToIndex(idx + 1);
+          saveAndMove(idx + 1);
           break;
 
         case "ArrowLeft":
           e.preventDefault();
-          moveToIndex(idx - 1);
+          saveAndMove(idx - 1);
           break;
 
         case "ArrowDown":
           e.preventDefault();
           if (colCount && colCount > 0) {
-            moveToIndex(idx + colCount);
+            saveAndMove(idx + colCount);
           } else {
-            moveToIndex(idx + 1);
+            saveAndMove(idx + 1);
           }
           break;
 
         case "ArrowUp":
           e.preventDefault();
           if (colCount && colCount > 0) {
-            moveToIndex(idx - colCount);
+            saveAndMove(idx - colCount);
           } else {
-            moveToIndex(idx - 1);
+            saveAndMove(idx - 1);
           }
           break;
 
         case "Tab":
           e.preventDefault();
           if (e.shiftKey) {
-            moveToIndex(idx - 1);
+            saveAndMove(idx - 1);
           } else {
-            moveToIndex(idx + 1);
+            saveAndMove(idx + 1);
           }
           break;
 
         case "Enter":
           e.preventDefault();
-          // Enter saves and moves down (like Excel default)
-          if (colCount && colCount > 0) {
-            moveToIndex(idx + colCount);
-          } else {
-            moveToIndex(idx + 1);
-          }
+          // Enter: save and move to the next cell in the list (idx+1).
+          // Using idx+1 (not colCount) because rows may have different numbers
+          // of editable cells, making colCount-based jumps unreliable.
+          saveAndMove(idx + 1);
           break;
 
         case "Escape":
