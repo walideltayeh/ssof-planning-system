@@ -506,6 +506,8 @@ export async function addClearanceEvent(data: {
   clearedDate: string; // YYYY-MM-DD
   pendingClearDate?: string | null;
   notes?: string | null;
+  invoiceRef?: string | null;
+  containerRef?: string | null;
 }): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -517,6 +519,8 @@ export async function addClearanceEvent(data: {
     clearedDate: new Date(data.clearedDate) as any,
     pendingClearDate: data.pendingClearDate ? new Date(data.pendingClearDate) as any : null,
     notes: data.notes ?? null,
+    invoiceRef: data.invoiceRef ?? null,
+    containerRef: data.containerRef ?? null,
   }).returning({ id: clearanceEvents.id });
   // After adding event, sync shipmentData.clearedQty and status
   await syncShipmentClearedFromEvents(data.skuId, data.periodId, data.country);
@@ -535,6 +539,8 @@ export async function updateClearanceEvent(eventId: number, data: {
   clearedDate?: string;
   pendingClearDate?: string | null;
   notes?: string | null;
+  invoiceRef?: string | null;
+  containerRef?: string | null;
   skuId: number;
   periodId: number;
   country: Country;
@@ -546,6 +552,8 @@ export async function updateClearanceEvent(eventId: number, data: {
   if (data.clearedDate !== undefined) updateData.clearedDate = new Date(data.clearedDate);
   if (data.pendingClearDate !== undefined) updateData.pendingClearDate = data.pendingClearDate ? new Date(data.pendingClearDate) : null;
   if (data.notes !== undefined) updateData.notes = data.notes;
+  if (data.invoiceRef !== undefined) updateData.invoiceRef = data.invoiceRef;
+  if (data.containerRef !== undefined) updateData.containerRef = data.containerRef;
   if (Object.keys(updateData).length > 0) {
     await db.update(clearanceEvents).set(updateData).where(eq(clearanceEvents.id, eventId));
   }

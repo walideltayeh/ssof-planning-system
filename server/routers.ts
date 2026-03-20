@@ -1465,6 +1465,8 @@ export const appRouter = router({
         clearedDate: z.string(), // YYYY-MM-DD
         pendingClearDate: z.string().nullable().optional(),
         notes: z.string().nullable().optional(),
+        invoiceRef: z.string().nullable().optional(),
+        containerRef: z.string().nullable().optional(),
         username: z.string().optional(),
         skuName: z.string().optional(),
         periodLabel: z.string().optional(),
@@ -1494,6 +1496,8 @@ export const appRouter = router({
         clearedDate: z.string().optional(),
         pendingClearDate: z.string().nullable().optional(),
         notes: z.string().nullable().optional(),
+        invoiceRef: z.string().nullable().optional(),
+        containerRef: z.string().nullable().optional(),
         username: z.string().optional(),
         skuName: z.string().optional(),
         periodLabel: z.string().optional(),

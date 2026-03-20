@@ -168,7 +168,7 @@ export default function ArrivalPage() {
 
   // Map: batchKey -> clearance events
   const clearanceEventsMap = useMemo(() => {
-    const map = new Map<string, Array<{ id: number; clearedQty: string; clearedDate: string | Date; pendingClearDate: string | Date | null; notes: string | null }>>();
+    const map = new Map<string, Array<{ id: number; clearedQty: string; clearedDate: string | Date; pendingClearDate: string | Date | null; notes: string | null; invoiceRef: string | null; containerRef: string | null }>>();
     if (clearanceEventsData) {
       for (const ev of clearanceEventsData) {
         const key = `${ev.skuId}-${ev.periodId}`;
@@ -186,7 +186,7 @@ export default function ArrivalPage() {
   }, []);
 
   // State for add-clearance inline form per batch
-  const [addingClearance, setAddingClearance] = useState<Record<string, { qty: string; clearedDate: string; pendingClearDate: string; notes: string }>>({});
+  const [addingClearance, setAddingClearance] = useState<Record<string, { qty: string; clearedDate: string; pendingClearDate: string; invoiceRef: string; containerRef: string }>>({});
 
   const addClearanceEvent = trpc.country.addClearanceEvent.useMutation({
     onSuccess: () => { utils.country.data.invalidate(); utils.country.clearanceEvents.invalidate(); utils.country.planningFg.invalidate(); },
@@ -875,7 +875,8 @@ export default function ArrivalPage() {
                               <th className="px-2 py-1.5 text-left font-medium text-teal-700">Cleared Date</th>
                               <th className="px-2 py-1.5 text-right font-medium text-amber-700">Pending Qty</th>
                               <th className="px-2 py-1.5 text-left font-medium text-violet-700">Pending Clear Date</th>
-                              <th className="px-2 py-1.5 text-left font-medium text-muted-foreground">Invoice / Container No.</th>
+                              <th className="px-2 py-1.5 text-left font-medium text-blue-700">Invoice #</th>
+                              <th className="px-2 py-1.5 text-left font-medium text-emerald-700">Container #</th>
                               <th className="px-2 py-1.5 text-center font-medium text-muted-foreground">Actions</th>
                             </tr>
                           </thead>
@@ -941,17 +942,33 @@ export default function ArrivalPage() {
                                       <span className="text-[10px] text-muted-foreground italic">Superseded</span>
                                     )}
                                   </td>
-                                  {/* Invoice / Container No. - editable */}
+                                  {/* Invoice # - editable */}
                                   <td className="px-2 py-1.5">
                                     <input
                                       type="text"
-                                      className="text-xs border border-border rounded px-1 py-0.5 bg-white focus:outline-none focus:ring-1 focus:ring-primary w-full min-w-[120px]"
-                                      defaultValue={ev.notes ?? ""}
-                                      placeholder="INV / Container No."
+                                      className="text-xs border border-blue-200 rounded px-1 py-0.5 bg-blue-50/40 focus:outline-none focus:ring-1 focus:ring-blue-400 w-full min-w-[100px]"
+                                      defaultValue={ev.invoiceRef ?? ""}
+                                      placeholder="Invoice #"
                                       onBlur={e => {
                                         const val = e.target.value || null;
-                                        if (val !== (ev.notes ?? null)) {
-                                          updateClearanceEvent.mutate({ eventId: ev.id, skuId: batch.sku.id, periodId: batch.period.id, country: country as "Syria" | "Libya", notes: val, username: appUser?.displayName, skuName: batch.sku.name, periodLabel: batch.period.label });
+                                        if (val !== (ev.invoiceRef ?? null)) {
+                                          updateClearanceEvent.mutate({ eventId: ev.id, skuId: batch.sku.id, periodId: batch.period.id, country: country as "Syria" | "Libya", invoiceRef: val, username: appUser?.displayName, skuName: batch.sku.name, periodLabel: batch.period.label });
+                                        }
+                                      }}
+                                      onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                                    />
+                                  </td>
+                                  {/* Container # - editable */}
+                                  <td className="px-2 py-1.5">
+                                    <input
+                                      type="text"
+                                      className="text-xs border border-emerald-200 rounded px-1 py-0.5 bg-emerald-50/40 focus:outline-none focus:ring-1 focus:ring-emerald-400 w-full min-w-[100px]"
+                                      defaultValue={ev.containerRef ?? ""}
+                                      placeholder="Container #"
+                                      onBlur={e => {
+                                        const val = e.target.value || null;
+                                        if (val !== (ev.containerRef ?? null)) {
+                                          updateClearanceEvent.mutate({ eventId: ev.id, skuId: batch.sku.id, periodId: batch.period.id, country: country as "Syria" | "Libya", containerRef: val, username: appUser?.displayName, skuName: batch.sku.name, periodLabel: batch.period.label });
                                         }
                                       }}
                                       onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
@@ -1006,14 +1023,24 @@ export default function ArrivalPage() {
                               onChange={e => setAddingClearance(prev => ({ ...prev, [batchKey]: { ...prev[batchKey], pendingClearDate: e.target.value } }))}
                             />
                           </div>
-                          <div className="flex flex-col gap-0.5 flex-1 min-w-[120px]">
-                            <label className="text-[10px] font-medium text-muted-foreground">Notes</label>
+                          <div className="flex flex-col gap-0.5 min-w-[100px]">
+                            <label className="text-[10px] font-medium text-blue-700">Invoice #</label>
                             <input
                               type="text"
-                              className="text-xs border border-border rounded px-1 py-1 focus:outline-none focus:ring-1 focus:ring-primary w-full"
-                              placeholder="Optional notes..."
-                              value={addForm.notes}
-                              onChange={e => setAddingClearance(prev => ({ ...prev, [batchKey]: { ...prev[batchKey], notes: e.target.value } }))}
+                              className="text-xs border border-blue-200 rounded px-1 py-1 bg-blue-50/40 focus:outline-none focus:ring-1 focus:ring-blue-400 w-full"
+                              placeholder="Invoice #"
+                              value={addForm.invoiceRef}
+                              onChange={e => setAddingClearance(prev => ({ ...prev, [batchKey]: { ...prev[batchKey], invoiceRef: e.target.value } }))}
+                            />
+                          </div>
+                          <div className="flex flex-col gap-0.5 min-w-[100px]">
+                            <label className="text-[10px] font-medium text-emerald-700">Container #</label>
+                            <input
+                              type="text"
+                              className="text-xs border border-emerald-200 rounded px-1 py-1 bg-emerald-50/40 focus:outline-none focus:ring-1 focus:ring-emerald-400 w-full"
+                              placeholder="Container #"
+                              value={addForm.containerRef}
+                              onChange={e => setAddingClearance(prev => ({ ...prev, [batchKey]: { ...prev[batchKey], containerRef: e.target.value } }))}
                             />
                           </div>
                           <div className="flex gap-1">
@@ -1030,7 +1057,8 @@ export default function ArrivalPage() {
                                   clearedQty: qty.toString(),
                                   clearedDate: addForm.clearedDate,
                                   pendingClearDate: addForm.pendingClearDate || null,
-                                  notes: addForm.notes || null,
+                                  invoiceRef: addForm.invoiceRef || null,
+                                  containerRef: addForm.containerRef || null,
                                   username: appUser?.displayName,
                                   skuName: batch.sku.name,
                                   periodLabel: batch.period.label,
@@ -1048,7 +1076,7 @@ export default function ArrivalPage() {
                       ) : (
                         <button
                           className="text-xs text-teal-700 font-medium px-3 py-1.5 rounded border border-teal-200 hover:bg-teal-50 transition-colors"
-                          onClick={() => setAddingClearance(prev => ({ ...prev, [batchKey]: { qty: "", clearedDate: new Date().toISOString().substring(0, 10), pendingClearDate: "", notes: "" } }))}
+                          onClick={() => setAddingClearance(prev => ({ ...prev, [batchKey]: { qty: "", clearedDate: new Date().toISOString().substring(0, 10), pendingClearDate: "", invoiceRef: "", containerRef: "" } }))}
                         >+ Add Clearance Event</button>
                       )}
                     </div>

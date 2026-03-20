@@ -144,6 +144,8 @@ export const clearanceEvents = pgTable("clearance_events", {
   clearedDate: date("clearedDate").notNull(),
   pendingClearDate: date("pendingClearDate"),
   notes: text("notes"),
+  invoiceRef: varchar("invoiceRef", { length: 200 }),
+  containerRef: varchar("containerRef", { length: 200 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
