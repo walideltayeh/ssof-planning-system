@@ -28,9 +28,9 @@ type RowLabel = typeof ROW_LABELS[number];
 const NO_TOTAL_ROWS = new Set<RowLabel>(["Opening Stock", "Closing Stock - Weeks"]);
 
 // Editable for current month + future (uses isFuturePeriod: month >= currentMonth)
-const FUTURE_EDITABLE_ROWS = new Set<RowLabel>(["Adjustments"]);
+const FUTURE_EDITABLE_ROWS = new Set<RowLabel>(["Adjustments", "IMS"]);
 // Editable for strictly future months only — next month and beyond (uses isStrictlyFuture: month > currentMonth)
-const STRICTLY_FUTURE_EDITABLE_ROWS = new Set<RowLabel>(["IMS", "Production"]);
+const STRICTLY_FUTURE_EDITABLE_ROWS = new Set<RowLabel>(["Production"]);
 
 const DEFAULT_HEALTHY_MIN = 4;
 const DEFAULT_HEALTHY_MAX = 6;
@@ -427,7 +427,7 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
         if (isFuturePeriod(p)) ids.push(`${sku.id}-${p.id}-Adjustments`);
       }
       for (const p of visiblePeriods) {
-        if (isStrictlyFuture(p)) ids.push(`${sku.id}-${p.id}-IMS`);
+        if (isFuturePeriod(p)) ids.push(`${sku.id}-${p.id}-IMS`);
       }
       for (const p of visiblePeriods) {
         if (isStrictlyFuture(p)) ids.push(`${sku.id}-${p.id}-Production`);
