@@ -1,7 +1,7 @@
 import { Fragment } from "react";
 import { trpc } from "@/lib/trpc";
 import { TableSkeleton } from "@/components/TableSkeleton";
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useRef } from "react";
 import { useGridNav } from "@/hooks/useGridNav";
 import { useAppAuth } from "@/contexts/AuthContext";
 import { useCountry } from "@/contexts/CountryContext";
