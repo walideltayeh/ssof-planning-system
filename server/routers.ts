@@ -2257,27 +2257,126 @@ REQUIRED OUTPUT FORMAT (valid JSON only, no markdown):
   "warnings": string[] (critical alerts: stock-outs, overstocks, data gaps, competitive risks),
   "marketSummary": string (2-3 sentences: Al Fakher's position in ${country} for ${monthName} ${targetYear}, key demand drivers, and outlook)
 }`;
-        const llmResponse = await invokeLLM({
-          messages: [
-            { role: 'system', content: 'You are a senior FMCG demand planner and data analyst specializing in the Middle East and North Africa shisha tobacco market. You have deep expertise in Al Fakher products, regional consumption patterns, Ramadan seasonality, and competitive dynamics. Always respond with valid JSON only, no markdown.' },
-            { role: 'user', content: prompt },
-          ],
-          response_format: { type: 'json_object' },
-        });
-        const rawContent = llmResponse.choices[0].message.content;
-        const content = typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent);
         let parsed: any;
-        try {
-          parsed = JSON.parse(content);
-        } catch {
-          throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'LLM returned invalid JSON' });
+        const hasLlmKey = !!(process.env.BUILT_IN_FORGE_API_KEY && process.env.BUILT_IN_FORGE_API_KEY.trim());
+
+        if (hasLlmKey) {
+          try {
+            const llmResponse = await invokeLLM({
+              messages: [
+                { role: 'system', content: 'You are a senior FMCG demand planner and data analyst specializing in the Middle East and North Africa shisha tobacco market. You have deep expertise in Al Fakher products, regional consumption patterns, Ramadan seasonality, and competitive dynamics. Always respond with valid JSON only, no markdown.' },
+                { role: 'user', content: prompt },
+              ],
+              response_format: { type: 'json_object' },
+            });
+            const rawContent = llmResponse.choices[0].message.content;
+            const content = typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent);
+            try {
+              parsed = JSON.parse(content);
+            } catch {
+              throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'LLM returned invalid JSON' });
+            }
+          } catch (llmErr: any) {
+            console.warn('[ForecastSplit] LLM call failed, falling back to algorithmic model:', llmErr?.message);
+            parsed = null;
+          }
         }
 
-        // Post-process: forcefully correct any Ramadan driver hallucinations
+        if (!parsed) {
+          const algorithmicRecs = skuSummaries.map(sk => {
+            const allocPct = skuBaseAllocPct[sk.name] ?? 0;
+            const mc = Math.round(totalMastercases * allocPct / 100);
+            const skuObj = skus.find(s => `${s.name} ${s.weight}` === sk.name);
+            const health = skuObj ? stockHealthBySku[skuObj.id] : null;
+            const conf = skuConfidenceScores[sk.name] ?? 50;
+
+            let trend: string = 'stable';
+            const rt = parseFloat(String(sk.rollingTrend));
+            if (!isNaN(rt)) { if (rt > 10) trend = 'growing'; else if (rt < -10) trend = 'declining'; }
+            if (sk.monthsOfData < 3) trend = 'new';
+
+            let stockAlert = 'unknown';
+            if (health) {
+              const zone = health.targetMonthZone;
+              if (zone === 'Critical' || zone === 'Negative' || zone === 'Out of Stock') stockAlert = 'critical';
+              else if (zone === 'Overstock') stockAlert = 'overstock';
+              else if (zone === 'Healthy') stockAlert = 'healthy';
+            }
+
+            let primaryDriver = 'historical_share';
+            if (health) {
+              const driverZone = health.targetMonthZone ?? health.currentZone;
+              if (driverZone === 'Critical' || driverZone === 'Negative' || driverZone === 'Out of Stock') primaryDriver = 'stock_critical';
+              else if (driverZone === 'Overstock') primaryDriver = 'stock_overstock';
+            }
+            if (isRamadanMonth && sk.name.toLowerCase().includes('double apple')) primaryDriver = 'ramadan_uplift';
+            if (targetMonth >= 6 && targetMonth <= 8 && primaryDriver === 'historical_share') primaryDriver = 'summer_peak';
+            if ((targetMonth === 12 || targetMonth <= 2) && primaryDriver === 'historical_share') primaryDriver = 'winter_dip';
+            if (!isNaN(rt) && rt > 10 && primaryDriver === 'historical_share') primaryDriver = 'trend_growth';
+            if (!isNaN(rt) && rt < -10 && primaryDriver === 'historical_share') primaryDriver = 'trend_decline';
+
+            const si = parseFloat(String(sk.seasonalityIndex));
+            const seasonalityNote = `Seasonality index for ${monthName}: ${isNaN(si) ? 'N/A' : si.toFixed(2)}. ${isRamadanMonth ? `Ramadan effect applies (+${ramadanBoostPct}%).` : currentSeasonalInfo.effect}`;
+
+            return {
+              skuName: sk.name.replace(/ (50g|250g|1kg)$/, ''),
+              weight: skuObj?.weight ?? '',
+              category: sk.category,
+              packagingType: (skuObj as any)?.packagingType ?? 'New',
+              recommendedMastercases: mc,
+              sharePercent: Math.round(allocPct * 10) / 10,
+              reasoning: `Based on ${sk.monthsOfData} months of IMS data. Average monthly: ${sk.avgMonthly}. Rolling trend: ${sk.rollingTrend}%. ${health ? `Stock health: ${health.currentWeeks}wks [${health.currentZone}].` : ''}`,
+              trend,
+              seasonalityNote,
+              stockAlert,
+              confidenceScore: conf,
+              primaryDriver,
+              marketIntelligenceNote: `${sk.category} SKU in ${country}. YoY growth: ${sk.yoyGrowth}%.`,
+            };
+          });
+
+          let allocated = algorithmicRecs.reduce((s, r) => s + r.recommendedMastercases, 0);
+          let diff = totalMastercases - allocated;
+          if (diff !== 0 && algorithmicRecs.length > 0) {
+            algorithmicRecs.sort((a, b) => b.recommendedMastercases - a.recommendedMastercases);
+            let i = 0;
+            const maxIter = algorithmicRecs.length * Math.abs(diff) + algorithmicRecs.length;
+            let iter = 0;
+            while (diff !== 0 && iter < maxIter) {
+              const idx = i % algorithmicRecs.length;
+              if (diff > 0) {
+                algorithmicRecs[idx].recommendedMastercases += 1;
+                diff -= 1;
+              } else if (algorithmicRecs[idx].recommendedMastercases > 0) {
+                algorithmicRecs[idx].recommendedMastercases -= 1;
+                diff += 1;
+              }
+              i++;
+              iter++;
+            }
+          }
+
+          const finalTotal = algorithmicRecs.reduce((s, r) => s + r.recommendedMastercases, 0);
+          algorithmicRecs.forEach(r => {
+            r.sharePercent = finalTotal > 0 ? Math.round(r.recommendedMastercases / finalTotal * 1000) / 10 : 0;
+          });
+
+          const warnings: string[] = [];
+          const critSkus = algorithmicRecs.filter(r => r.stockAlert === 'critical');
+          if (critSkus.length > 0) warnings.push(`${critSkus.length} SKU(s) in critical stock zone: ${critSkus.map(r => r.skuName).join(', ')}`);
+          const overSkus = algorithmicRecs.filter(r => r.stockAlert === 'overstock');
+          if (overSkus.length > 0) warnings.push(`${overSkus.length} SKU(s) overstocked: ${overSkus.map(r => r.skuName).join(', ')}`);
+
+          parsed = {
+            recommendations: algorithmicRecs,
+            overallInsight: `Algorithmic 5-factor model allocation for ${monthName} ${targetYear} in ${country}. ${totalMastercases} mastercases split across ${skus.length} SKUs using historical trend (35%), seasonality (25%), stock health (20%), market intelligence (10%), and confidence (10%). ${isRamadanMonth ? `Ramadan uplift of +${ramadanBoostPct}% applied to anchor SKUs.` : currentSeasonalInfo.effect} ${critSkus.length > 0 ? `Warning: ${critSkus.length} SKU(s) in critical stock.` : 'All stock levels within acceptable range.'}`,
+            warnings,
+            marketSummary: `Al Fakher ${country} forecast for ${monthName} ${targetYear}. Market seasonality index: ${marketSeasonalityIndex}. ${countryIntelligence.growthOutlook}`,
+          };
+        }
+
         const recommendations = (parsed.recommendations ?? []).map((rec: any) => {
-          // If this is NOT a Ramadan month, the LLM must never return ramadan_uplift
           if (!isRamadanMonth && rec.primaryDriver === 'ramadan_uplift') {
-            // Determine a better driver based on available data
             const skuObj = skus.find(sk => `${sk.name} ${sk.weight}` === rec.skuName);
             const health = skuObj ? stockHealthBySku[skuObj.id] : null;
             let correctedDriver = 'historical_share';
@@ -2287,12 +2386,8 @@ REQUIRED OUTPUT FORMAT (valid JSON only, no markdown):
             }
             if (targetMonth >= 6 && targetMonth <= 8) correctedDriver = 'summer_peak';
             if (targetMonth === 12 || targetMonth <= 2) correctedDriver = 'winter_dip';
-            const rollingTrend = parseFloat(rec.trend === 'growing' ? '10' : rec.trend === 'declining' ? '-10' : '0');
-            if (rollingTrend > 10) correctedDriver = 'trend_growth';
-            if (rollingTrend < -10) correctedDriver = 'trend_decline';
             rec.primaryDriver = correctedDriver;
           }
-          // Also strip misleading Ramadan references from seasonalityNote for non-Ramadan months
           if (!isRamadanMonth && rec.seasonalityNote) {
             rec.seasonalityNote = rec.seasonalityNote
               .replace(/[Rr]amadan[\s-]*(related|driven|uplift|boost|spike|effect|demand|month|period|season)?/gi, 'seasonal')
@@ -2301,7 +2396,6 @@ REQUIRED OUTPUT FORMAT (valid JSON only, no markdown):
           return rec;
         });
 
-        // Also clean overallInsight if it incorrectly mentions Ramadan for non-Ramadan months
         let overallInsight = parsed.overallInsight ?? '';
         if (!isRamadanMonth && overallInsight.toLowerCase().includes('ramadan')) {
           overallInsight = overallInsight
