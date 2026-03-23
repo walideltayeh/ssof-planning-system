@@ -13,7 +13,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, Search, Package, GripVertical } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Package, GripVertical, Download } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -100,6 +100,42 @@ function SortableSkuRow({
       </td>
     </tr>
   );
+}
+
+function exportSkusToExcel(skus: any[], country: string) {
+  const headers = country === "Lebanon"
+    ? ["#", "Name", "Weight", "Category", "Status"]
+    : ["#", "Name", "Weight", "Category", "Packaging", "Status"];
+
+  const rows = skus.map((sku: any, i: number) => {
+    const base = [
+      i + 1,
+      sku.name,
+      sku.weight,
+      sku.category ?? "Core",
+    ];
+    if (country !== "Lebanon") base.push(sku.packagingType ?? "New");
+    base.push(sku.isActive !== false ? "Active" : "Inactive");
+    return base;
+  });
+
+  let csv = "\uFEFF";
+  csv += headers.join(",") + "\n";
+  for (const row of rows) {
+    csv += row.map((v: any) => {
+      const s = String(v ?? "");
+      return s.includes(",") || s.includes('"') ? `"${s.replace(/"/g, '""')}"` : s;
+    }).join(",") + "\n";
+  }
+
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const dateStr = new Date().toISOString().slice(0, 10);
+  a.href = url;
+  a.download = `SKU_Management_${country}_${dateStr}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // ─── Lebanon SKU Management ──────────────────────────────────────────────────
@@ -251,9 +287,14 @@ function LebanonSkuManagement() {
           <h1 className="text-2xl font-bold text-foreground">SKU Management</h1>
           <p className="text-sm text-muted-foreground mt-1">Lebanon — Create and manage SKUs. Drag rows to reorder within weight groups.</p>
         </div>
-        <Button onClick={() => setCreateOpen(true)} className="gap-2 flex-shrink-0">
-          <Plus className="h-4 w-4" />New SKU
-        </Button>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => { exportSkusToExcel(displaySkus, "Lebanon"); toast.success("Downloading SKU list..."); }} disabled={!displaySkus.length}>
+            <Download className="h-4 w-4" />Export
+          </Button>
+          <Button onClick={() => setCreateOpen(true)} className="gap-2">
+            <Plus className="h-4 w-4" />New SKU
+          </Button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -758,6 +799,9 @@ function IntlSkuManagement() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => { exportSkusToExcel(displaySkus, intlCountry); toast.success("Downloading SKU list..."); }} disabled={!displaySkus.length}>
+            <Download className="h-4 w-4" />Export
+          </Button>
           <Button onClick={() => setCreateOpen(true)} className="gap-2">
             <Plus className="h-4 w-4" />
             New SKU
