@@ -256,29 +256,73 @@ export default function DataVersionsPage() {
     log(`✅ Opening stock uploaded: ${records.length} SKUs`);
   }, [uploadOpeningStock, uploadCountry]);
 
-  const processShipmentSheet = useCallback(async (workbook: XLSX.WorkBook, sheetName: string, log: (msg: string) => void) => {
+  const parseWeeklySheet = useCallback((workbook: XLSX.WorkBook, sheetName: string, log: (msg: string) => void) => {
     const sheet = workbook.Sheets[sheetName];
     if (!sheet) throw new Error(`Sheet "${sheetName}" not found`);
     const jsonRaw = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
     log(`Found ${jsonRaw.length} rows in ${sheetName}`);
-    let headerRow = -1;
-    let headers: any[] = [];
+
+    let monthHeaderRow = -1;
+    let weekHeaderRow = -1;
+    let monthHeaders: any[] = [];
+    let weekHeaders: any[] = [];
+
     for (let i = 0; i < Math.min(10, jsonRaw.length); i++) {
       const row = jsonRaw[i];
       if (!row) continue;
       const dateHeaders = row.filter(h => parseDateHeader(h) !== null);
-      if (dateHeaders.length >= 3) { headerRow = i; headers = row; break; }
+      if (dateHeaders.length >= 3) {
+        monthHeaderRow = i;
+        monthHeaders = row;
+        if (jsonRaw[i + 1]) {
+          weekHeaderRow = i + 1;
+          weekHeaders = jsonRaw[i + 1];
+        }
+        break;
+      }
     }
-    if (headerRow === -1) throw new Error(`Could not find date headers in ${sheetName}`);
+    if (monthHeaderRow === -1) throw new Error(`Could not find date headers in ${sheetName}`);
+
+    const hasWeekCols = weekHeaders.some(h => String(h || "").trim().match(/^W[1-4]$/i));
+
+    type MonthGroup = { month: number; year: number; w1Col: number; w2Col: number; w3Col: number; w4Col: number; totalCol: number };
+    const monthGroups: MonthGroup[] = [];
+
+    if (hasWeekCols) {
+      log(`Detected weekly columns (W1-W4 + Total) structure`);
+      for (let c = 0; c < monthHeaders.length; c++) {
+        const parsed = parseDateHeader(monthHeaders[c]);
+        if (!parsed) continue;
+        const w1 = String(weekHeaders[c] || "").trim().toUpperCase();
+        if (w1 === "W1") {
+          monthGroups.push({
+            ...parsed,
+            w1Col: c,
+            w2Col: c + 1,
+            w3Col: c + 2,
+            w4Col: c + 3,
+            totalCol: c + 4,
+          });
+        }
+      }
+    } else {
+      log(`Detected simple monthly columns (no W1-W4)`);
+      for (let c = 0; c < monthHeaders.length; c++) {
+        const parsed = parseDateHeader(monthHeaders[c]);
+        if (parsed) {
+          monthGroups.push({ ...parsed, w1Col: c, w2Col: -1, w3Col: -1, w4Col: -1, totalCol: c });
+        }
+      }
+    }
+
+    log(`Found ${monthGroups.length} month groups`);
+
+    const dataStartRow = hasWeekCols ? weekHeaderRow + 1 : monthHeaderRow + 1;
     const weightCol = 0;
     const skuCol = 1;
-    const dateColumns: { col: number; month: number; year: number }[] = [];
-    for (let c = 0; c < headers.length; c++) {
-      const parsed = parseDateHeader(headers[c]);
-      if (parsed) dateColumns.push({ col: c, ...parsed });
-    }
+
     const records: any[] = [];
-    for (let r = headerRow + 1; r < jsonRaw.length; r++) {
+    for (let r = dataStartRow; r < jsonRaw.length; r++) {
       const row = jsonRaw[r];
       if (!row) continue;
       const skuName = String(row[skuCol] || "").trim();
@@ -286,59 +330,49 @@ export default function DataVersionsPage() {
       if (!skuName || skuName.toLowerCase().includes("total")) continue;
       const weight = normalizeWeight(rawWeight, skuName);
       const values: any[] = [];
-      for (const dc of dateColumns) {
-        const val = row[dc.col];
-        const numVal = typeof val === "number" ? val : parseFloat(String(val || "0")) || 0;
-        values.push({ year: dc.year, month: dc.month, value: numVal.toString() });
+      for (const mg of monthGroups) {
+        const readVal = (col: number) => {
+          if (col < 0 || col >= (row.length || 0)) return "0";
+          const v = row[col];
+          if (v === null || v === undefined || v === "") return "0";
+          const n = typeof v === "number" ? v : parseFloat(String(v)) || 0;
+          return String(Math.round(n));
+        };
+        if (hasWeekCols) {
+          values.push({
+            year: mg.year,
+            month: mg.month,
+            week1: readVal(mg.w1Col),
+            week2: readVal(mg.w2Col),
+            week3: readVal(mg.w3Col),
+            week4: readVal(mg.w4Col),
+          });
+        } else {
+          values.push({
+            year: mg.year,
+            month: mg.month,
+            value: readVal(mg.totalCol),
+          });
+        }
       }
       records.push({ skuName, weight, values });
     }
+    return records;
+  }, []);
+
+  const processShipmentSheet = useCallback(async (workbook: XLSX.WorkBook, sheetName: string, log: (msg: string) => void) => {
+    const records = parseWeeklySheet(workbook, sheetName, log);
     log(`Processing ${records.length} shipment records...`);
     await uploadShipment.mutateAsync({ records, country: uploadCountry });
     log(`✅ Shipment data uploaded: ${records.length} SKUs`);
-  }, [uploadShipment, uploadCountry]);
+  }, [parseWeeklySheet, uploadShipment, uploadCountry]);
 
   const processArrivalSheet = useCallback(async (workbook: XLSX.WorkBook, sheetName: string, log: (msg: string) => void) => {
-    const sheet = workbook.Sheets[sheetName];
-    if (!sheet) throw new Error(`Sheet "${sheetName}" not found`);
-    const jsonRaw = XLSX.utils.sheet_to_json(sheet, { header: 1 }) as any[][];
-    log(`Found ${jsonRaw.length} rows in ${sheetName}`);
-    let headerRow = -1;
-    let headers: any[] = [];
-    for (let i = 0; i < Math.min(10, jsonRaw.length); i++) {
-      const row = jsonRaw[i];
-      if (!row) continue;
-      const dateHeaders = row.filter(h => parseDateHeader(h) !== null);
-      if (dateHeaders.length >= 3) { headerRow = i; headers = row; break; }
-    }
-    if (headerRow === -1) throw new Error(`Could not find date headers in ${sheetName}`);
-    const weightCol = 0;
-    const skuCol = 1;
-    const dateColumns: { col: number; month: number; year: number }[] = [];
-    for (let c = 0; c < headers.length; c++) {
-      const parsed = parseDateHeader(headers[c]);
-      if (parsed) dateColumns.push({ col: c, ...parsed });
-    }
-    const records: any[] = [];
-    for (let r = headerRow + 1; r < jsonRaw.length; r++) {
-      const row = jsonRaw[r];
-      if (!row) continue;
-      const skuName = String(row[skuCol] || "").trim();
-      const rawWeight = String(row[weightCol] || "").trim();
-      if (!skuName || skuName.toLowerCase().includes("total")) continue;
-      const weight = normalizeWeight(rawWeight, skuName);
-      const values: any[] = [];
-      for (const dc of dateColumns) {
-        const val = row[dc.col];
-        const numVal = typeof val === "number" ? val : parseFloat(String(val || "0")) || 0;
-        values.push({ year: dc.year, month: dc.month, value: numVal.toString() });
-      }
-      records.push({ skuName, weight, values });
-    }
+    const records = parseWeeklySheet(workbook, sheetName, log);
     log(`Processing ${records.length} arrival records...`);
     await uploadArrival.mutateAsync({ records, country: uploadCountry });
     log(`✅ Arrival data uploaded: ${records.length} SKUs`);
-  }, [uploadArrival, uploadCountry]);
+  }, [parseWeeklySheet, uploadArrival, uploadCountry]);
 
   const processPlanningFgSheet = useCallback(async (workbook: XLSX.WorkBook, sheetName: string, weight: string, log: (msg: string) => void) => {
     const sheet = workbook.Sheets[sheetName];
