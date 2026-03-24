@@ -28,6 +28,7 @@ interface AuthContextValue {
   login: (username: string, password: string, country?: Country) => Promise<string | null>;
   logout: () => void;
   setCountry: (c: Country) => void;
+  clearCountry: () => void;
 }
 
 const SESSION_KEY = "ssof-session-v2";
@@ -93,6 +94,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     saveSession(newState);
   };
 
+  const clearCountry = () => {
+    const newState: AuthState = { ...state, country: null };
+    setState(newState);
+    saveSession(newState);
+  };
+
   const logout = () => {
     setState({ user: null, country: null });
     clearSession();
@@ -118,6 +125,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       login,
       logout,
       setCountry,
+      clearCountry,
     }}>
       {children}
     </AuthContext.Provider>

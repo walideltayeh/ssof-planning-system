@@ -108,7 +108,16 @@ Schema was converted from MySQL to PostgreSQL during Replit import. Uses Drizzle
 - API: `trpc.country.stockLevels` endpoint
 - Files: `server/db.ts` (getStockLevelAnalysis), `client/src/pages/AnalysisPage.tsx`, `client/src/pages/IntlAnalysisPage.tsx`
 
-### 6. AI Forecast Recommendation — Algorithmic Fallback
+### 6. Secure Landing Page — Login-First Flow
+- Landing page now shows only a login form (username + password) — no country information is visible to unauthenticated users
+- After login: single-country users go directly to their dashboard; multi-country users see a country selector showing only their assigned countries
+- Owner accounts (e.g. `walid`) see all three countries in the selector
+- Country selector page has a "Sign out" link
+- DashboardLayout's "Back to country selector" clears the country and returns to the picker
+- Server `verifyLogin` now accepts optional `country` parameter; without it, only validates credentials
+- Files: `LandingPage.tsx`, `CountrySelectorPage.tsx`, `AuthContext.tsx`, `CountryContext.tsx`, `App.tsx`
+
+### 7. AI Forecast Recommendation — Algorithmic Fallback
 - Forecast split recommendation now falls back to a 5-factor algorithmic model when LLM API key is unavailable
 - Uses pre-computed: historical trend (35%), seasonality (25%), stock health (20%), market intelligence (10%), confidence (10%)
 - Non-negative safe reconciliation loop to ensure exact mastercase totals

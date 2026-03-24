@@ -80,7 +80,8 @@ export function CountryProvider({ children }: { children: ReactNode }) {
   }, [auth]);
 
   const clearCountry = useCallback(() => {
-  }, []);
+    auth.clearCountry();
+  }, [auth]);
 
   return (
     <CountryContext.Provider value={{
