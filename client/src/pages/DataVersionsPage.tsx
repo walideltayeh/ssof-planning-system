@@ -339,14 +339,31 @@ export default function DataVersionsPage() {
           return String(Math.round(n));
         };
         if (hasWeekCols) {
-          values.push({
-            year: mg.year,
-            month: mg.month,
-            week1: readVal(mg.w1Col),
-            week2: readVal(mg.w2Col),
-            week3: readVal(mg.w3Col),
-            week4: readVal(mg.w4Col),
-          });
+          const w1 = readVal(mg.w1Col);
+          const w2 = readVal(mg.w2Col);
+          const w3 = readVal(mg.w3Col);
+          const w4 = readVal(mg.w4Col);
+          const wSum = parseFloat(w1) + parseFloat(w2) + parseFloat(w3) + parseFloat(w4);
+          const totalVal = readVal(mg.totalCol);
+          if (wSum === 0 && parseFloat(totalVal) !== 0) {
+            values.push({
+              year: mg.year,
+              month: mg.month,
+              week1: totalVal,
+              week2: "0",
+              week3: "0",
+              week4: "0",
+            });
+          } else {
+            values.push({
+              year: mg.year,
+              month: mg.month,
+              week1: w1,
+              week2: w2,
+              week3: w3,
+              week4: w4,
+            });
+          }
         } else {
           values.push({
             year: mg.year,
