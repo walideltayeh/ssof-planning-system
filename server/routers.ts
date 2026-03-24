@@ -1661,12 +1661,29 @@ export const appRouter = router({
       .input(z.object({
         username: z.string(),
         password: z.string(),
-        country: z.string(),
+        country: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
-        // Ensure owner row exists on first use
         await db.ensureOwnerExists("walid", "Walid El Tayeh");
-        const result = await db.verifyAppUserLogin(input.username, input.password, input.country);
+        if (input.country) {
+          const result = await db.verifyAppUserLogin(input.username, input.password, input.country);
+          if (!result.success || !result.user) {
+            return { success: false, error: result.error ?? "Invalid credentials" };
+          }
+          const u = result.user;
+          return {
+            success: true,
+            user: {
+              id: u.id,
+              username: u.username,
+              displayName: u.displayName,
+              role: u.role,
+              countries: JSON.parse(u.countries) as string[],
+              isOwner: u.isOwner,
+            },
+          };
+        }
+        const result = await db.verifyAppUserLoginNoCountry(input.username, input.password);
         if (!result.success || !result.user) {
           return { success: false, error: result.error ?? "Invalid credentials" };
         }

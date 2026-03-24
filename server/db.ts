@@ -2244,6 +2244,13 @@ export async function verifyAppUserLogin(username: string, password: string, cou
   return { success: true, user };
 }
 
+export async function verifyAppUserLoginNoCountry(username: string, password: string): Promise<{ success: boolean; user?: AppUserRow; error?: string }> {
+  const user = await getAppUserByUsername(username);
+  if (!user) return { success: false, error: "Invalid username or password" };
+  if (user.password !== password.toLowerCase().trim()) return { success: false, error: "Invalid username or password" };
+  return { success: true, user };
+}
+
 export async function ensureOwnerExists(username: string, displayName: string) {
   const existing = await getAppUserByUsername(username);
   if (!existing) {

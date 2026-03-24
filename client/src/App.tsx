@@ -26,8 +26,8 @@ import IntlAnalysisPage from "@/pages/IntlAnalysisPage";
 import ForecastSplitPage from "@/pages/ForecastSplitPage";
 import ExpiryDashboardPage from "@/pages/ExpiryDashboardPage";
 import AutoSaveReminder from "./components/AutoSaveReminder";
-import LoginPage from "./pages/LoginPage";
 import LandingPage from "./pages/LandingPage";
+import CountrySelectorPage from "./pages/CountrySelectorPage";
 import { useNavigationLogger } from "./hooks/useAuditLog";
 
 function Dashboard() {
@@ -69,26 +69,15 @@ function Dashboard() {
 }
 
 function AppContent() {
-  const { isAuthenticated } = useAppAuth();
-  const { country } = useCountry();
+  const { isAuthenticated, user, country } = useAppAuth();
   const [location] = useLocation();
-  const search = useSearch();
 
-  // Parse the pathname without query string (wouter may include query in location)
   const pathname = location.split("?")[0];
 
-  // Show login page when on /login path (with or without query params like ?superadmin=1)
-  if (pathname === "/login" && !isAuthenticated) {
-    return <LoginPage />;
-  }
-
-  // Show landing page when NOT authenticated (any route)
   if (!isAuthenticated) return <LandingPage />;
 
-  // Authenticated but no country selected → show landing to pick country
-  if (!country) return <LandingPage />;
+  if (isAuthenticated && !country) return <CountrySelectorPage />;
 
-  // Authenticated with country — if still on /login, redirect to /
   if (pathname === "/login") return <Redirect to="/" />;
 
   return <Dashboard />;

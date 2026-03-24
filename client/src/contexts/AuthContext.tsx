@@ -1,7 +1,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { trpc } from "@/lib/trpc";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
 export type AppRole = "admin" | "viewer";
 export type Country = "Lebanon" | "Syria" | "Libya";
 
@@ -26,14 +25,12 @@ interface AuthContextValue {
   isAdmin: boolean;
   isAuthenticated: boolean;
   canAccessCountry: (c: Country) => boolean;
-  login: (username: string, password: string, country: Country) => Promise<string | null>;
+  login: (username: string, password: string, country?: Country) => Promise<string | null>;
   logout: () => void;
+  setCountry: (c: Country) => void;
 }
 
-// ── Persistence ───────────────────────────────────────────────────────────────
 const SESSION_KEY = "ssof-session-v2";
-// One-time cleanup: remove stale keys from the old localStorage-based auth system
-// so they don't cause confusion on devices that previously used the old system.
 try {
   ["ssof-session", "ssof-users", "ssof-managed-users"].forEach(k => localStorage.removeItem(k));
 } catch { /* ignore */ }
@@ -54,7 +51,6 @@ function clearSession() {
   localStorage.removeItem(SESSION_KEY);
 }
 
-// ── Context ───────────────────────────────────────────────────────────────────
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -62,20 +58,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const verifyLoginMutation = trpc.appUsers.verifyLogin.useMutation();
 
-  const login = async (username: string, password: string, country: Country): Promise<string | null> => {
+  const login = async (username: string, password: string, country?: Country): Promise<string | null> => {
     try {
-      const result = await verifyLoginMutation.mutateAsync({ username, password, country });
+      const result = await verifyLoginMutation.mutateAsync({
+        username,
+        password,
+        ...(country ? { country } : {}),
+      });
       if (!result.success || !result.user) {
         return result.error ?? "Invalid username or password";
       }
-      const newState: AuthState = { user: result.user as AppUser, country };
+      const user = result.user as AppUser;
+      const userCountries = user.isOwner
+        ? ["Lebanon", "Syria", "Libya"]
+        : user.countries;
+      const resolvedCountry = country
+        ? country
+        : userCountries.length === 1
+          ? (userCountries[0] as Country)
+          : null;
+      const newState: AuthState = { user, country: resolvedCountry };
       setState(newState);
       saveSession(newState);
-      return null; // success
+      return null;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Login failed";
       return msg;
     }
+  };
+
+  const setCountry = (c: Country) => {
+    const newState: AuthState = { ...state, country: c };
+    setState(newState);
+    saveSession(newState);
   };
 
   const logout = () => {
@@ -102,6 +117,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       canAccessCountry,
       login,
       logout,
+      setCountry,
     }}>
       {children}
     </AuthContext.Provider>
@@ -114,7 +130,6 @@ export function useAuth() {
   return ctx;
 }
 
-// ── Backward-compat aliases ───────────────────────────────────────────────────
 /** @deprecated Use useAuth() instead */
 export const useAppAuth = useAuth;
 export type ManagedUser = AppUser;
