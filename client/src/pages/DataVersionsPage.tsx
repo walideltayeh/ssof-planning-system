@@ -459,28 +459,40 @@ export default function DataVersionsPage() {
   const processFullWorkbook = useCallback(async (workbook: XLSX.WorkBook, log: (msg: string) => void) => {
     log("🔄 Processing full workbook...");
     log(`Sheets found: ${workbook.SheetNames.join(", ")}`);
-    if (workbook.Sheets["Forecast"]) {
+
+    const recognized = new Set<string>();
+
+    const forecastSheet = workbook.SheetNames.find(n => n === "Forecast");
+    if (forecastSheet) {
+      recognized.add(forecastSheet);
       log("\n📊 Processing Forecast sheet...");
       await processForecastSheet(workbook, log);
     }
+
     const imsSheet = workbook.SheetNames.find(n => n === "IMS vs FRCST") ||
-                     workbook.SheetNames.find(n => n.toLowerCase().includes("ims"));
+                     workbook.SheetNames.find(n => n.toLowerCase().includes("ims") && n.toLowerCase().includes("frcst"));
     if (imsSheet) {
-      log("\n📈 Processing IMS sheet...");
+      recognized.add(imsSheet);
+      log("\n📈 Processing IMS vs Forecast sheet...");
       await processImsSheet(workbook, log);
     }
+
     const shipmentSheet = workbook.SheetNames.find(n => n === "Shipment (Production)") ||
                           workbook.SheetNames.find(n => n.toLowerCase().includes("shipment"));
     if (shipmentSheet) {
+      recognized.add(shipmentSheet);
       log("\n🚚 Processing Shipment (Production) sheet...");
       await processShipmentSheet(workbook, shipmentSheet, log);
     }
+
     const arrivalSheet = workbook.SheetNames.find(n => n === "Arrival to Regie") ||
                          workbook.SheetNames.find(n => n.toLowerCase().includes("arrival"));
     if (arrivalSheet) {
+      recognized.add(arrivalSheet);
       log("\n📦 Processing Arrival to Regie sheet...");
       await processArrivalSheet(workbook, arrivalSheet, log);
     }
+
     const planningSheets = [
       { name: "Planning FG 50g", weight: "50g" },
       { name: "Planning FG 250g", weight: "250g" },
@@ -488,10 +500,17 @@ export default function DataVersionsPage() {
     ];
     for (const ps of planningSheets) {
       if (workbook.Sheets[ps.name]) {
+        recognized.add(ps.name);
         log(`\n📋 Processing ${ps.name}...`);
         await processPlanningFgSheet(workbook, ps.name, ps.weight, log);
       }
     }
+
+    const skipped = workbook.SheetNames.filter(n => !recognized.has(n));
+    if (skipped.length > 0) {
+      log(`\n⏭️ Skipped sheets (not needed): ${skipped.join(", ")}`);
+    }
+
     log("\n🎉 Full workbook processing complete!");
   }, [processForecastSheet, processImsSheet, processShipmentSheet, processArrivalSheet, processPlanningFgSheet]);
 
