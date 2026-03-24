@@ -7,12 +7,20 @@ import type { Sku, InsertSku, Period, ForecastData, ImsData, ShipmentData, Arriv
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
+let _pool: Pool | null = null;
+
+export async function getPool(): Promise<Pool | null> {
+  if (!_pool && process.env.DATABASE_URL) {
+    _pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  }
+  return _pool;
+}
 
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
-      const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-      _db = drizzle(pool);
+      const pool = await getPool();
+      if (pool) _db = drizzle(pool);
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
@@ -648,42 +656,76 @@ export async function upsertPlanningFgData(skuId: number, periodId: number, data
 
 // ==================== BULK OPERATIONS ====================
 export async function bulkUpsertForecast(records: { skuId: number; periodId: number; value: string }[]) {
-  const db = await getDb();
-  if (!db) return;
-  for (const rec of records) {
-    await upsertForecastData(rec.skuId, rec.periodId, rec.value);
+  const pool = await getPool();
+  if (!pool || records.length === 0) return;
+  const batchSize = 500;
+  for (let i = 0; i < records.length; i += batchSize) {
+    const batch = records.slice(i, i + batchSize);
+    const values = batch.map((r, idx) => `($${idx * 3 + 1}, $${idx * 3 + 2}, $${idx * 3 + 3})`).join(",");
+    const params = batch.flatMap(r => [r.skuId, r.periodId, r.value]);
+    await pool.query(`INSERT INTO forecast_data ("skuId", "periodId", value) VALUES ${values} ON CONFLICT ("skuId", "periodId") DO UPDATE SET value = EXCLUDED.value`, params);
   }
 }
 
 export async function bulkUpsertIms(records: { skuId: number; periodId: number; value: string; isActual: boolean }[]) {
-  const db = await getDb();
-  if (!db) return;
-  for (const rec of records) {
-    await upsertImsData(rec.skuId, rec.periodId, rec.value, rec.isActual);
+  const pool = await getPool();
+  if (!pool || records.length === 0) return;
+  const batchSize = 500;
+  for (let i = 0; i < records.length; i += batchSize) {
+    const batch = records.slice(i, i + batchSize);
+    const values = batch.map((r, idx) => `($${idx * 4 + 1}, $${idx * 4 + 2}, $${idx * 4 + 3}, $${idx * 4 + 4})`).join(",");
+    const params = batch.flatMap(r => [r.skuId, r.periodId, r.value, r.isActual]);
+    await pool.query(`INSERT INTO ims_data ("skuId", "periodId", value, "isActual") VALUES ${values} ON CONFLICT ("skuId", "periodId") DO UPDATE SET value = EXCLUDED.value, "isActual" = EXCLUDED."isActual"`, params);
   }
 }
 
 export async function bulkUpsertShipment(records: { skuId: number; periodId: number; week1: string; week2: string; week3: string; week4: string }[]) {
-  const db = await getDb();
-  if (!db) return;
-  for (const rec of records) {
-    await upsertShipmentData(rec.skuId, rec.periodId, rec);
+  const pool = await getPool();
+  if (!pool || records.length === 0) return;
+  const batchSize = 200;
+  for (let i = 0; i < records.length; i += batchSize) {
+    const batch = records.slice(i, i + batchSize);
+    const values = batch.map((r, idx) => `($${idx * 6 + 1}, $${idx * 6 + 2}, $${idx * 6 + 3}, $${idx * 6 + 4}, $${idx * 6 + 5}, $${idx * 6 + 6})`).join(",");
+    const params = batch.flatMap(r => [r.skuId, r.periodId, r.week1, r.week2, r.week3, r.week4]);
+    await pool.query(`INSERT INTO shipment_data ("skuId", "periodId", week1, week2, week3, week4) VALUES ${values} ON CONFLICT ("skuId", "periodId") DO UPDATE SET week1 = EXCLUDED.week1, week2 = EXCLUDED.week2, week3 = EXCLUDED.week3, week4 = EXCLUDED.week4`, params);
   }
 }
 
 export async function bulkUpsertArrival(records: { skuId: number; periodId: number; week1: string; week2: string; week3: string; week4: string }[]) {
-  const db = await getDb();
-  if (!db) return;
-  for (const rec of records) {
-    await upsertArrivalData(rec.skuId, rec.periodId, rec);
+  const pool = await getPool();
+  if (!pool || records.length === 0) return;
+  const batchSize = 200;
+  for (let i = 0; i < records.length; i += batchSize) {
+    const batch = records.slice(i, i + batchSize);
+    const values = batch.map((r, idx) => `($${idx * 6 + 1}, $${idx * 6 + 2}, $${idx * 6 + 3}, $${idx * 6 + 4}, $${idx * 6 + 5}, $${idx * 6 + 6})`).join(",");
+    const params = batch.flatMap(r => [r.skuId, r.periodId, r.week1, r.week2, r.week3, r.week4]);
+    await pool.query(`INSERT INTO arrival_data ("skuId", "periodId", week1, week2, week3, week4) VALUES ${values} ON CONFLICT ("skuId", "periodId") DO UPDATE SET week1 = EXCLUDED.week1, week2 = EXCLUDED.week2, week3 = EXCLUDED.week3, week4 = EXCLUDED.week4`, params);
   }
 }
 
-export async function bulkUpsertPlanningFg(records: { skuId: number; periodId: number; openingStock: string; adjustments: string }[]) {
-  const db = await getDb();
-  if (!db) return;
-  for (const rec of records) {
-    await upsertPlanningFgData(rec.skuId, rec.periodId, rec);
+export async function bulkUpsertPlanningFg(records: { skuId: number; periodId: number; openingStock?: string; adjustments?: string; invoiced?: string; arrivals?: string }[]) {
+  const pool = await getPool();
+  if (!pool || records.length === 0) return;
+  const batchSize = 200;
+  for (let i = 0; i < records.length; i += batchSize) {
+    const batch = records.slice(i, i + batchSize);
+    const values = batch.map((r, idx) => `($${idx * 6 + 1}, $${idx * 6 + 2}, $${idx * 6 + 3}, $${idx * 6 + 4}, $${idx * 6 + 5}, $${idx * 6 + 6})`).join(",");
+    const params = batch.flatMap(r => [r.skuId, r.periodId, r.openingStock || "0", r.adjustments || "0", r.invoiced || "0", r.arrivals || "0"]);
+    await pool.query(`INSERT INTO planning_fg_data ("skuId", "periodId", "openingStock", adjustments, invoiced, arrivals) VALUES ${values} ON CONFLICT ("skuId", "periodId") DO UPDATE SET "openingStock" = EXCLUDED."openingStock", adjustments = EXCLUDED.adjustments, invoiced = EXCLUDED.invoiced, arrivals = EXCLUDED.arrivals`, params);
+  }
+}
+
+export async function ensureDataIndexes() {
+  const pool = await getPool();
+  if (!pool) return;
+  try {
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS forecast_data_sku_period_idx ON forecast_data ("skuId", "periodId")`);
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS ims_data_sku_period_idx ON ims_data ("skuId", "periodId")`);
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS shipment_data_sku_period_idx ON shipment_data ("skuId", "periodId")`);
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS arrival_data_sku_period_idx ON arrival_data ("skuId", "periodId")`);
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS planning_fg_data_sku_period_idx ON planning_fg_data ("skuId", "periodId")`);
+  } catch (err) {
+    console.warn("[DB] Failed to create indexes (may already exist):", err);
   }
 }
 

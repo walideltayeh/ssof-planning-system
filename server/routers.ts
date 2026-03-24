@@ -517,9 +517,8 @@ export const appRouter = router({
         if (periodsRefreshed.length === 0) { await db.ensurePeriods(); periodsRefreshed = await db.getPeriodsForCountry(country); }
         let allSkus = await db.getSkusForCountry(country, true);
         
-        let processed = 0;
+        const bulkRecords: { skuId: number; periodId: number; value: string }[] = [];
         for (const rec of input.records) {
-          // Match by name+weight within the same country only
           let sku = allSkus.find(s => s.name === rec.skuName && s.weight === rec.weight);
           if (!sku) sku = allSkus.find(s => s.name === rec.skuName);
           if (!sku) {
@@ -532,18 +531,18 @@ export const appRouter = router({
           for (const val of rec.values) {
             const period = periodsRefreshed.find(p => p.year === val.year && p.month === val.month);
             if (period) {
-              await db.upsertForecastData(sku.id, period.id, val.value);
-              processed++;
+              bulkRecords.push({ skuId: sku.id, periodId: period.id, value: val.value });
             }
           }
         }
+        await db.bulkUpsertForecast(bulkRecords);
         await db.logAudit({
           username: input.username || "System",
           action: "upload",
           sheet: "Forecast",
-          details: `Uploaded ${processed} forecast records for ${input.records.length} SKUs`,
+          details: `Uploaded ${bulkRecords.length} forecast records for ${input.records.length} SKUs`,
         });
-        return { success: true, processed };
+        return { success: true, processed: bulkRecords.length };
       }),
 
     imsActuals: publicProcedure
@@ -564,25 +563,25 @@ export const appRouter = router({
         const country = (input.country || 'Lebanon') as import('../drizzle/schema').Country;
         const allPeriods = await db.getPeriodsForCountry(country);
         const allSkus = await db.getSkusForCountry(country, true);
-        let processed = 0;
+        const bulkRecords: { skuId: number; periodId: number; value: string; isActual: boolean }[] = [];
         for (const rec of input.records) {
           const sku = allSkus.find(s => s.name === rec.skuName);
           if (!sku) continue;
           for (const val of rec.values) {
             const period = allPeriods.find(p => p.year === val.year && p.month === val.month);
             if (period) {
-              await db.upsertImsData(sku.id, period.id, val.value, val.isActual);
-              processed++;
+              bulkRecords.push({ skuId: sku.id, periodId: period.id, value: val.value, isActual: val.isActual });
             }
           }
         }
+        await db.bulkUpsertIms(bulkRecords);
         await db.logAudit({
           username: input.username || "System",
           action: "upload",
           sheet: "IMS Actuals",
-          details: `Uploaded ${processed} IMS records for ${input.records.length} SKUs`,
+          details: `Uploaded ${bulkRecords.length} IMS records for ${input.records.length} SKUs`,
         });
-        return { success: true, processed };
+        return { success: true, processed: bulkRecords.length };
       }),
 
     openingStock: publicProcedure
@@ -639,30 +638,29 @@ export const appRouter = router({
         const country = (input.country || 'Lebanon') as import('../drizzle/schema').Country;
         const allPeriods = await db.getPeriodsForCountry(country);
         const allSkus = await db.getSkusForCountry(country, true);
-        let processed = 0;
+        const bulkRecords: { skuId: number; periodId: number; week1: string; week2: string; week3: string; week4: string }[] = [];
         for (const rec of input.records) {
           const sku = allSkus.find(s => s.name === rec.skuName);
           if (!sku) continue;
           for (const val of rec.values) {
             const period = allPeriods.find(p => p.year === val.year && p.month === val.month);
             if (period) {
-              // Lebanon sends a single 'value' (monthly total); Syria/Libya send week1-week4
               const week1 = val.value !== undefined ? val.value : (val.week1 ?? "0");
               const week2 = val.value !== undefined ? "0" : (val.week2 ?? "0");
               const week3 = val.value !== undefined ? "0" : (val.week3 ?? "0");
               const week4 = val.value !== undefined ? "0" : (val.week4 ?? "0");
-              await db.upsertShipmentData(sku.id, period.id, { week1, week2, week3, week4 });
-              processed++;
+              bulkRecords.push({ skuId: sku.id, periodId: period.id, week1, week2, week3, week4 });
             }
           }
         }
+        await db.bulkUpsertShipment(bulkRecords);
         await db.logAudit({
           username: input.username || "System",
           action: "upload",
           sheet: "Shipment",
-          details: `Uploaded ${processed} shipment records for ${input.records.length} SKUs`,
+          details: `Uploaded ${bulkRecords.length} shipment records for ${input.records.length} SKUs`,
         });
-        return { success: true, processed };
+        return { success: true, processed: bulkRecords.length };
       }),
 
     arrival: publicProcedure
@@ -686,30 +684,29 @@ export const appRouter = router({
         const country = (input.country || 'Lebanon') as import('../drizzle/schema').Country;
         const allPeriods = await db.getPeriodsForCountry(country);
         const allSkus = await db.getSkusForCountry(country, true);
-        let processed = 0;
+        const bulkRecords: { skuId: number; periodId: number; week1: string; week2: string; week3: string; week4: string }[] = [];
         for (const rec of input.records) {
           const sku = allSkus.find(s => s.name === rec.skuName);
           if (!sku) continue;
           for (const val of rec.values) {
             const period = allPeriods.find(p => p.year === val.year && p.month === val.month);
             if (period) {
-              // Lebanon sends a single 'value' (monthly total); Syria/Libya send week1-week4
               const week1 = val.value !== undefined ? val.value : (val.week1 ?? "0");
               const week2 = val.value !== undefined ? "0" : (val.week2 ?? "0");
               const week3 = val.value !== undefined ? "0" : (val.week3 ?? "0");
               const week4 = val.value !== undefined ? "0" : (val.week4 ?? "0");
-              await db.upsertArrivalData(sku.id, period.id, { week1, week2, week3, week4 });
-              processed++;
+              bulkRecords.push({ skuId: sku.id, periodId: period.id, week1, week2, week3, week4 });
             }
           }
         }
+        await db.bulkUpsertArrival(bulkRecords);
         await db.logAudit({
           username: input.username || "System",
           action: "upload",
           sheet: "Arrival",
-          details: `Uploaded ${processed} arrival records for ${input.records.length} SKUs`,
+          details: `Uploaded ${bulkRecords.length} arrival records for ${input.records.length} SKUs`,
         });
-        return { success: true, processed };
+        return { success: true, processed: bulkRecords.length };
       }),
 
     planningFgBulk: publicProcedure
@@ -735,42 +732,38 @@ export const appRouter = router({
         let periodsRefreshed = await db.getPeriodsForCountry(country);
         if (periodsRefreshed.length === 0) { await db.ensurePeriods(); periodsRefreshed = await db.getPeriodsForCountry(country); }
         let allSkus = await db.getSkusForCountry(country, true);
-        let processed = 0;
+        const pfgRecords: { skuId: number; periodId: number; openingStock?: string; adjustments?: string; invoiced?: string; arrivals?: string }[] = [];
+        const imsRecords: { skuId: number; periodId: number; value: string; isActual: boolean }[] = [];
+        const now = new Date();
         for (const rec of input.records) {
-          // Match by name+weight within the same country only
           let sku = allSkus.find(s => s.name === rec.skuName && s.weight === rec.weight);
           if (!sku) sku = allSkus.find(s => s.name === rec.skuName);
-          if (!sku) {
-            continue;
-          }
+          if (!sku) continue;
           for (const val of rec.values) {
             const period = periodsRefreshed.find(p => p.year === val.year && p.month === val.month);
             if (period) {
-              await db.upsertPlanningFgData(sku.id, period.id, {
-                openingStock: val.openingStock,
-                adjustments: val.adjustments,
-                invoiced: val.invoiced || "0",
-                arrivals: val.arrivals || "0",
+              pfgRecords.push({
+                skuId: sku.id, periodId: period.id,
+                openingStock: val.openingStock, adjustments: val.adjustments,
+                invoiced: val.invoiced || "0", arrivals: val.arrivals || "0",
               });
-              // Also store IMS from Planning FG sheet if provided
               if (val.ims !== undefined) {
                 const imsNum = parseFloat(val.ims) || 0;
-                // Past/current months are actual; future months are forecast-based
-                const now = new Date();
                 const isActual = val.year < now.getFullYear() || (val.year === now.getFullYear() && val.month <= now.getMonth() + 1);
-                await db.upsertImsData(sku.id, period.id, imsNum.toString(), isActual);
+                imsRecords.push({ skuId: sku.id, periodId: period.id, value: imsNum.toString(), isActual });
               }
-              processed++;
             }
           }
         }
+        await db.bulkUpsertPlanningFg(pfgRecords);
+        if (imsRecords.length > 0) await db.bulkUpsertIms(imsRecords);
         await db.logAudit({
           username: input.username || "System",
           action: "upload",
           sheet: "Planning FG",
-          details: `Uploaded ${processed} planning FG records for ${input.records.length} SKUs`,
+          details: `Uploaded ${pfgRecords.length} planning FG records for ${input.records.length} SKUs`,
         });
-        return { success: true, processed };
+        return { success: true, processed: pfgRecords.length };
       }),
   }),
 

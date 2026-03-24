@@ -707,11 +707,20 @@ export default function DataVersionsPage() {
                   </CardHeader>
                   <CardContent className="space-y-2">
                     <p className="text-xs text-muted-foreground">Upload actual IMS data. Past months are marked as actuals.</p>
-                    <label className="inline-flex items-center gap-2 px-3 py-1.5 border rounded-md cursor-pointer hover:bg-muted/50 transition-colors text-xs font-medium">
-                      <Upload className="h-3 w-3" />
-                      Upload IMS
-                      <input type="file" accept=".xlsx,.xls" onChange={e => handleFileUpload(e, "ims")} disabled={uploading} className="hidden" />
-                    </label>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <label className="inline-flex items-center gap-2 px-3 py-1.5 border rounded-md cursor-pointer hover:bg-muted/50 transition-colors text-xs font-medium">
+                        <Upload className="h-3 w-3" />
+                        Upload IMS
+                        <input type="file" accept=".xlsx,.xls" onChange={e => handleFileUpload(e, "ims")} disabled={uploading} className="hidden" />
+                      </label>
+                      <a
+                        href={`/api/export-ims-template?country=${encodeURIComponent(uploadCountry)}`}
+                        className="inline-flex items-center gap-2 px-3 py-1.5 border rounded-md hover:bg-muted/50 transition-colors text-xs font-medium"
+                      >
+                        <Download className="h-3 w-3" />
+                        Download Template
+                      </a>
+                    </div>
                   </CardContent>
                 </Card>
 

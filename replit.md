@@ -34,8 +34,11 @@ shared/          # Shared TypeScript types
 - Authentication: Custom app-users table (`app_users`) with username/password — no external OAuth required
 - `getLoginUrl()` in `client/src/const.ts` safely falls back to `/` when Manus OAuth env vars are absent
 - tRPC API is served at `/api/trpc`
-- Excel export endpoints at `/api/export-excel`, `/api/export-forecast-split`, etc.
+- Excel export endpoints at `/api/export-excel`, `/api/export-forecast-split`, `/api/export-ims-template`, etc.
+- IMS template download: `/api/export-ims-template?country=Lebanon` — generates Excel with SKU names, month columns, and current values
 - Temporary data migration endpoints: `GET /api/export-db` and `POST /api/import-db`
+- Bulk upload uses batched SQL INSERT ON CONFLICT for speed (unique indexes on skuId+periodId per data table)
+- Unique indexes created at startup via `ensureDataIndexes()` in db.ts
 
 ## Data
 

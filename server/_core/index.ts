@@ -61,6 +61,46 @@ async function startServer() {
       res.status(500).json({ error: err?.message || "Export failed" });
     }
   });
+  app.get("/api/export-ims-template", async (req, res) => {
+    try {
+      const country = (req.query.country as string) || "Lebanon";
+      const { getSkusForCountry, getPeriodsForCountry, getImsDataForCountry } = await import("../db");
+      const ExcelJS = (await import("exceljs")).default;
+      const skus = await getSkusForCountry(country as any);
+      const periods = await getPeriodsForCountry(country as any);
+      const existingIms = await getImsDataForCountry(country as any);
+      const imsMap = new Map<string, string>();
+      for (const row of existingIms) {
+        imsMap.set(`${row.skuId}-${row.periodId}`, row.value ?? "0");
+      }
+      const sortedPeriods = [...periods].sort((a, b) => a.sortOrder - b.sortOrder);
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet("IMS vs FRCST");
+      const headerRow = ["SKU Name", ...sortedPeriods.map(p => p.label)];
+      const hRow = ws.addRow(headerRow);
+      hRow.font = { bold: true };
+      hRow.eachCell(cell => { cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFD9E1F2" } }; });
+      for (const sku of skus) {
+        const vals = sortedPeriods.map(p => {
+          const v = parseFloat(imsMap.get(`${sku.id}-${p.id}`) ?? "0");
+          return v || "";
+        });
+        ws.addRow([sku.name, ...vals]);
+      }
+      ws.getColumn(1).width = 30;
+      for (let i = 2; i <= sortedPeriods.length + 1; i++) ws.getColumn(i).width = 12;
+      const buffer = await wb.xlsx.writeBuffer();
+      const now = new Date();
+      const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename=IMS_Template_${country}_${dateStr}.xlsx`);
+      res.send(Buffer.from(buffer as ArrayBuffer));
+    } catch (err: any) {
+      console.error("[IMS Template Export] Error:", err);
+      res.status(500).json({ error: err?.message || "Export failed" });
+    }
+  });
+
   // Forecast split Excel export endpoint
   app.post("/api/export-forecast-split", async (req, res) => {
     try {
@@ -229,6 +269,9 @@ async function startServer() {
 
   // Run startup migration (seeds DB from seed-data.json if empty)
   await runStartupMigration();
+  
+  const { ensureDataIndexes } = await import("../db");
+  await ensureDataIndexes();
 
   const preferredPort = parseInt(process.env.PORT || "5000");
   const port = await findAvailablePort(preferredPort);
