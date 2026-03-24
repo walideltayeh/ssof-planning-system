@@ -2500,6 +2500,359 @@ export async function getExpiryDashboard(country: "Syria" | "Libya") {
   return { rows, summary };
 }
 
+// ==================== RUNNING RATE ANALYSIS ====================
+export async function getRunningRateAnalysis(country: "Lebanon" | "Syria" | "Libya") {
+  const db = await getDb();
+  if (!db) return null;
+
+  const skuList = await getSkusForCountry(country);
+  const skuIds = skuList.map(s => s.id);
+  if (skuIds.length === 0) return null;
+
+  const periodList = await getPeriodsForCountry(country);
+  const imsRows = await db.select().from(imsData).where(inArray(imsData.skuId, skuIds));
+  const forecastRows = await db.select().from(forecastData).where(inArray(forecastData.skuId, skuIds));
+
+  const periodMap = new Map(periodList.map(p => [p.id, p]));
+  const skuMap = new Map(skuList.map(s => [s.id, s]));
+  const now = new Date();
+  const curYear = now.getFullYear();
+  const curMonth = now.getMonth() + 1;
+
+  const sortedPeriods = [...periodList].sort((a, b) => a.sortOrder - b.sortOrder);
+  const periodLabels = sortedPeriods.map(p => p.label);
+
+  const extractFlavor = (name: string) => {
+    return name.replace(/^Al Fakher\s*/i, "").replace(/\s*(50g|250g|1kg)\s*$/i, "").trim() || name;
+  };
+
+  type SkuRateData = {
+    id: number;
+    name: string;
+    weight: string;
+    category: string;
+    packagingType: string;
+    flavor: string;
+    monthlyValues: number[];
+    avg3m: number;
+    avg6m: number;
+    avgAll: number;
+    trend: number;
+    trendDirection: "growing" | "stable" | "declining";
+    lastMonthValue: number;
+    peakMonth: string;
+    peakValue: number;
+    monthsWithData: number;
+  };
+
+  const skuRates: SkuRateData[] = [];
+
+  for (const sku of skuList) {
+    const monthlyValues: number[] = [];
+
+    for (const p of sortedPeriods) {
+      const imsRow = imsRows.find(r => r.skuId === sku.id && r.periodId === p.id);
+      const val = parseFloat(imsRow?.value ?? "0") || 0;
+      monthlyValues.push(val);
+    }
+
+    const nonZeroValues = monthlyValues.filter(v => v > 0);
+    const monthsWithData = nonZeroValues.length;
+
+    let lastDataIdx = monthlyValues.length - 1;
+    for (let li = monthlyValues.length - 1; li >= 0; li--) {
+      if (monthlyValues[li] > 0) { lastDataIdx = li; break; }
+    }
+    const anchorIdx = lastDataIdx + 1;
+    const recent = monthlyValues.slice(0, anchorIdx);
+
+    const last3 = recent.slice(-3).filter(v => v > 0);
+    const last6 = recent.slice(-6).filter(v => v > 0);
+    const avg3m = last3.length > 0 ? last3.reduce((a, b) => a + b, 0) / last3.length : 0;
+    const avg6m = last6.length > 0 ? last6.reduce((a, b) => a + b, 0) / last6.length : 0;
+    const avgAll = nonZeroValues.length > 0 ? nonZeroValues.reduce((a, b) => a + b, 0) / nonZeroValues.length : 0;
+
+    const prior3 = recent.slice(-6, -3).filter(v => v > 0);
+    const avgPrior3 = prior3.length > 0 ? prior3.reduce((a, b) => a + b, 0) / prior3.length : 0;
+    const trend = avgPrior3 > 0 ? Math.round(((avg3m - avgPrior3) / avgPrior3) * 100) : 0;
+    const trendDirection: "growing" | "stable" | "declining" = trend > 5 ? "growing" : trend < -5 ? "declining" : "stable";
+
+    const lastMonthValue = recent.length > 0 ? recent[recent.length - 1] : 0;
+    let peakIdx = 0;
+    let peakVal = 0;
+    monthlyValues.forEach((v, i) => { if (v > peakVal) { peakVal = v; peakIdx = i; } });
+
+    skuRates.push({
+      id: sku.id,
+      name: sku.name,
+      weight: sku.weight,
+      category: sku.category ?? "Core",
+      packagingType: (sku as any).packagingType ?? "New",
+      flavor: extractFlavor(sku.name),
+      monthlyValues,
+      avg3m: Math.round(avg3m),
+      avg6m: Math.round(avg6m),
+      avgAll: Math.round(avgAll),
+      trend,
+      trendDirection,
+      lastMonthValue: Math.round(lastMonthValue),
+      peakMonth: periodLabels[peakIdx] || "",
+      peakValue: Math.round(peakVal),
+      monthsWithData,
+    });
+  }
+
+  const byFlavor = new Map<string, { flavor: string; totalIms: number; avg3m: number; skuCount: number; trend: number }>();
+  for (const sr of skuRates) {
+    const existing = byFlavor.get(sr.flavor) || { flavor: sr.flavor, totalIms: 0, avg3m: 0, skuCount: 0, trend: 0 };
+    existing.totalIms += sr.monthlyValues.reduce((a, b) => a + b, 0);
+    existing.avg3m += sr.avg3m;
+    existing.skuCount += 1;
+    existing.trend += sr.trend;
+    byFlavor.set(sr.flavor, existing);
+  }
+  const flavorSummary = Array.from(byFlavor.values()).map(f => ({
+    ...f,
+    trend: f.skuCount > 0 ? Math.round(f.trend / f.skuCount) : 0,
+  })).sort((a, b) => b.totalIms - a.totalIms);
+
+  const byWeight = new Map<string, { weight: string; totalIms: number; avg3m: number; skuCount: number; trend: number }>();
+  for (const sr of skuRates) {
+    const existing = byWeight.get(sr.weight) || { weight: sr.weight, totalIms: 0, avg3m: 0, skuCount: 0, trend: 0 };
+    existing.totalIms += sr.monthlyValues.reduce((a, b) => a + b, 0);
+    existing.avg3m += sr.avg3m;
+    existing.skuCount += 1;
+    existing.trend += sr.trend;
+    byWeight.set(sr.weight, existing);
+  }
+  const weightSummary = Array.from(byWeight.values()).map(w => ({
+    ...w,
+    trend: w.skuCount > 0 ? Math.round(w.trend / w.skuCount) : 0,
+  })).sort((a, b) => b.totalIms - a.totalIms);
+
+  const totalIms = skuRates.reduce((s, r) => s + r.monthlyValues.reduce((a, b) => a + b, 0), 0);
+  const totalAvg3m = skuRates.reduce((s, r) => s + r.avg3m, 0);
+  const overallTrend = skuRates.length > 0 ? Math.round(skuRates.reduce((s, r) => s + r.trend, 0) / skuRates.length) : 0;
+
+  const monthlyTotals = sortedPeriods.map((_, i) => skuRates.reduce((s, r) => s + r.monthlyValues[i], 0));
+
+  return {
+    periodLabels,
+    skuRates,
+    flavorSummary,
+    weightSummary,
+    totalIms: Math.round(totalIms),
+    totalAvg3m: Math.round(totalAvg3m),
+    overallTrend,
+    monthlyTotals,
+    totalSkus: skuRates.length,
+  };
+}
+
+// ==================== STOCK LEVEL ANALYSIS ====================
+export async function getStockLevelAnalysis(country: "Lebanon" | "Syria" | "Libya") {
+  const db = await getDb();
+  if (!db) return null;
+
+  const skuList = await getSkusForCountry(country);
+  const skuIds = skuList.map(s => s.id);
+  if (skuIds.length === 0) return null;
+
+  const periodList = await getPeriodsForCountry(country);
+  const planningRows = await db.select().from(planningFgData).where(inArray(planningFgData.skuId, skuIds));
+  const imsRows = await db.select().from(imsData).where(inArray(imsData.skuId, skuIds));
+  const forecastRows = await db.select().from(forecastData).where(inArray(forecastData.skuId, skuIds));
+
+  const skuMap = new Map(skuList.map(s => [s.id, s]));
+  const sortedPeriods = [...periodList].sort((a, b) => a.sortOrder - b.sortOrder);
+  const periodLabels = sortedPeriods.map(p => p.label);
+
+  const now = new Date();
+  const curYear = now.getFullYear();
+  const curMonth = now.getMonth() + 1;
+
+  const classifyZone = (weeks: number): string => {
+    if (!isFinite(weeks) && weeks > 0) return "Overstock";
+    if (!isFinite(weeks) && weeks < 0) return "Negative";
+    if (weeks === 0) return "Out of Stock";
+    if (weeks < 0) return "Negative";
+    if (weeks < 4) return "Critical";
+    if (weeks <= 6) return "Healthy";
+    return "Overstock";
+  };
+
+  const zoneColors: Record<string, string> = {
+    "Out of Stock": "#6b7280",
+    "Negative": "#111827",
+    "Critical": "#dc2626",
+    "Healthy": "#16a34a",
+    "Overstock": "#ea580c",
+  };
+
+  type SkuStockData = {
+    id: number;
+    name: string;
+    weight: string;
+    category: string;
+    packagingType: string;
+    closingStocks: number[];
+    weeksOfStock: number[];
+    zones: string[];
+    currentClosingStock: number;
+    currentWeeks: number;
+    currentZone: string;
+    avgWeeks: number;
+    healthScore: number;
+    coverageMonths: number;
+    monthlyIms: number[];
+    monthlyArrivals: number[];
+  };
+
+  const skuStocks: SkuStockData[] = [];
+
+  for (const sku of skuList) {
+    let prevCS = 0;
+    const closingStocks: number[] = [];
+    const weeksArr: number[] = [];
+    const zonesArr: string[] = [];
+    const monthlyIms: number[] = [];
+    const monthlyArrivals: number[] = [];
+
+    for (let i = 0; i < sortedPeriods.length; i++) {
+      const p = sortedPeriods[i];
+      const pf = planningRows.find(d => d.skuId === sku.id && d.periodId === p.id);
+      const imsVal = parseFloat(imsRows.find(d => d.skuId === sku.id && d.periodId === p.id)?.value ?? "0") || 0;
+
+      const effIms = imsVal !== 0 ? imsVal : (() => {
+        if (p.year > curYear || (p.year === curYear && p.month > curMonth))
+          return parseFloat(forecastRows.find(f => f.skuId === sku.id && f.periodId === p.id)?.value ?? "0") || 0;
+        return 0;
+      })();
+
+      const opening = i === 0 ? (parseFloat(pf?.openingStock ?? "0") || 0) : prevCS;
+      const adj = parseFloat(pf?.adjustments ?? "0") || 0;
+      const arr = parseFloat(pf?.arrivals ?? "0") || 0;
+      const cs = opening + adj + arr - effIms;
+
+      let weeks = 0;
+      if (cs !== 0) {
+        const getEff = (idx: number) => {
+          if (idx >= sortedPeriods.length) return 0;
+          const pp = sortedPeriods[idx];
+          const iv = parseFloat(imsRows.find(d => d.skuId === sku.id && d.periodId === pp.id)?.value ?? "0") || 0;
+          if (iv !== 0) return iv;
+          if (pp.year > curYear || (pp.year === curYear && pp.month > curMonth))
+            return parseFloat(forecastRows.find(f => f.skuId === sku.id && f.periodId === pp.id)?.value ?? "0") || 0;
+          return 0;
+        };
+        const n1 = getEff(i + 1);
+        const n2 = getEff(i + 2);
+        const avgN = (n1 !== 0 || n2 !== 0) ? (n1 + n2) / 2 : 0;
+        weeks = avgN !== 0 ? (cs / avgN) * 4.3 : (cs > 0 ? Infinity : -Infinity);
+      }
+
+      closingStocks.push(Math.round(cs));
+      weeksArr.push(isFinite(weeks) ? Math.round(weeks * 10) / 10 : (weeks > 0 ? 99 : -99));
+      zonesArr.push(classifyZone(weeks));
+      monthlyIms.push(Math.round(effIms));
+      monthlyArrivals.push(Math.round(arr));
+      prevCS = cs;
+    }
+
+    const currentIdx = sortedPeriods.findIndex(p =>
+      (p.year === curYear && p.month === curMonth) ||
+      (p.year > curYear || (p.year === curYear && p.month > curMonth))
+    );
+    const cIdx = currentIdx >= 0 ? currentIdx : sortedPeriods.length - 1;
+
+    const validWeeks = weeksArr.filter(w => Math.abs(w) < 99);
+    const avgWeeks = validWeeks.length > 0 ? validWeeks.reduce((a, b) => a + b, 0) / validWeeks.length : 0;
+    const healthyCount = zonesArr.filter(z => z === "Healthy").length;
+    const healthScore = zonesArr.length > 0 ? Math.round((healthyCount / zonesArr.length) * 100) : 0;
+
+    const avg3mIms = monthlyIms.slice(-3).reduce((a, b) => a + b, 0) / 3;
+    const coverageMonths = avg3mIms > 0 ? Math.round((closingStocks[cIdx] / avg3mIms) * 10) / 10 : 0;
+
+    skuStocks.push({
+      id: sku.id,
+      name: sku.name,
+      weight: sku.weight,
+      category: sku.category ?? "Core",
+      packagingType: (sku as any).packagingType ?? "New",
+      closingStocks,
+      weeksOfStock: weeksArr,
+      zones: zonesArr,
+      currentClosingStock: closingStocks[cIdx] || 0,
+      currentWeeks: weeksArr[cIdx] || 0,
+      currentZone: zonesArr[cIdx] || "Unknown",
+      avgWeeks: Math.round(avgWeeks * 10) / 10,
+      healthScore,
+      coverageMonths,
+      monthlyIms,
+      monthlyArrivals,
+    });
+  }
+
+  const zoneCounts: Record<string, number> = {};
+  const currentPeriodIdx = sortedPeriods.findIndex(p => p.year === curYear && p.month === curMonth);
+  const activeIdx = currentPeriodIdx >= 0 ? currentPeriodIdx : sortedPeriods.length - 1;
+  for (const ss of skuStocks) {
+    const zone = ss.zones[activeIdx] || "Unknown";
+    zoneCounts[zone] = (zoneCounts[zone] || 0) + 1;
+  }
+  const zoneDistribution = Object.entries(zoneCounts).map(([zone, count]) => ({
+    zone,
+    count,
+    percentage: skuStocks.length > 0 ? Math.round((count / skuStocks.length) * 100) : 0,
+    color: zoneColors[zone] || "#6b7280",
+  }));
+
+  const periodZones = sortedPeriods.map((p, pIdx) => {
+    const counts: Record<string, number> = {};
+    for (const ss of skuStocks) {
+      const zone = ss.zones[pIdx] || "Unknown";
+      counts[zone] = (counts[zone] || 0) + 1;
+    }
+    return { period: p.label, zones: counts };
+  });
+
+  const byWeight = new Map<string, { totalStock: number; avgWeeks: number; count: number }>();
+  for (const ss of skuStocks) {
+    const existing = byWeight.get(ss.weight) || { totalStock: 0, avgWeeks: 0, count: 0 };
+    existing.totalStock += ss.currentClosingStock;
+    existing.avgWeeks += ss.currentWeeks;
+    existing.count += 1;
+    byWeight.set(ss.weight, existing);
+  }
+  const weightStockSummary = Array.from(byWeight.entries()).map(([weight, d]) => ({
+    weight,
+    totalStock: d.totalStock,
+    avgWeeks: d.count > 0 ? Math.round((d.avgWeeks / d.count) * 10) / 10 : 0,
+    skuCount: d.count,
+  }));
+
+  const totalClosingStock = skuStocks.reduce((s, r) => s + r.currentClosingStock, 0);
+  const avgWeeksAll = skuStocks.length > 0
+    ? Math.round((skuStocks.reduce((s, r) => s + (Math.abs(r.currentWeeks) < 99 ? r.currentWeeks : 0), 0) / skuStocks.length) * 10) / 10
+    : 0;
+  const avgHealthScore = skuStocks.length > 0
+    ? Math.round(skuStocks.reduce((s, r) => s + r.healthScore, 0) / skuStocks.length)
+    : 0;
+
+  return {
+    periodLabels,
+    skuStocks,
+    zoneDistribution,
+    periodZones,
+    weightStockSummary,
+    totalClosingStock,
+    avgWeeksAll,
+    avgHealthScore,
+    totalSkus: skuStocks.length,
+    zoneColors,
+  };
+}
+
 /** Row type for the expiry dashboard */
 type ExpiryRow = {
   skuId: number;

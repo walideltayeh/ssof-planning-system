@@ -88,6 +88,33 @@ Schema was converted from MySQL to PostgreSQL during Replit import. Uses Drizzle
 - Dialog title shows "Save SSOF Version — [Country]" to make the scope clear
 - `versionCountry` state defaults to the logged-in user's country
 
+### 4. Monthly Running Rate (MRR) Analysis — All Countries
+- New "Running Rate" tab in Analysis pages (Lebanon, Syria, Libya)
+- Per-SKU monthly IMS running rates with 3M/6M/All-Time averages
+- Trend analysis (3M vs prior 3M) with directional indicators
+- Drill-down views: By SKU, By Flavor, By Weight
+- Sparkline monthly trend charts per SKU
+- KPI cards: Total IMS, 3M Running Rate, Overall Trend, Active SKUs
+- API: `trpc.country.runningRate` endpoint
+- Files: `server/db.ts` (getRunningRateAnalysis), `client/src/pages/AnalysisPage.tsx`, `client/src/pages/IntlAnalysisPage.tsx`
+
+### 5. Stock Level Analysis — All Countries
+- New "Stock Levels" tab in Analysis pages (Lebanon, Syria, Libya)
+- Per-SKU closing stock, weeks of stock, coverage months, health score
+- Zone distribution donut chart (Healthy/Critical/Overstock/Out of Stock/Negative)
+- Zone trend over time stacked bar chart
+- Stock by weight summary cards
+- Sortable SKU table with zone badges and stock trend sparklines
+- API: `trpc.country.stockLevels` endpoint
+- Files: `server/db.ts` (getStockLevelAnalysis), `client/src/pages/AnalysisPage.tsx`, `client/src/pages/IntlAnalysisPage.tsx`
+
+### 6. AI Forecast Recommendation — Algorithmic Fallback
+- Forecast split recommendation now falls back to a 5-factor algorithmic model when LLM API key is unavailable
+- Uses pre-computed: historical trend (35%), seasonality (25%), stock health (20%), market intelligence (10%), confidence (10%)
+- Non-negative safe reconciliation loop to ensure exact mastercase totals
+- Share percentages recomputed after reconciliation
+- File: `server/routers.ts` (forecastSplit.recommend mutation)
+
 ## Deployment
 
 - Custom domain: `ssofplan.live`

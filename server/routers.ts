@@ -1581,6 +1581,18 @@ export const appRouter = router({
         return db.getIntlAnalysis(input.country);
       }),
 
+    runningRate: publicProcedure
+      .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya"]) }))
+      .query(async ({ input }) => {
+        return db.getRunningRateAnalysis(input.country);
+      }),
+
+    stockLevels: publicProcedure
+      .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya"]) }))
+      .query(async ({ input }) => {
+        return db.getStockLevelAnalysis(input.country);
+      }),
+
     updatePlanningFgCell: publicProcedure
       .input(z.object({
         skuId: z.number(),
