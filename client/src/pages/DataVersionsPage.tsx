@@ -378,11 +378,36 @@ export default function DataVersionsPage() {
       }
       skuEntry.rows.set(rowType, values);
     }
-    const records = Array.from(skuMap.values()).map(s => ({
-      skuName: s.skuName,
-      weight: s.weight,
-      values: Array.from(s.rows.entries()).flatMap(([, vals]) => vals),
-    }));
+    const records = Array.from(skuMap.values()).map(s => {
+      const findRow = (...keys: string[]) => {
+        for (const k of keys) {
+          const exact = s.rows.get(k);
+          if (exact) return exact;
+        }
+        for (const [rowKey, rowVal] of s.rows.entries()) {
+          const lk = rowKey.toLowerCase();
+          for (const k of keys) {
+            if (lk.includes(k.toLowerCase())) return rowVal;
+          }
+        }
+        return undefined;
+      };
+      const openingStockRow = findRow("OPENING STOCK", "OPENING", "OP. STOCK", "OP STOCK");
+      const adjustmentsRow = findRow("ADJUSTMENTS", "ADJUSTMENT", "ADJ");
+      const invoicedRow = findRow("INVOICED", "INVOICE", "INV", "SHP");
+      const arrivalsRow = findRow("ARRIVALS", "ARRIVAL", "PLANNED ORDERS", "ACTUAL ARRIVALS");
+      const imsRow = findRow("IMS", "SALES", "ACTUAL");
+      const values = dateColumns.map((dc, idx) => ({
+        year: dc.year,
+        month: dc.month,
+        openingStock: openingStockRow?.[idx]?.value ?? "0",
+        adjustments: adjustmentsRow?.[idx]?.value ?? "0",
+        invoiced: invoicedRow?.[idx]?.value ?? "0",
+        arrivals: arrivalsRow?.[idx]?.value ?? "0",
+        ims: imsRow?.[idx]?.value,
+      }));
+      return { skuName: s.skuName, weight: s.weight, values };
+    });
     log(`Processing ${records.length} Planning FG records for ${sheetName}...`);
     await uploadPlanningFgBulk.mutateAsync({ records, country: uploadCountry });
     log(`✅ Planning FG ${sheetName} uploaded: ${records.length} SKUs`);
