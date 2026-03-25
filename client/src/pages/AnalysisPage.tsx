@@ -2,6 +2,9 @@ import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { Download, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 
 // ==================== HELPER COMPONENTS ====================
 
@@ -198,6 +201,34 @@ const PALETTE = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899
 
 export default function AnalysisPage() {
   const [activeTab, setActiveTab] = useState("overview");
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExport = async () => {
+    setIsExporting(true);
+    try {
+      const response = await fetch("/api/export-excel");
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ error: "Export failed" }));
+        throw new Error(err.error || "Export failed");
+      }
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const disposition = response.headers.get("Content-Disposition");
+      const filenameMatch = disposition?.match(/filename=(.+)/);
+      a.download = filenameMatch ? filenameMatch[1] : "SSOF_Planning.xlsx";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success("Full workbook exported successfully");
+    } catch (err: any) {
+      toast.error("Export failed: " + (err?.message || "Unknown error"));
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   const { data: overview, isLoading: loadingOverview } = trpc.analysis.overview.useQuery();
   const { data: bySkuData, isLoading: loadingSku } = trpc.analysis.bySku.useQuery();
@@ -1484,11 +1515,17 @@ export default function AnalysisPage() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight">Analysis Dashboard</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Comprehensive analytics across all SSOF data dimensions
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">Analysis Dashboard</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Comprehensive analytics across all SSOF data dimensions
+          </p>
+        </div>
+        <Button variant="outline" size="sm" className="gap-2" onClick={handleExport} disabled={isExporting}>
+          {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+          Export to Excel
+        </Button>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
