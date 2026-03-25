@@ -206,7 +206,7 @@ export default function AnalysisPage() {
   const handleExport = async () => {
     setIsExporting(true);
     try {
-      const response = await fetch("/api/export-excel");
+      const response = await fetch("/api/export-analysis");
       if (!response.ok) {
         const err = await response.json().catch(() => ({ error: "Export failed" }));
         throw new Error(err.error || "Export failed");
@@ -217,12 +217,12 @@ export default function AnalysisPage() {
       a.href = url;
       const disposition = response.headers.get("Content-Disposition");
       const filenameMatch = disposition?.match(/filename=(.+)/);
-      a.download = filenameMatch ? filenameMatch[1] : "SSOF_Planning.xlsx";
+      a.download = filenameMatch ? filenameMatch[1] : "SSOF_Analysis.xlsx";
       document.body.appendChild(a);
       a.click();
       a.remove();
       window.URL.revokeObjectURL(url);
-      toast.success("Full workbook exported successfully");
+      toast.success("Analysis exported successfully");
     } catch (err: any) {
       toast.error("Export failed: " + (err?.message || "Unknown error"));
     } finally {

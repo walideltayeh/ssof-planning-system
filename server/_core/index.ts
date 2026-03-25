@@ -91,6 +91,21 @@ async function startServer() {
     }
   });
 
+  app.get("/api/export-analysis", async (req, res) => {
+    try {
+      const { generateAnalysisExcelBuffer } = await import("../excelExport");
+      const buffer = await generateAnalysisExcelBuffer();
+      const now = new Date();
+      const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename=SSOF_Analysis_${dateStr}.xlsx`);
+      res.send(buffer);
+    } catch (err: any) {
+      console.error("[Analysis Export] Error:", err);
+      res.status(500).json({ error: err?.message || "Export failed" });
+    }
+  });
+
   app.get("/api/export-ims-template", async (req, res) => {
     try {
       const country = (req.query.country as string) || "Lebanon";

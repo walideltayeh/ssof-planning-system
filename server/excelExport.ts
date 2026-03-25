@@ -1370,3 +1370,243 @@ export async function generateExcelBufferForCountry(country: "Syria" | "Libya"):
   const buffer = await wb.xlsx.writeBuffer();
   return Buffer.from(buffer);
 }
+
+// ==================== ANALYSIS EXPORT ====================
+
+const HEADER_STYLE_ANALYSIS: Partial<ExcelJS.Style> = {
+  font: { bold: true, color: { argb: "FFFFFFFF" }, size: 11 },
+  fill: { type: "pattern", pattern: "solid", fgColor: { argb: "FF0D9488" } },
+  alignment: { horizontal: "center", vertical: "middle" },
+  border: {
+    bottom: { style: "thin", color: { argb: "FF0D9488" } },
+  },
+};
+
+function styleAnalysisHeader(ws: ExcelJS.Worksheet, colCount: number) {
+  const row = ws.getRow(1);
+  for (let c = 1; c <= colCount; c++) {
+    row.getCell(c).style = HEADER_STYLE_ANALYSIS as ExcelJS.Style;
+  }
+  row.height = 22;
+}
+
+export async function generateAnalysisExcelBuffer(): Promise<Buffer> {
+  const overview = await db.getAnalysisOverview();
+  const bySku = await db.getAnalysisBySku();
+  const byWeight = await db.getAnalysisByWeight();
+  const byCategory = await db.getAnalysisByCategory();
+  const byFlavor = await db.getAnalysisByFlavor();
+  const production = await db.getAnalysisProduction();
+  const stockHealth = await db.getAnalysisStockHealth();
+
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "SSOF Planning System";
+  wb.created = new Date();
+
+  const wsOverview = wb.addWorksheet("Overview");
+  wsOverview.columns = [
+    { header: "Metric", key: "metric", width: 25 },
+    { header: "Value", key: "value", width: 20 },
+  ];
+  wsOverview.addRow({ metric: "Total SKUs", value: overview.totalSkus });
+  wsOverview.addRow({ metric: "Total Forecast", value: overview.totalForecast });
+  wsOverview.addRow({ metric: "Total Production", value: overview.totalProduction });
+  wsOverview.addRow({ metric: "Total Arrival", value: overview.totalArrival });
+  wsOverview.addRow({ metric: "Avg Weeks of Stock", value: overview.avgWeeksOfStock });
+  wsOverview.addRow({});
+  if (overview.monthlyTrend.length > 0) {
+    wsOverview.addRow({ metric: "Monthly Trend", value: "" });
+    const trendRowNum = wsOverview.rowCount + 1;
+    const trendHeader = wsOverview.getRow(trendRowNum);
+    trendHeader.getCell(1).value = "Period";
+    trendHeader.getCell(2).value = "Forecast";
+    trendHeader.getCell(3).value = "Production";
+    trendHeader.getCell(4).value = "Arrival";
+    for (let c = 1; c <= 4; c++) {
+      trendHeader.getCell(c).style = HEADER_STYLE_ANALYSIS as ExcelJS.Style;
+    }
+    trendHeader.commit();
+    for (const m of overview.monthlyTrend) {
+      const r = wsOverview.addRow({});
+      r.getCell(1).value = m.period;
+      r.getCell(2).value = Math.round(m.forecast);
+      r.getCell(3).value = Math.round(m.production);
+      r.getCell(4).value = Math.round(m.arrival);
+      r.getCell(2).numFmt = "#,##0";
+      r.getCell(3).numFmt = "#,##0";
+      r.getCell(4).numFmt = "#,##0";
+    }
+  }
+  styleAnalysisHeader(wsOverview, 2);
+
+  const wsSku = wb.addWorksheet("By SKU");
+  wsSku.columns = [
+    { header: "SKU Name", key: "name", width: 35 },
+    { header: "Weight", key: "weight", width: 10 },
+    { header: "Category", key: "category", width: 12 },
+    { header: "Total Forecast", key: "totalForecast", width: 16 },
+    { header: "Total Production", key: "totalProduction", width: 18 },
+    { header: "Total IMS", key: "totalIms", width: 14 },
+    { header: "Forecast Accuracy %", key: "forecastAccuracy", width: 20 },
+    { header: "Avg Weeks of Stock", key: "avgWeeksOfStock", width: 20 },
+  ];
+  for (const s of bySku.sort((a, b) => b.totalForecast - a.totalForecast)) {
+    const r = wsSku.addRow({
+      name: s.name, weight: s.weight, category: s.category,
+      totalForecast: s.totalForecast, totalProduction: s.totalProduction,
+      totalIms: s.totalIms, forecastAccuracy: s.forecastAccuracy,
+      avgWeeksOfStock: s.avgWeeksOfStock,
+    });
+    r.getCell(4).numFmt = "#,##0";
+    r.getCell(5).numFmt = "#,##0";
+    r.getCell(6).numFmt = "#,##0";
+    r.getCell(7).numFmt = "0";
+    r.getCell(8).numFmt = "0.0";
+  }
+  styleAnalysisHeader(wsSku, 8);
+
+  const wsWeight = wb.addWorksheet("By Weight");
+  wsWeight.columns = [
+    { header: "Weight", key: "weight", width: 12 },
+    { header: "SKU Count", key: "skuCount", width: 12 },
+    { header: "Total Forecast", key: "totalForecast", width: 16 },
+    { header: "Total Production", key: "totalProduction", width: 18 },
+    { header: "Total IMS", key: "totalIms", width: 14 },
+  ];
+  for (const w of byWeight) {
+    const r = wsWeight.addRow({
+      weight: w.weight, skuCount: w.skuCount,
+      totalForecast: w.totalForecast, totalProduction: w.totalProduction,
+      totalIms: w.totalIms,
+    });
+    r.getCell(3).numFmt = "#,##0";
+    r.getCell(4).numFmt = "#,##0";
+    r.getCell(5).numFmt = "#,##0";
+  }
+  styleAnalysisHeader(wsWeight, 5);
+
+  const wsCategory = wb.addWorksheet("By Category");
+  wsCategory.columns = [
+    { header: "Category", key: "category", width: 15 },
+    { header: "SKU Count", key: "skuCount", width: 12 },
+    { header: "Total Forecast", key: "totalForecast", width: 16 },
+    { header: "Total Production", key: "totalProduction", width: 18 },
+    { header: "Total IMS", key: "totalIms", width: 14 },
+  ];
+  for (const c of byCategory) {
+    const r = wsCategory.addRow({
+      category: c.category, skuCount: c.skuCount,
+      totalForecast: c.totalForecast, totalProduction: c.totalProduction,
+      totalIms: c.totalIms,
+    });
+    r.getCell(3).numFmt = "#,##0";
+    r.getCell(4).numFmt = "#,##0";
+    r.getCell(5).numFmt = "#,##0";
+  }
+  styleAnalysisHeader(wsCategory, 5);
+
+  const wsFlavor = wb.addWorksheet("By Flavor");
+  wsFlavor.columns = [
+    { header: "Flavor", key: "flavor", width: 30 },
+    { header: "Weights", key: "weights", width: 18 },
+    { header: "Total Forecast", key: "totalForecast", width: 16 },
+    { header: "Total IMS", key: "totalIms", width: 14 },
+    { header: "Total Production", key: "totalProduction", width: 18 },
+  ];
+  for (const f of byFlavor) {
+    const r = wsFlavor.addRow({
+      flavor: f.flavor, weights: f.weights.join(", "),
+      totalForecast: f.totalForecast, totalIms: f.totalIms,
+      totalProduction: f.totalProduction,
+    });
+    r.getCell(3).numFmt = "#,##0";
+    r.getCell(4).numFmt = "#,##0";
+    r.getCell(5).numFmt = "#,##0";
+  }
+  styleAnalysisHeader(wsFlavor, 5);
+
+  const wsProd = wb.addWorksheet("Production Monthly");
+  wsProd.columns = [
+    { header: "Period", key: "period", width: 18 },
+    { header: "Shipped", key: "shipped", width: 14 },
+    { header: "Arrived", key: "arrived", width: 14 },
+    { header: "Gap", key: "gap", width: 14 },
+    { header: "Efficiency %", key: "efficiency", width: 14 },
+  ];
+  for (const m of production.monthly) {
+    const r = wsProd.addRow({
+      period: m.period, shipped: m.shipped, arrived: m.arrived,
+      gap: m.gap, efficiency: m.efficiency,
+    });
+    r.getCell(2).numFmt = "#,##0";
+    r.getCell(3).numFmt = "#,##0";
+    r.getCell(4).numFmt = "#,##0";
+    r.getCell(5).numFmt = "0";
+  }
+  styleAnalysisHeader(wsProd, 5);
+
+  const wsProdSku = wb.addWorksheet("Production by SKU");
+  wsProdSku.columns = [
+    { header: "SKU Name", key: "name", width: 35 },
+    { header: "Weight", key: "weight", width: 10 },
+    { header: "Category", key: "category", width: 12 },
+    { header: "Total Shipped", key: "totalShipped", width: 16 },
+    { header: "Total Arrived", key: "totalArrived", width: 16 },
+    { header: "Gap", key: "gap", width: 14 },
+    { header: "Efficiency %", key: "efficiency", width: 14 },
+  ];
+  for (const s of production.skuEfficiency) {
+    const r = wsProdSku.addRow({
+      name: s.name, weight: s.weight, category: s.category,
+      totalShipped: s.totalShipped, totalArrived: s.totalArrived,
+      gap: s.gap, efficiency: s.efficiency,
+    });
+    r.getCell(4).numFmt = "#,##0";
+    r.getCell(5).numFmt = "#,##0";
+    r.getCell(6).numFmt = "#,##0";
+    r.getCell(7).numFmt = "0";
+  }
+  styleAnalysisHeader(wsProdSku, 7);
+
+  const wsHealth = wb.addWorksheet("Stock Health Zones");
+  wsHealth.columns = [
+    { header: "Zone", key: "zone", width: 18 },
+    { header: "Count", key: "count", width: 12 },
+    { header: "Percentage %", key: "percentage", width: 14 },
+  ];
+  for (const z of stockHealth.zones) {
+    wsHealth.addRow({ zone: z.zone, count: z.count, percentage: z.percentage });
+  }
+  styleAnalysisHeader(wsHealth, 3);
+
+  const wsHealthSku = wb.addWorksheet("Stock Health by SKU");
+  wsHealthSku.columns = [
+    { header: "SKU Name", key: "name", width: 35 },
+    { header: "Weight", key: "weight", width: 10 },
+    { header: "Category", key: "category", width: 12 },
+    { header: "Avg Weeks of Stock", key: "avgWeeksOfStock", width: 20 },
+    { header: "Health Score %", key: "healthScore", width: 16 },
+    { header: "Out of Stock", key: "oos", width: 14 },
+    { header: "Critical", key: "critical", width: 12 },
+    { header: "Healthy", key: "healthy", width: 12 },
+    { header: "Overstock", key: "overstock", width: 12 },
+    { header: "Negative", key: "negative", width: 12 },
+  ];
+  for (const s of stockHealth.skuHealth) {
+    const r = wsHealthSku.addRow({
+      name: s.name, weight: s.weight, category: s.category,
+      avgWeeksOfStock: s.avgWeeksOfStock, healthScore: s.healthScore,
+      oos: s.zoneBreakdown["Out of Stock"] || 0,
+      critical: s.zoneBreakdown["Critical"] || 0,
+      healthy: s.zoneBreakdown["Healthy"] || 0,
+      overstock: s.zoneBreakdown["Overstock"] || 0,
+      negative: s.zoneBreakdown["Negative"] || 0,
+    });
+    r.getCell(4).numFmt = "0.0";
+    r.getCell(5).numFmt = "0";
+  }
+  styleAnalysisHeader(wsHealthSku, 10);
+
+  const buf = await wb.xlsx.writeBuffer();
+  return Buffer.from(buf);
+}
