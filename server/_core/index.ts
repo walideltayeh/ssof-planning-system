@@ -61,6 +61,36 @@ async function startServer() {
       res.status(500).json({ error: err?.message || "Export failed" });
     }
   });
+  app.get("/api/export-sheet", async (req, res) => {
+    try {
+      const sheet = req.query.sheet as string;
+      const country = req.query.country as string | undefined;
+      if (!sheet) {
+        res.status(400).json({ error: "Missing 'sheet' query parameter" });
+        return;
+      }
+      let buffer: Buffer;
+      let countryLabel = "Lebanon";
+      if (country === "Syria" || country === "Libya") {
+        const { generateSingleSheetBufferForCountry } = await import("../excelExport");
+        buffer = await generateSingleSheetBufferForCountry(country, sheet);
+        countryLabel = country;
+      } else {
+        const { generateSingleSheetBuffer } = await import("../excelExport");
+        buffer = await generateSingleSheetBuffer(sheet);
+      }
+      const sheetLabel = sheet.replace(/-/g, "_");
+      const now = new Date();
+      const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename=SSOF_${countryLabel}_${sheetLabel}_${dateStr}.xlsx`);
+      res.send(buffer);
+    } catch (err: any) {
+      console.error("[Sheet Export] Error:", err);
+      res.status(500).json({ error: err?.message || "Export failed" });
+    }
+  });
+
   app.get("/api/export-ims-template", async (req, res) => {
     try {
       const country = (req.query.country as string) || "Lebanon";

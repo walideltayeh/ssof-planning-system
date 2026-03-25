@@ -7,6 +7,7 @@ import { useAppAuth } from "@/contexts/AuthContext";
 import { useCountry } from "@/contexts/CountryContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
+import ExportSheetButton from "@/components/ExportSheetButton";
 
 const WEIGHT_ORDER: Record<string, number> = { "1kg": 0, "250g": 1, "50g": 2 };
 
@@ -393,6 +394,7 @@ export default function ShipmentPage() {
           </p>
         </div>
         <div className="flex items-center gap-1">
+          <ExportSheetButton sheet="shipment" country={country} label="Export Shipment" />
           <button onClick={() => setCollapsedYears(new Set(years))} className="px-2 py-1 text-[10px] font-medium rounded border border-border bg-background hover:bg-muted transition-colors" title="Collapse all years">Collapse All</button>
           <button onClick={() => setCollapsedYears(new Set())} className="px-2 py-1 text-[10px] font-medium rounded border border-border bg-background hover:bg-muted transition-colors" title="Expand all years">Expand All</button>
           <button

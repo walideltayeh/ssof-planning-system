@@ -8,6 +8,7 @@ import { useCountry } from "@/contexts/CountryContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import ExportSheetButton from "@/components/ExportSheetButton";
 
 const WEIGHT_ORDER: Record<string, number> = { "1kg": 0, "250g": 1, "50g": 2 };
 
@@ -342,16 +343,21 @@ export default function ImsVsForecastPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight">{config?.terms.forecastVsIms ?? "IMS vs Forecast"}</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          {isLebanon
-            ? "Compare IMS actuals against forecast."
-            : "Compare IMS actuals against Forecast Production."}
-          {" "}Grouped by Core/NPI, sorted by weight.
-          <span className="inline-block w-3 h-3 bg-emerald-100 rounded-sm align-middle mx-1"></span>Actual
-          <span className="inline-block w-3 h-3 bg-amber-50 rounded-sm align-middle mx-1 ml-2"></span>Forecast.
-          Click IMS cells to edit. Click year headers to collapse months.
-        </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight">{config?.terms.forecastVsIms ?? "IMS vs Forecast"}</h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              {isLebanon
+                ? "Compare IMS actuals against forecast."
+                : "Compare IMS actuals against Forecast Production."}
+              {" "}Grouped by Core/NPI, sorted by weight.
+              <span className="inline-block w-3 h-3 bg-emerald-100 rounded-sm align-middle mx-1"></span>Actual
+              <span className="inline-block w-3 h-3 bg-amber-50 rounded-sm align-middle mx-1 ml-2"></span>Forecast.
+              Click IMS cells to edit. Click year headers to collapse months.
+            </p>
+          </div>
+          <ExportSheetButton sheet="ims" country={country} label="Export IMS" />
+        </div>
       </div>
 
       {/* Search & Filter Bar */}

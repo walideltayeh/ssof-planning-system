@@ -9,6 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { computeArrivalDate, formatArrivalDate } from "./ShipmentPage";
+import ExportSheetButton from "@/components/ExportSheetButton";
 
 type ArrivalStatus = "Pending" | "In Transit" | "Arrived" | "Delayed" | "Cleared" | "Partially Cleared";
 
@@ -538,6 +539,7 @@ export default function ArrivalPage() {
               <span className="ml-2 text-amber-600 font-medium">Status auto-updates: partial qty → Partially Cleared · full qty → Cleared</span>
             </p>
           </div>
+          <ExportSheetButton sheet="arrival" country={country} label="Export Arrival" />
           <button
             onClick={() => refetchAll()}
             disabled={isSyncing}
@@ -1115,6 +1117,7 @@ export default function ArrivalPage() {
           </p>
         </div>
         <div className="flex items-center gap-1">
+          <ExportSheetButton sheet="arrival" country={country} label="Export Arrival" />
           <button onClick={() => setCollapsedYears(new Set(years))} className="px-2 py-1 text-[10px] font-medium rounded border border-border bg-background hover:bg-muted transition-colors">Collapse All</button>
           <button onClick={() => setCollapsedYears(new Set())} className="px-2 py-1 text-[10px] font-medium rounded border border-border bg-background hover:bg-muted transition-colors">Expand All</button>
         </div>

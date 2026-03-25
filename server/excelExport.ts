@@ -1071,6 +1071,75 @@ function computeWeeksValue(
   return 0;
 }
 
+// ==================== SINGLE-SHEET EXPORT ====================
+export async function generateSingleSheetBuffer(sheet: string): Promise<Buffer> {
+  const data = await db.getFullPlanningData();
+  const { skus: allSkus, periods: allPeriods, forecast, ims, shipment, arrival, planningFg } = data;
+  const sortedPeriods = [...allPeriods].sort((a, b) => a.sortOrder - b.sortOrder);
+
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "SSOF Planning System";
+  wb.created = new Date();
+
+  if (sheet === "forecast") {
+    buildForecastSheet(wb, allSkus, sortedPeriods, forecast);
+  } else if (sheet === "ims") {
+    const { skuRowMap: forecastSkuRowMap } = buildForecastSheet(wb, allSkus, sortedPeriods, forecast);
+    buildImsVsForecastSheet(wb, allSkus, sortedPeriods, forecast, ims, forecastSkuRowMap);
+  } else if (sheet === "shipment") {
+    buildShipmentSheet(wb, allSkus, sortedPeriods, shipment);
+  } else if (sheet === "arrival") {
+    const { sheetName: shipSheetName, skuRowMap: shipSkuRowMap, periodColMap: shipPeriodColMap } =
+      buildShipmentSheet(wb, allSkus, sortedPeriods, shipment);
+    buildArrivalSheet(wb, allSkus, sortedPeriods, arrival, shipment, shipSheetName, shipSkuRowMap, shipPeriodColMap);
+  } else if (sheet.startsWith("planning-fg-")) {
+    const weight = sheet.replace("planning-fg-", "");
+    const { skuRowMap: forecastSkuRowMap } = buildForecastSheet(wb, allSkus, sortedPeriods, forecast);
+    const { skuImsRowMap: imsFrcstImsRowMap } =
+      buildImsVsForecastSheet(wb, allSkus, sortedPeriods, forecast, ims, forecastSkuRowMap);
+    const { sheetName: shipSheetName, skuRowMap: shipSkuRowMap, periodColMap: shipPeriodColMap } =
+      buildShipmentSheet(wb, allSkus, sortedPeriods, shipment);
+    const { skuRowMap: arrSkuRowMap, periodTotalColMap: arrPeriodTotalColMap } =
+      buildArrivalSheet(wb, allSkus, sortedPeriods, arrival, shipment, shipSheetName, shipSkuRowMap, shipPeriodColMap);
+    buildPlanningFgSheet(
+      wb, weight, allSkus, sortedPeriods, ims, planningFg,
+      "IMS vs FRCST", imsFrcstImsRowMap,
+      shipSheetName, shipSkuRowMap, shipPeriodColMap,
+      "Arrival to Regie", arrSkuRowMap, arrPeriodTotalColMap
+    );
+  }
+
+  const buffer = await wb.xlsx.writeBuffer();
+  return Buffer.from(buffer);
+}
+
+export async function generateSingleSheetBufferForCountry(country: "Syria" | "Libya", sheet: string): Promise<Buffer> {
+  const data = await db.getFullPlanningDataForCountry(country);
+  const { skus: allSkus, periods: allPeriods, forecast, ims, arrival, planningFg } = data;
+  const revisedForecast = await db.getRevisedForecastDataForCountry(country);
+  const sortedPeriods = [...allPeriods].sort((a, b) => a.sortOrder - b.sortOrder);
+
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "SSOF Planning System";
+  wb.created = new Date();
+
+  if (sheet === "ims") {
+    buildIntlImsSheet(wb, allSkus, sortedPeriods, ims);
+  } else if (sheet === "forecast") {
+    buildIntlForecastSheet(wb, "Forecast Production", allSkus, sortedPeriods, forecast);
+  } else if (sheet === "forecast-vs-actual") {
+    buildIntlForecastVsActualSheet(wb, allSkus, sortedPeriods, forecast, revisedForecast);
+  } else if (sheet.startsWith("planning-fg-")) {
+    const weight = sheet.replace("planning-fg-", "");
+    if (allSkus.some(s => s.weight === weight)) {
+      buildIntlPlanningFgSheet(wb, weight, allSkus, sortedPeriods, ims, planningFg, arrival);
+    }
+  }
+
+  const buffer = await wb.xlsx.writeBuffer();
+  return Buffer.from(buffer);
+}
+
 // ==================== MAIN EXPORT ====================
 export async function generateExcelBuffer(): Promise<Buffer> {
   const data = await db.getFullPlanningData();

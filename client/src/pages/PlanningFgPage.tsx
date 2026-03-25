@@ -3,12 +3,14 @@ import { trpc } from "@/lib/trpc";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import { useGridNav } from "@/hooks/useGridNav";
 import { useAppAuth } from "@/contexts/AuthContext";
+import { useCountry } from "@/contexts/CountryContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import SkuRecommendations from "@/components/SmartRecommendations";
 import BestStrategy from "@/components/BestStrategy";
 import { InvoicedSHPDialog } from "@/components/InvoicedSHPDialog";
+import ExportSheetButton from "@/components/ExportSheetButton";
 
 interface PlanningFgPageProps {
   weight: string;
@@ -58,6 +60,7 @@ function getClosingStockStyle(val: number): string {
 
 export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
   const { user: appUser } = useAppAuth();
+  const { country } = useCountry();
   const { data, isLoading } = trpc.data.planningFg.useQuery({ weight });
   const utils = trpc.useUtils();
 
@@ -843,6 +846,7 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
             </p>
           </div>
           <div className="flex items-center gap-1">
+            <ExportSheetButton sheet={`planning-fg-${weight}`} country={country} label={`Export Planning FG ${weight}`} />
             <button
               onClick={() => setCollapsedYears(new Set(years))}
               className="px-2 py-1 text-[10px] font-medium rounded border border-border bg-background hover:bg-muted transition-colors"
