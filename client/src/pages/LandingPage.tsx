@@ -207,6 +207,8 @@ export default function LandingPage() {
           className={`mt-10 text-center text-xs text-gray-400 landing-fade-up ${mounted ? "visible" : ""}`}
           style={{ transitionDelay: "500ms" }}
         >
+          Developed by Walid El Tayeh
+          <br />
           Al Fakher &mdash; SSOF Planning System &copy; {new Date().getFullYear()}
         </footer>
       </div>
