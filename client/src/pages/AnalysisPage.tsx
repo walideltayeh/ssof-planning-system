@@ -5,6 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { useUnit } from "@/contexts/UnitContext";
 
 // ==================== HELPER COMPONENTS ====================
 
@@ -33,11 +34,13 @@ function MiniBar({ value, max, color, label }: { value: number; max: number; col
   );
 }
 
-function HorizontalBarChart({ items, maxValue, colorFn }: {
+function HorizontalBarChart({ items, maxValue, colorFn, formatter }: {
   items: { label: string; value: number; sublabel?: string }[];
   maxValue: number;
   colorFn: (idx: number) => string;
+  formatter?: (n: number) => string;
 }) {
+  const f = formatter ?? ((n: number) => n.toLocaleString());
   return (
     <div className="space-y-2">
       {items.map((item, idx) => (
@@ -49,12 +52,12 @@ function HorizontalBarChart({ items, maxValue, colorFn }: {
               style={{ width: `${maxValue > 0 ? Math.min(item.value / maxValue * 100, 100) : 0}%`, backgroundColor: colorFn(idx) }}
             >
               {item.value / maxValue > 0.15 && (
-                <span className="text-[10px] font-semibold text-white">{item.value.toLocaleString()}</span>
+                <span className="text-[10px] font-semibold text-white">{f(item.value)}</span>
               )}
             </div>
           </div>
           {item.value / maxValue <= 0.15 && (
-            <span className="text-xs text-muted-foreground">{item.value.toLocaleString()}</span>
+            <span className="text-xs text-muted-foreground">{f(item.value)}</span>
           )}
         </div>
       ))}
@@ -77,7 +80,8 @@ function SparkLine({ data, color, height = 40 }: { data: number[]; color: string
   );
 }
 
-function DonutChart({ segments, size = 120 }: { segments: { label: string; value: number; color: string }[]; size?: number }) {
+function DonutChart({ segments, size = 120, formatter }: { segments: { label: string; value: number; color: string }[]; size?: number; formatter?: (n: number) => string }) {
+  const f = formatter ?? ((n: number) => n.toLocaleString());
   const total = segments.reduce((s, seg) => s + seg.value, 0);
   if (total === 0) return <div className="text-xs text-muted-foreground">No data</div>;
   const radius = size / 2 - 10;
@@ -104,7 +108,7 @@ function DonutChart({ segments, size = 120 }: { segments: { label: string; value
           startAngle = endAngle;
           return <path key={idx} d={d} fill={seg.color} stroke="white" strokeWidth="1.5" />;
         })}
-        <text x={size / 2} y={size / 2 - 4} textAnchor="middle" className="text-lg font-bold fill-foreground">{total.toLocaleString()}</text>
+        <text x={size / 2} y={size / 2 - 4} textAnchor="middle" className="text-lg font-bold fill-foreground">{f(total)}</text>
         <text x={size / 2} y={size / 2 + 12} textAnchor="middle" className="text-[9px] fill-muted-foreground">Total</text>
       </svg>
       <div className="space-y-1">
@@ -120,12 +124,14 @@ function DonutChart({ segments, size = 120 }: { segments: { label: string; value
   );
 }
 
-function StackedBarChart({ data, keys, colors, labels }: {
+function StackedBarChart({ data, keys, colors, labels, formatter }: {
   data: { label: string; values: Record<string, number> }[];
   keys: string[];
   colors: Record<string, string>;
   labels: Record<string, string>;
+  formatter?: (n: number) => string;
 }) {
+  const f = formatter ?? ((n: number) => n.toLocaleString());
   const maxTotal = Math.max(...data.map(d => keys.reduce((s, k) => s + (d.values[k] || 0), 0)), 1);
   return (
     <div className="space-y-1">
@@ -150,7 +156,7 @@ function StackedBarChart({ data, keys, colors, labels }: {
                 ) : null;
               })}
             </div>
-            <span className="text-[10px] text-muted-foreground min-w-[40px] text-right">{total.toLocaleString()}</span>
+            <span className="text-[10px] text-muted-foreground min-w-[40px] text-right">{f(total)}</span>
           </div>
         );
       })}
@@ -202,6 +208,7 @@ const PALETTE = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899
 export default function AnalysisPage() {
   const [activeTab, setActiveTab] = useState("overview");
   const [isExporting, setIsExporting] = useState(false);
+  const { formatVal, unitLabel } = useUnit();
 
   const handleExport = async () => {
     setIsExporting(true);
@@ -241,7 +248,7 @@ export default function AnalysisPage() {
   const { data: runningRateData, isLoading: loadingRunRate } = trpc.country.runningRate.useQuery({ country: "Lebanon" });
   const { data: stockLevelsData, isLoading: loadingStockLvl } = trpc.country.stockLevels.useQuery({ country: "Lebanon" });
 
-  const formatNum = (n: number) => n.toLocaleString("en-US");
+  const formatNum = (n: number) => formatVal(n);
 
   // ==================== OVERVIEW TAB ====================
   const OverviewTab = () => {
@@ -285,6 +292,7 @@ export default function AnalysisPage() {
               keys={["forecast", "production", "arrival"]}
               colors={{ forecast: "#10b981", production: "#f59e0b", arrival: "#8b5cf6" }}
               labels={{ forecast: "Forecast", production: "Production", arrival: "Arrival" }}
+              formatter={formatNum}
             />
           </CardContent>
         </Card>
@@ -409,6 +417,7 @@ export default function AnalysisPage() {
                   value: w.totalForecast,
                   color: weightColors[w.weight] || "#6b7280",
                 }))}
+                formatter={formatNum}
               />
             </CardContent>
           </Card>
@@ -424,6 +433,7 @@ export default function AnalysisPage() {
                   value: w.totalProduction,
                   color: weightColors[w.weight] || "#6b7280",
                 }))}
+                formatter={formatNum}
               />
             </CardContent>
           </Card>
@@ -530,6 +540,7 @@ export default function AnalysisPage() {
                       color: wb.weight === "1kg" ? "#ef4444" : wb.weight === "250g" ? "#f59e0b" : "#3b82f6",
                     }))}
                     size={100}
+                    formatter={formatNum}
                   />
                 </div>
 
@@ -560,6 +571,7 @@ export default function AnalysisPage() {
                 keys={byCategoryData.map(c => c.category)}
                 colors={catColors}
                 labels={byCategoryData.reduce((acc, c) => { acc[c.category] = c.category; return acc; }, {} as Record<string, string>)}
+                formatter={formatNum}
               />
             </CardContent>
           </Card>
@@ -590,6 +602,7 @@ export default function AnalysisPage() {
               }))}
               maxValue={maxForecast}
               colorFn={(idx) => PALETTE[idx % PALETTE.length]}
+              formatter={formatNum}
             />
           </CardContent>
         </Card>
@@ -664,6 +677,7 @@ export default function AnalysisPage() {
               keys={["shipped", "arrived"]}
               colors={{ shipped: "#f59e0b", arrived: "#8b5cf6" }}
               labels={{ shipped: "Shipped", arrived: "Arrived" }}
+              formatter={formatNum}
             />
           </CardContent>
         </Card>

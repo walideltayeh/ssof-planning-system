@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { useCountry } from "@/contexts/CountryContext";
+import { useUnit } from "@/contexts/UnitContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -127,9 +128,11 @@ function ExpiryProgressBar({ months, tier }: { months: number; tier: AlertTier }
   );
 }
 
-function BatchLifecycleBar({ produced, sold, atPort, inCountry }: {
+function BatchLifecycleBar({ produced, sold, atPort, inCountry, formatter }: {
   produced: number; sold: number; atPort: number; inCountry: number;
+  formatter?: (n: number) => string;
 }) {
+  const f = formatter ?? formatQty;
   if (produced === 0) return <span className="text-xs text-gray-400">—</span>;
   const soldPct = (sold / produced) * 100;
   const inCountryPct = (inCountry / produced) * 100;
@@ -138,18 +141,18 @@ function BatchLifecycleBar({ produced, sold, atPort, inCountry }: {
     <div className="min-w-[120px]">
       <div className="h-3 rounded-full bg-gray-200 overflow-hidden flex">
         {soldPct > 0 && (
-          <div className="h-full bg-emerald-500" style={{ width: `${soldPct}%` }} title={`Sold: ${formatQty(sold)}`} />
+          <div className="h-full bg-emerald-500" style={{ width: `${soldPct}%` }} title={`Sold: ${f(sold)}`} />
         )}
         {inCountryPct > 0 && (
-          <div className="h-full bg-amber-400" style={{ width: `${inCountryPct}%` }} title={`In-Country: ${formatQty(inCountry)}`} />
+          <div className="h-full bg-amber-400" style={{ width: `${inCountryPct}%` }} title={`In-Country: ${f(inCountry)}`} />
         )}
         {atPortPct > 0 && (
-          <div className="h-full bg-blue-400" style={{ width: `${atPortPct}%` }} title={`At Port: ${formatQty(atPort)}`} />
+          <div className="h-full bg-blue-400" style={{ width: `${atPortPct}%` }} title={`At Port: ${f(atPort)}`} />
         )}
       </div>
       <div className="flex justify-between mt-0.5 text-[10px] text-gray-400 tabular-nums">
         <span>0</span>
-        <span>{formatQty(produced)}</span>
+        <span>{f(produced)}</span>
       </div>
     </div>
   );
@@ -174,6 +177,8 @@ const _rowTypeHelper = [] as any[];
 
 export default function ExpiryDashboardPage() {
   const { country } = useCountry();
+  const { formatVal } = useUnit();
+  const formatQty = (n: number) => formatVal(n);
   const isIntl = country === "Syria" || country === "Libya";
 
   const { data, isLoading, refetch, isFetching } = trpc.country.expiryDashboard.useQuery(
@@ -735,6 +740,7 @@ function GroupRows({ group, isCollapsed, onToggle, worstCfg }: {
             sold={group.totalSold}
             atPort={group.totalAtPort}
             inCountry={group.totalInCountry}
+            formatter={formatQty}
           />
         </td>
       </tr>
@@ -810,6 +816,7 @@ function GroupRows({ group, isCollapsed, onToggle, worstCfg }: {
                 sold={row.soldQty}
                 atPort={row.atPortQty}
                 inCountry={row.inCountryQty}
+                formatter={formatQty}
               />
             </td>
           </tr>

@@ -5,6 +5,7 @@ import { useMemo, useState, useCallback, useRef } from "react";
 import { useGridNav } from "@/hooks/useGridNav";
 import { useAppAuth } from "@/contexts/AuthContext";
 import { useCountry } from "@/contexts/CountryContext";
+import { useUnit } from "@/contexts/UnitContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
@@ -76,6 +77,7 @@ function getFormulaStatus(
 export default function ArrivalPage() {
   const { user: appUser } = useAppAuth();
   const { country, config } = useCountry();
+  const { formatVal, unitLabel } = useUnit();
   const isLebanon = country === "Lebanon";
   const utils = trpc.useUtils();
 
@@ -270,7 +272,7 @@ export default function ArrivalPage() {
     return groups;
   }, [sortedSkus]);
 
-  const formatNumber = (val: number) => val === 0 ? "-" : val.toLocaleString('en-US', { maximumFractionDigits: 0 });
+  const formatNumber = (val: number) => val === 0 ? "-" : formatVal(val);
 
   const handleCellClick = useCallback((cellKey: string, currentValue: string) => {
     setEditingCell(cellKey); setOldValue(currentValue); setEditValue(currentValue === "0" ? "" : currentValue);
@@ -636,7 +638,7 @@ export default function ArrivalPage() {
               </div>
               {/* Big quantity number */}
               <div className="text-2xl font-bold leading-none tracking-tight text-foreground">
-                {qty.toLocaleString()}
+                {formatVal(qty)}
               </div>
               {/* Sub-labels */}
               <div className="text-[10px] text-foreground/60 leading-tight">{qtyLabel}</div>
@@ -757,8 +759,8 @@ export default function ArrivalPage() {
                     <span className={`text-muted-foreground transition-transform duration-150 text-[10px] ${isCollapsed ? '' : 'rotate-90'}`}>&#9654;</span>
                     <span className="font-bold text-sm text-foreground">{periodLabel}</span>
                     <span className="text-[11px] text-muted-foreground">{periodBatches.length} SKU{periodBatches.length !== 1 ? 's' : ''}</span>
-                    <span className="text-[11px] text-muted-foreground">Total: <strong className="text-foreground">{periodTotal.toLocaleString()}</strong></span>
-                    {periodCleared > 0 && <span className="text-[11px] text-teal-700">Cleared: <strong>{periodCleared.toLocaleString()}</strong></span>}
+                    <span className="text-[11px] text-muted-foreground">Total: <strong className="text-foreground">{formatVal(periodTotal)}</strong></span>
+                    {periodCleared > 0 && <span className="text-[11px] text-teal-700">Cleared: <strong>{formatVal(periodCleared)}</strong></span>}
                     <div className="flex gap-1 ml-auto flex-wrap">
                       {Object.entries(periodStatusCounts).map(([status, count]) => (
                         <span key={status} className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full ${STATUS_CONFIG[status as ArrivalStatus]?.className ?? 'bg-gray-100 text-gray-600'}`}>

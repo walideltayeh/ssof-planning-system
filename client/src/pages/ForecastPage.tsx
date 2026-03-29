@@ -3,6 +3,7 @@ import { trpc } from "@/lib/trpc";
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { useAppAuth } from "@/contexts/AuthContext";
 import { useCountry } from "@/contexts/CountryContext";
+import { useUnit } from "@/contexts/UnitContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -18,6 +19,7 @@ const WEIGHT_ORDER: Record<string, number> = { "1kg": 0, "250g": 1, "50g": 2 };
 export default function ForecastPage() {
   const { user: appUser } = useAppAuth();
   const { country, config } = useCountry();
+  const { formatVal, unitLabel } = useUnit();
   const isLebanon = country === "Lebanon";
   const utils = trpc.useUtils();
 
@@ -195,7 +197,7 @@ export default function ForecastPage() {
     return groups;
   }, [filteredSkus]);
 
-  const formatNumber = (val: number) => val === 0 ? "-" : val.toLocaleString('en-US', { maximumFractionDigits: 0 });
+  const formatNumber = (val: number) => val === 0 ? "-" : formatVal(val);
 
   const handleCellClick = useCallback((cellKey: string, currentValue: string) => {
     setEditingCell(cellKey);

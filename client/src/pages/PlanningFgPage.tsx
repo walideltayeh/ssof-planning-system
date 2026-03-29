@@ -4,6 +4,7 @@ import { TableSkeleton } from "@/components/TableSkeleton";
 import { useGridNav } from "@/hooks/useGridNav";
 import { useAppAuth } from "@/contexts/AuthContext";
 import { useCountry } from "@/contexts/CountryContext";
+import { useUnit } from "@/contexts/UnitContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -61,6 +62,7 @@ function getClosingStockStyle(val: number): string {
 export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
   const { user: appUser } = useAppAuth();
   const { country } = useCountry();
+  const { formatVal, unitLabel } = useUnit();
   const { data, isLoading } = trpc.data.planningFg.useQuery({ weight });
   const utils = trpc.useUtils();
 
@@ -689,7 +691,7 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
       return val.toFixed(1);
     }
     if (val === 0) return "-";
-    return val.toLocaleString("en-US", { maximumFractionDigits: 0 });
+    return formatVal(val);
   };
 
   // ── Year/period grouping ──────────────────────────────────────────────────
@@ -1130,13 +1132,13 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
                                         <path fillRule="evenodd" d="M8 1a3.5 3.5 0 0 0-3.5 3.5V6H4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-.5V4.5A3.5 3.5 0 0 0 8 1Zm2 5V4.5a2 2 0 1 0-4 0V6h4Z" clipRule="evenodd" />
                                       </svg>
                                     )}
-                                    <span>{val !== 0 ? val.toLocaleString() : "-"}</span>
+                                    <span>{val !== 0 ? formatVal(val) : "-"}</span>
                                   </span>
                                 </td>
                               );
                             })}
                             <td className="px-1 py-1.5 text-right tabular-nums font-bold border-l-2 border-amber-400 bg-amber-50 text-amber-900">
-                              {yearTotal !== 0 ? yearTotal.toLocaleString() : "-"}
+                              {yearTotal !== 0 ? formatVal(yearTotal) : "-"}
                             </td>
                           </Fragment>
                         );

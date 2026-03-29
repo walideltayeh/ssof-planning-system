@@ -5,6 +5,7 @@ import { useMemo, useState, useCallback, useRef } from "react";
 import { useGridNav } from "@/hooks/useGridNav";
 import { useAppAuth } from "@/contexts/AuthContext";
 import { useCountry } from "@/contexts/CountryContext";
+import { useUnit } from "@/contexts/UnitContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,7 @@ const WEIGHT_ORDER: Record<string, number> = { "1kg": 0, "250g": 1, "50g": 2 };
 export default function ImsVsForecastPage() {
   const { user: appUser } = useAppAuth();
   const { country, config } = useCountry();
+  const { formatVal, unitLabel } = useUnit();
   const isLebanon = country === "Lebanon";
   const utils = trpc.useUtils();
 
@@ -191,7 +193,7 @@ export default function ImsVsForecastPage() {
     return groups;
   }, [filteredSkus]);
 
-  const formatNumber = (val: number) => val === 0 ? "-" : val.toLocaleString('en-US', { maximumFractionDigits: 0 });
+  const formatNumber = (val: number) => val === 0 ? "-" : formatVal(val);
 
   const [oldValue, setOldValue] = useState("");
 

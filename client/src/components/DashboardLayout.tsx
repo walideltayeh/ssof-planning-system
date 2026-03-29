@@ -1,6 +1,7 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useAppAuth } from "@/contexts/AuthContext";
 import { useCountry, COUNTRY_CONFIG } from "@/contexts/CountryContext";
+import { useUnit, UnitType } from "@/contexts/UnitContext";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -158,6 +159,7 @@ function DashboardLayoutContent({
   const { user, logout: oauthLogout } = useAuth();
   const { user: appUser, logout: appLogout, canAccessCountry } = useAppAuth();
   const { country, setCountry, clearCountry } = useCountry();
+  const { unit, setUnit } = useUnit();
   const [location, setLocation] = useLocation();
   const { state, toggleSidebar } = useSidebar();
   const isCollapsed = state === "collapsed";
@@ -383,6 +385,23 @@ function DashboardLayoutContent({
                       <span className="text-[11px] font-medium truncate flex-1">{u.displayName}</span>
                       <span className="text-[10px] text-muted-foreground truncate max-w-[70px]">{u.currentPage}</span>
                     </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {/* Unit toggle (MC / KG / Tons) */}
+            {!isCollapsed && (
+              <div className="rounded-lg border bg-muted/30 px-2 py-1.5">
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">Display Unit</p>
+                <div className="flex gap-1">
+                  {(["MC", "KG", "Tons"] as UnitType[]).map(u => (
+                    <button
+                      key={u}
+                      onClick={() => setUnit(u)}
+                      className={`flex-1 px-2 py-1 rounded text-[11px] font-medium transition-colors ${unit === u ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent text-muted-foreground"}`}
+                    >
+                      {u}
+                    </button>
                   ))}
                 </div>
               </div>

@@ -128,6 +128,15 @@ Schema was converted from MySQL to PostgreSQL during Replit import. Uses Drizzle
 - Share percentages recomputed after reconciliation
 - File: `server/routers.ts` (forecastSplit.recommend mutation)
 
+### 8. Unit Toggle (MC / KG / Tons)
+- Global unit toggle in sidebar footer: MC (default), KG, Tons (1 MC = 6 KG = 0.006 Tons)
+- Context: `client/src/contexts/UnitContext.tsx` — provides `formatVal(mcValue)` and `unitLabel`
+- Preference persisted in `localStorage` key `ssof-unit`
+- All quantity-displaying pages use `formatVal` for unit conversion; non-quantity values (weeks, SKU counts, zone counts, dates) are not converted
+- Pages updated: ForecastPage, ShipmentPage, ArrivalPage, ImsVsForecastPage, PlanningFgPage, IntlPlanningFgPage, ForecastVsForecastPage, IntlImsPage, AnalysisPage, IntlAnalysisPage, ExpiryDashboardPage
+- Chart helper components (HorizontalBarChart, DonutChart, StackedBarChart, BatchLifecycleBar) accept optional `formatter` prop for unit-aware rendering
+- Toggle UI: 3-button group in `DashboardLayout.tsx` sidebar footer
+
 ## Deployment
 
 - Custom domain: `ssofplan.live`

@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { useCountry } from "@/contexts/CountryContext";
+import { useUnit } from "@/contexts/UnitContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TableSkeleton } from "@/components/TableSkeleton";
@@ -80,7 +81,8 @@ function SparkLine({ data, color, height = 40 }: { data: number[]; color: string
   );
 }
 
-function DonutChart({ segments, size = 120 }: { segments: { label: string; value: number; color: string }[]; size?: number }) {
+function DonutChart({ segments, size = 120, formatter }: { segments: { label: string; value: number; color: string }[]; size?: number; formatter?: (n: number) => string }) {
+  const f = formatter ?? fmt;
   const total = segments.reduce((s, seg) => s + seg.value, 0);
   if (total === 0) return <div className="text-xs text-muted-foreground">No data</div>;
   const radius = size / 2 - 10;
@@ -106,7 +108,7 @@ function DonutChart({ segments, size = 120 }: { segments: { label: string; value
           startAngle = endAngle;
           return <path key={idx} d={d} fill={seg.color} stroke="white" strokeWidth="1.5" />;
         })}
-        <text x={size / 2} y={size / 2 - 4} textAnchor="middle" fontSize="11" fontWeight="bold" fill="currentColor">{fmt(total)}</text>
+        <text x={size / 2} y={size / 2 - 4} textAnchor="middle" fontSize="11" fontWeight="bold" fill="currentColor">{f(total)}</text>
         <text x={size / 2} y={size / 2 + 12} textAnchor="middle" fontSize="8" fill="#9ca3af">Total</text>
       </svg>
       <div className="space-y-1">
@@ -122,12 +124,14 @@ function DonutChart({ segments, size = 120 }: { segments: { label: string; value
   );
 }
 
-function StackedBarChart({ data, keys, colors, labels }: {
+function StackedBarChart({ data, keys, colors, labels, formatter }: {
   data: { label: string; values: Record<string, number> }[];
   keys: string[];
   colors: Record<string, string>;
   labels: Record<string, string>;
+  formatter?: (n: number) => string;
 }) {
+  const f = formatter ?? fmt;
   const maxTotal = Math.max(...data.map((d) => keys.reduce((s, k) => s + (d.values[k] || 0), 0)), 1);
   return (
     <div className="space-y-1">
@@ -152,7 +156,7 @@ function StackedBarChart({ data, keys, colors, labels }: {
                 ) : null;
               })}
             </div>
-            <span className="text-[10px] text-muted-foreground min-w-[40px] text-right">{fmt(total)}</span>
+            <span className="text-[10px] text-muted-foreground min-w-[40px] text-right">{f(total)}</span>
           </div>
         );
       })}
@@ -164,6 +168,8 @@ function StackedBarChart({ data, keys, colors, labels }: {
 
 export default function IntlAnalysisPage() {
   const { country } = useCountry();
+  const { formatVal, unitLabel } = useUnit();
+  const fmt = (n: number) => formatVal(n);
   const [activeTab, setActiveTab] = useState("production");
 
   const { data, isLoading } = trpc.country.intlAnalysis.useQuery(
@@ -266,6 +272,7 @@ export default function IntlAnalysisPage() {
               keys={["production", "ims", "forecast"]}
               colors={{ production: "#f59e0b", ims: "#10b981", forecast: "#8b5cf6" }}
               labels={{ production: "Production", ims: "IMS", forecast: "Forecast" }}
+              formatter={fmt}
             />
           </CardContent>
         </Card>
@@ -279,6 +286,7 @@ export default function IntlAnalysisPage() {
                 segments={(weightBreakdown as any[])
                   .filter((w: any) => w.totalProduction > 0)
                   .map((w: any) => ({ label: `${w.weight} (${w.skuCount} SKUs)`, value: w.totalProduction, color: WEIGHT_COLOR[w.weight] ?? "#6b7280" }))}
+                formatter={fmt}
               />
             </CardContent>
           </Card>
@@ -289,6 +297,7 @@ export default function IntlAnalysisPage() {
                 segments={(weightBreakdown as any[])
                   .filter((w: any) => w.totalIms > 0)
                   .map((w: any) => ({ label: w.weight, value: w.totalIms, color: WEIGHT_COLOR[w.weight] ?? "#6b7280" }))}
+                formatter={fmt}
               />
             </CardContent>
           </Card>
@@ -302,6 +311,7 @@ export default function IntlAnalysisPage() {
                     value: p.totalProduction,
                     color: p.packagingType === "Old" ? "#f59e0b" : "#3b82f6",
                   }))}
+                  formatter={fmt}
                 />
               ) : (
                 <p className="text-xs text-muted-foreground">No packaging data available.</p>
@@ -401,6 +411,7 @@ export default function IntlAnalysisPage() {
               keys={["forecast", "revised", "actual"]}
               colors={{ forecast: "#8b5cf6", revised: "#3b82f6", actual: "#f59e0b" }}
               labels={{ forecast: "Forecast", revised: "Revised Forecast", actual: "Actual Production" }}
+              formatter={fmt}
             />
           </CardContent>
         </Card>
@@ -539,6 +550,7 @@ export default function IntlAnalysisPage() {
               keys={["production", "ims"]}
               colors={{ production: "#f59e0b", ims: "#10b981" }}
               labels={{ production: "Production", ims: "IMS" }}
+              formatter={fmt}
             />
           </CardContent>
         </Card>

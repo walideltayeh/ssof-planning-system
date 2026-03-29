@@ -6,6 +6,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { AuthProvider, useAppAuth } from "./contexts/AuthContext";
 import { CountryProvider, useCountry } from "./contexts/CountryContext";
+import { UnitProvider } from "./contexts/UnitContext";
 import DashboardLayout from "./components/DashboardLayout";
 import Home from "./pages/Home";
 import ForecastPage from "./pages/ForecastPage";
@@ -89,10 +90,12 @@ function App() {
       <ThemeProvider defaultTheme="light">
         <AuthProvider>
           <CountryProvider>
-            <TooltipProvider>
-              <Toaster />
-              <AppContent />
-            </TooltipProvider>
+            <UnitProvider>
+              <TooltipProvider>
+                <Toaster />
+                <AppContent />
+              </TooltipProvider>
+            </UnitProvider>
           </CountryProvider>
         </AuthProvider>
       </ThemeProvider>

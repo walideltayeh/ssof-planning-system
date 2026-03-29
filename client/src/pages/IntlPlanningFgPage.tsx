@@ -2,6 +2,7 @@ import { Fragment, useMemo, useState, useCallback, useRef, useEffect } from "rea
 import { trpc } from "@/lib/trpc";
 import { useAppAuth } from "@/contexts/AuthContext";
 import { useCountry } from "@/contexts/CountryContext";
+import { useUnit } from "@/contexts/UnitContext";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import { useGridNav } from "@/hooks/useGridNav";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -84,6 +85,7 @@ function getArrivalPeriodId(
 export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) {
   const { user: appUser } = useAppAuth();
   const { country } = useCountry();
+  const { formatVal, unitLabel } = useUnit();
   const utils = trpc.useUtils();
 
   const { data, isLoading, isFetching, refetch } = trpc.country.planningFg.useQuery(
@@ -800,7 +802,7 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
                             }
                             return (
                               <td key={year} className={`px-2 py-1.5 text-right font-bold border-l-2 border-amber-400 bg-amber-50 text-amber-900 ${isClosingStock ? getClosingStockStyle(yearTotal) : ""}`}>
-                                {yearTotal === 0 ? "—" : yearTotal.toLocaleString()}
+                                {yearTotal === 0 ? "—" : formatVal(yearTotal)}
                               </td>
                             );
                           }
@@ -828,7 +830,7 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
                             if (isClosingStock) {
                               return (
                                 <td key={p.id} className={`px-2 py-1.5 text-right font-medium ${getClosingStockStyle(val)}`}>
-                                  {val === 0 ? "—" : val.toLocaleString()}
+                                  {val === 0 ? "—" : formatVal(val)}
                                 </td>
                               );
                             }
@@ -856,7 +858,7 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
                                     />
                                   ) : (
                                     <span className={val === 0 ? "text-muted-foreground/50" : ""}>
-                                      {val === 0 ? "—" : val.toLocaleString()}
+                                      {val === 0 ? "—" : formatVal(val)}
                                     </span>
                                   )}
                                 </td>
@@ -875,7 +877,7 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
                                     : "text-muted-foreground"
                                 }`}
                               >
-                                {val === 0 ? "—" : val.toLocaleString()}
+                                {val === 0 ? "—" : formatVal(val)}
                               </td>
                             );
                           });
@@ -899,7 +901,7 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
                           } else if (isClosingStock) {
                             totalCell = (
                               <td key={`total-${year}`} className={`px-2 py-1.5 text-right font-bold border-l-2 border-amber-400 bg-amber-50 ${getClosingStockStyle(yearTotal)}`}>
-                                {yearTotal === 0 ? "—" : yearTotal.toLocaleString()}
+                                {yearTotal === 0 ? "—" : formatVal(yearTotal)}
                               </td>
                             );
                           } else {
@@ -907,7 +909,7 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
                               <td key={`total-${year}`} className={`px-2 py-1.5 text-right font-bold border-l-2 border-amber-400 bg-amber-50 ${
                                 isArrivals ? "text-emerald-700" : isIms ? "text-orange-700" : "text-amber-900"
                               }`}>
-                                {yearTotal === 0 ? "—" : yearTotal.toLocaleString()}
+                                {yearTotal === 0 ? "—" : formatVal(yearTotal)}
                               </td>
                             );
                           }

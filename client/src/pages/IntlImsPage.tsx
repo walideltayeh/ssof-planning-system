@@ -4,6 +4,7 @@ import { TableSkeleton } from "@/components/TableSkeleton";
 import { useGridNav } from "@/hooks/useGridNav";
 import { useAppAuth } from "@/contexts/AuthContext";
 import { useCountry } from "@/contexts/CountryContext";
+import { useUnit } from "@/contexts/UnitContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
 
@@ -12,6 +13,7 @@ const WEIGHT_ORDER: Record<string, number> = { "1kg": 0, "250g": 1, "50g": 2 };
 export default function IntlImsPage() {
   const { user: appUser } = useAppAuth();
   const { country, config } = useCountry();
+  const { formatVal, unitLabel } = useUnit();
   const utils = trpc.useUtils();
 
   const { data, isLoading, isFetching, refetch } = trpc.country.data.useQuery(
@@ -99,8 +101,7 @@ export default function IntlImsPage() {
     [years, periods]
   );
 
-  const formatNumber = (val: number) =>
-    val === 0 ? "-" : val.toLocaleString("en-US", { maximumFractionDigits: 0 });
+  const formatNumber = (val: number) => val === 0 ? "-" : formatVal(val);
 
   const getVal = useCallback(
     (skuId: number, periodId: number) => imsMap.get(`${skuId}-${periodId}`) ?? 0,

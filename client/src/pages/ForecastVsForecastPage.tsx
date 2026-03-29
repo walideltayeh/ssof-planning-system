@@ -4,6 +4,7 @@ import { TableSkeleton } from "@/components/TableSkeleton";
 import { useMemo, useState, useCallback } from "react";
 import { useAppAuth } from "@/contexts/AuthContext";
 import { useCountry } from "@/contexts/CountryContext";
+import { useUnit } from "@/contexts/UnitContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
 
@@ -17,6 +18,7 @@ const WEIGHT_ORDER: Record<string, number> = { "1kg": 0, "250g": 1, "50g": 2 };
 export default function ForecastVsForecastPage() {
   const { user: appUser } = useAppAuth();
   const { country } = useCountry();
+  const { formatVal, unitLabel } = useUnit();
   const utils = trpc.useUtils();
 
   const { data: intlData, isLoading } = trpc.country.data.useQuery(
@@ -127,7 +129,7 @@ export default function ForecastVsForecastPage() {
     return groups;
   }, [filteredSkus]);
 
-  const formatNumber = (val: number) => val === 0 ? "-" : val.toLocaleString("en-US", { maximumFractionDigits: 0 });
+  const formatNumber = (val: number) => val === 0 ? "-" : formatVal(val);
 
   const getVarianceColor = (variance: number) => {
     if (variance > 0) return "text-emerald-600";
