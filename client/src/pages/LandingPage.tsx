@@ -1,9 +1,232 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { useAppAuth } from "@/contexts/AuthContext";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+
+interface Node {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  radius: number;
+  pulsePhase: number;
+  pulseSpeed: number;
+}
+
+interface DataPacket {
+  fromIdx: number;
+  toIdx: number;
+  progress: number;
+  speed: number;
+  color: string;
+}
+
+function DataNetworkCanvas() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const animRef = useRef<number>(0);
+  const nodesRef = useRef<Node[]>([]);
+  const packetsRef = useRef<DataPacket[]>([]);
+  const timeRef = useRef(0);
+
+  const COLORS = [
+    "rgba(16, 185, 129, 0.6)",
+    "rgba(20, 184, 166, 0.5)",
+    "rgba(59, 130, 246, 0.4)",
+    "rgba(139, 92, 246, 0.35)",
+  ];
+  const PACKET_COLORS = [
+    "#10b981",
+    "#14b8a6",
+    "#3b82f6",
+    "#8b5cf6",
+    "#f59e0b",
+  ];
+  const NODE_COUNT = 28;
+  const CONNECTION_DIST = 180;
+
+  const initNodes = useCallback((w: number, h: number) => {
+    const nodes: Node[] = [];
+    for (let i = 0; i < NODE_COUNT; i++) {
+      nodes.push({
+        x: Math.random() * w,
+        y: Math.random() * h,
+        vx: (Math.random() - 0.5) * 0.4,
+        vy: (Math.random() - 0.5) * 0.4,
+        radius: 2 + Math.random() * 3,
+        pulsePhase: Math.random() * Math.PI * 2,
+        pulseSpeed: 0.02 + Math.random() * 0.02,
+      });
+    }
+    nodesRef.current = nodes;
+  }, []);
+
+  const spawnPacket = useCallback(() => {
+    const nodes = nodesRef.current;
+    if (nodes.length < 2) return;
+    const fromIdx = Math.floor(Math.random() * nodes.length);
+    let toIdx = Math.floor(Math.random() * nodes.length);
+    while (toIdx === fromIdx) toIdx = Math.floor(Math.random() * nodes.length);
+    const dx = nodes[toIdx].x - nodes[fromIdx].x;
+    const dy = nodes[toIdx].y - nodes[fromIdx].y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist > CONNECTION_DIST * 1.5) return;
+    packetsRef.current.push({
+      fromIdx,
+      toIdx,
+      progress: 0,
+      speed: 0.008 + Math.random() * 0.012,
+      color: PACKET_COLORS[Math.floor(Math.random() * PACKET_COLORS.length)],
+    });
+  }, []);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const resize = () => {
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      ctx.scale(dpr, dpr);
+      if (nodesRef.current.length === 0) {
+        initNodes(rect.width, rect.height);
+      }
+    };
+    resize();
+    window.addEventListener("resize", resize);
+
+    const animate = () => {
+      const rect = canvas.getBoundingClientRect();
+      const w = rect.width;
+      const h = rect.height;
+      timeRef.current += 1;
+
+      ctx.clearRect(0, 0, w, h);
+
+      const nodes = nodesRef.current;
+      for (const node of nodes) {
+        node.x += node.vx;
+        node.y += node.vy;
+        if (node.x < 0 || node.x > w) node.vx *= -1;
+        if (node.y < 0 || node.y > h) node.vy *= -1;
+        node.x = Math.max(0, Math.min(w, node.x));
+        node.y = Math.max(0, Math.min(h, node.y));
+        node.pulsePhase += node.pulseSpeed;
+      }
+
+      for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+          const dx = nodes[j].x - nodes[i].x;
+          const dy = nodes[j].y - nodes[i].y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist < CONNECTION_DIST) {
+            const alpha = (1 - dist / CONNECTION_DIST) * 0.15;
+            ctx.beginPath();
+            ctx.moveTo(nodes[i].x, nodes[i].y);
+            ctx.lineTo(nodes[j].x, nodes[j].y);
+            ctx.strokeStyle = `rgba(16, 185, 129, ${alpha})`;
+            ctx.lineWidth = 0.8;
+            ctx.stroke();
+          }
+        }
+      }
+
+      for (const node of nodes) {
+        const pulse = Math.sin(node.pulsePhase) * 0.4 + 0.6;
+        const r = node.radius * (0.8 + pulse * 0.4);
+
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, r * 3, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(16, 185, 129, ${0.04 * pulse})`;
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
+        const colorIdx = Math.floor(node.pulsePhase) % COLORS.length;
+        ctx.fillStyle = COLORS[colorIdx];
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, r * 0.5, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255, 255, 255, ${0.6 * pulse})`;
+        ctx.fill();
+      }
+
+      if (timeRef.current % 12 === 0) {
+        spawnPacket();
+      }
+
+      const packets = packetsRef.current;
+      for (let p = packets.length - 1; p >= 0; p--) {
+        const pkt = packets[p];
+        pkt.progress += pkt.speed;
+        if (pkt.progress >= 1) {
+          const toNode = nodes[pkt.toIdx];
+          if (toNode) {
+            ctx.beginPath();
+            ctx.arc(toNode.x, toNode.y, 8, 0, Math.PI * 2);
+            ctx.fillStyle = pkt.color.replace(")", ", 0.3)").replace("rgb", "rgba");
+            ctx.fill();
+          }
+          packets.splice(p, 1);
+          continue;
+        }
+
+        const from = nodes[pkt.fromIdx];
+        const to = nodes[pkt.toIdx];
+        if (!from || !to) { packets.splice(p, 1); continue; }
+
+        const px = from.x + (to.x - from.x) * pkt.progress;
+        const py = from.y + (to.y - from.y) * pkt.progress;
+
+        const trailLen = 0.15;
+        const trailStart = Math.max(0, pkt.progress - trailLen);
+        const tx = from.x + (to.x - from.x) * trailStart;
+        const ty = from.y + (to.y - from.y) * trailStart;
+        const grad = ctx.createLinearGradient(tx, ty, px, py);
+        grad.addColorStop(0, "rgba(0,0,0,0)");
+        grad.addColorStop(1, pkt.color);
+        ctx.beginPath();
+        ctx.moveTo(tx, ty);
+        ctx.lineTo(px, py);
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(px, py, 3, 0, Math.PI * 2);
+        ctx.fillStyle = pkt.color;
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(px, py, 5, 0, Math.PI * 2);
+        ctx.fillStyle = pkt.color.replace(")", ", 0.2)").replace("rgb", "rgba");
+        ctx.fill();
+      }
+
+      animRef.current = requestAnimationFrame(animate);
+    };
+
+    animRef.current = requestAnimationFrame(animate);
+
+    return () => {
+      cancelAnimationFrame(animRef.current);
+      window.removeEventListener("resize", resize);
+    };
+  }, [initNodes, spawnPacket]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className="absolute inset-0 w-full h-full"
+      style={{ opacity: 0.7 }}
+    />
+  );
+}
 
 export default function LandingPage() {
   const { login } = useAppAuth();
@@ -52,25 +275,12 @@ export default function LandingPage() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-gradient-to-br from-emerald-50 via-white to-teal-50 overflow-hidden">
+    <div className="min-h-screen flex flex-col bg-gradient-to-br from-emerald-50 via-white to-teal-50 overflow-hidden relative">
       <style>{`
-        @keyframes float-slow {
-          0%, 100% { transform: translate(0, 0) scale(1); }
-          33% { transform: translate(30px, -20px) scale(1.05); }
-          66% { transform: translate(-20px, 15px) scale(0.97); }
-        }
-        @keyframes float-slow-reverse {
-          0%, 100% { transform: translate(0, 0) scale(1); }
-          33% { transform: translate(-25px, 20px) scale(0.96); }
-          66% { transform: translate(15px, -25px) scale(1.04); }
-        }
         @keyframes shimmer {
           0% { background-position: -200% center; }
           100% { background-position: 200% center; }
         }
-        .bg-orb-1 { animation: float-slow 8s ease-in-out infinite; }
-        .bg-orb-2 { animation: float-slow-reverse 10s ease-in-out infinite; }
-        .bg-orb-3 { animation: float-slow 12s ease-in-out infinite 2s; }
         .landing-fade-up {
           opacity: 0;
           transform: translateY(24px);
@@ -91,9 +301,7 @@ export default function LandingPage() {
       `}</style>
 
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="bg-orb-1 absolute -top-40 -right-40 w-96 h-96 bg-emerald-100/50 rounded-full blur-3xl" />
-        <div className="bg-orb-2 absolute -bottom-40 -left-40 w-96 h-96 bg-teal-100/50 rounded-full blur-3xl" />
-        <div className="bg-orb-3 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-emerald-50/40 rounded-full blur-3xl" />
+        <DataNetworkCanvas />
       </div>
 
       <div className="relative z-10 flex flex-col flex-1 items-center justify-center px-4">
