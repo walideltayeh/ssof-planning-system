@@ -8,6 +8,7 @@ interface Sku {
   weight: string;
   category: string;
   isExcludedFromTotal: boolean | null;
+  packagingType?: "Old" | "New" | null;
 }
 interface Period {
   id: number;
@@ -1204,22 +1205,22 @@ function buildIntlImsSheet(
   ims: { skuId: number; periodId: number; value: string | null }[]
 ) {
   const ws = wb.addWorksheet("IMS");
-  ws.views = [{ state: "frozen", xSplit: 2, ySplit: 1 }];
+  ws.views = [{ state: "frozen", xSplit: 3, ySplit: 1 }];
   const imsMap = new Map<string, number>();
   for (const d of ims) imsMap.set(`${d.skuId}-${d.periodId}`, parseFloat(d.value ?? "0") || 0);
-  const headerRow = ws.addRow(["SKU Name", "Weight", ...sortedPeriods.map(p => p.label), "Total"]);
-  applyHeaderStyle(headerRow, 2 + sortedPeriods.length + 1);
+  const headerRow = ws.addRow(["SKU Name", "Weight", "Packaging", ...sortedPeriods.map(p => p.label), "Total"]);
+  applyHeaderStyle(headerRow, 3 + sortedPeriods.length + 1);
   ws.getRow(1).height = 20;
   for (const sku of allSkus) {
     const vals = sortedPeriods.map(p => imsMap.get(`${sku.id}-${p.id}`) ?? 0);
     const total = vals.reduce((s, v) => s + v, 0);
-    const row = ws.addRow([sku.name, sku.weight, ...vals, total]);
-    bd(row.getCell(1)); bd(row.getCell(2));
-    for (let i = 0; i < vals.length; i++) { const c = row.getCell(3 + i); c.value = vals[i] || null; bd(c); }
-    const tc = row.getCell(3 + vals.length); tc.value = total || null; tc.font = { bold: true }; bd(tc);
+    const row = ws.addRow([sku.name, sku.weight, sku.packagingType ?? "New", ...vals, total]);
+    bd(row.getCell(1)); bd(row.getCell(2)); bd(row.getCell(3));
+    for (let i = 0; i < vals.length; i++) { const c = row.getCell(4 + i); c.value = vals[i] || null; bd(c); }
+    const tc = row.getCell(4 + vals.length); tc.value = total || null; tc.font = { bold: true }; bd(tc);
   }
-  ws.getColumn(1).width = 30; ws.getColumn(2).width = 10;
-  for (let i = 3; i <= 2 + sortedPeriods.length + 1; i++) ws.getColumn(i).width = 12;
+  ws.getColumn(1).width = 30; ws.getColumn(2).width = 10; ws.getColumn(3).width = 12;
+  for (let i = 4; i <= 3 + sortedPeriods.length + 1; i++) ws.getColumn(i).width = 12;
 }
 
 function buildIntlForecastSheet(
@@ -1227,22 +1228,22 @@ function buildIntlForecastSheet(
   forecast: { skuId: number; periodId: number; value: string | null }[]
 ) {
   const ws = wb.addWorksheet(sheetName);
-  ws.views = [{ state: "frozen", xSplit: 2, ySplit: 1 }];
+  ws.views = [{ state: "frozen", xSplit: 3, ySplit: 1 }];
   const fMap = new Map<string, number>();
   for (const d of forecast) fMap.set(`${d.skuId}-${d.periodId}`, parseFloat(d.value ?? "0") || 0);
-  const headerRow = ws.addRow(["SKU Name", "Weight", ...sortedPeriods.map(p => p.label), "Total"]);
-  applyHeaderStyle(headerRow, 2 + sortedPeriods.length + 1);
+  const headerRow = ws.addRow(["SKU Name", "Weight", "Packaging", ...sortedPeriods.map(p => p.label), "Total"]);
+  applyHeaderStyle(headerRow, 3 + sortedPeriods.length + 1);
   ws.getRow(1).height = 20;
   for (const sku of allSkus) {
     const vals = sortedPeriods.map(p => fMap.get(`${sku.id}-${p.id}`) ?? 0);
     const total = vals.reduce((s, v) => s + v, 0);
-    const row = ws.addRow([sku.name, sku.weight, ...vals, total]);
-    bd(row.getCell(1)); bd(row.getCell(2));
-    for (let i = 0; i < vals.length; i++) { const c = row.getCell(3 + i); c.value = vals[i] || null; bd(c); }
-    const tc = row.getCell(3 + vals.length); tc.value = total || null; tc.font = { bold: true }; bd(tc);
+    const row = ws.addRow([sku.name, sku.weight, sku.packagingType ?? "New", ...vals, total]);
+    bd(row.getCell(1)); bd(row.getCell(2)); bd(row.getCell(3));
+    for (let i = 0; i < vals.length; i++) { const c = row.getCell(4 + i); c.value = vals[i] || null; bd(c); }
+    const tc = row.getCell(4 + vals.length); tc.value = total || null; tc.font = { bold: true }; bd(tc);
   }
-  ws.getColumn(1).width = 30; ws.getColumn(2).width = 10;
-  for (let i = 3; i <= 2 + sortedPeriods.length + 1; i++) ws.getColumn(i).width = 12;
+  ws.getColumn(1).width = 30; ws.getColumn(2).width = 10; ws.getColumn(3).width = 12;
+  for (let i = 4; i <= 3 + sortedPeriods.length + 1; i++) ws.getColumn(i).width = 12;
 }
 
 function buildIntlForecastVsActualSheet(
@@ -1251,30 +1252,30 @@ function buildIntlForecastVsActualSheet(
   revisedForecast: { skuId: number; periodId: number; value: string | null }[]
 ) {
   const ws = wb.addWorksheet("Forecast vs Actual");
-  ws.views = [{ state: "frozen", xSplit: 2, ySplit: 1 }];
+  ws.views = [{ state: "frozen", xSplit: 3, ySplit: 1 }];
   const fMap = new Map<string, number>();
   const rfMap = new Map<string, number>();
   for (const d of forecast) fMap.set(`${d.skuId}-${d.periodId}`, parseFloat(d.value ?? "0") || 0);
   for (const d of revisedForecast) rfMap.set(`${d.skuId}-${d.periodId}`, parseFloat(d.value ?? "0") || 0);
-  const headerRow = ws.addRow(["SKU Name", "Weight", ...sortedPeriods.map(p => p.label), "Total"]);
-  applyHeaderStyle(headerRow, 2 + sortedPeriods.length + 1);
+  const headerRow = ws.addRow(["SKU Name", "Weight", "Packaging", ...sortedPeriods.map(p => p.label), "Total"]);
+  applyHeaderStyle(headerRow, 3 + sortedPeriods.length + 1);
   ws.getRow(1).height = 20;
   for (const sku of allSkus) {
     const fVals = sortedPeriods.map(p => fMap.get(`${sku.id}-${p.id}`) ?? 0);
     const fTotal = fVals.reduce((s, v) => s + v, 0);
-    const fRow = ws.addRow([sku.name + " — Forecast", sku.weight, ...fVals, fTotal]);
-    bd(fRow.getCell(1)); bd(fRow.getCell(2));
-    for (let i = 0; i < fVals.length; i++) { const c = fRow.getCell(3 + i); c.value = fVals[i] || null; bd(c); }
-    const ftc = fRow.getCell(3 + fVals.length); ftc.value = fTotal || null; ftc.font = { bold: true }; bd(ftc);
+    const fRow = ws.addRow([sku.name + " — Forecast", sku.weight, sku.packagingType ?? "New", ...fVals, fTotal]);
+    bd(fRow.getCell(1)); bd(fRow.getCell(2)); bd(fRow.getCell(3));
+    for (let i = 0; i < fVals.length; i++) { const c = fRow.getCell(4 + i); c.value = fVals[i] || null; bd(c); }
+    const ftc = fRow.getCell(4 + fVals.length); ftc.value = fTotal || null; ftc.font = { bold: true }; bd(ftc);
     const rfVals = sortedPeriods.map(p => rfMap.get(`${sku.id}-${p.id}`) ?? 0);
     const rfTotal = rfVals.reduce((s, v) => s + v, 0);
-    const rfRow = ws.addRow([sku.name + " — Revised", sku.weight, ...rfVals, rfTotal]);
+    const rfRow = ws.addRow([sku.name + " — Revised", sku.weight, sku.packagingType ?? "New", ...rfVals, rfTotal]);
     rfRow.eachCell(c => { c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF9C4" } }; bd(c); });
-    for (let i = 0; i < rfVals.length; i++) { const c = rfRow.getCell(3 + i); c.value = rfVals[i] || null; bd(c); }
-    const rftc = rfRow.getCell(3 + rfVals.length); rftc.value = rfTotal || null; rftc.font = { bold: true }; bd(rftc);
+    for (let i = 0; i < rfVals.length; i++) { const c = rfRow.getCell(4 + i); c.value = rfVals[i] || null; bd(c); }
+    const rftc = rfRow.getCell(4 + rfVals.length); rftc.value = rfTotal || null; rftc.font = { bold: true }; bd(rftc);
   }
-  ws.getColumn(1).width = 35; ws.getColumn(2).width = 10;
-  for (let i = 3; i <= 2 + sortedPeriods.length + 1; i++) ws.getColumn(i).width = 12;
+  ws.getColumn(1).width = 35; ws.getColumn(2).width = 10; ws.getColumn(3).width = 12;
+  for (let i = 4; i <= 3 + sortedPeriods.length + 1; i++) ws.getColumn(i).width = 12;
 }
 
 function buildIntlPlanningFgSheet(
@@ -1302,8 +1303,8 @@ function buildIntlPlanningFgSheet(
     arrMap.set(`${d.skuId}-${d.periodId}`, total);
   }
   const ROWS = ["Opening Stock", "IMS (Consumption)", "Adjustments", "Arrivals / Orders", "Closing Stock", "Stock Weeks"];
-  const headerRow = ws.addRow(["SKU Name", "Row", ...sortedPeriods.map(p => p.label)]);
-  applyHeaderStyle(headerRow, 2 + sortedPeriods.length);
+  const headerRow = ws.addRow(["SKU Name", "Packaging", "Row", ...sortedPeriods.map(p => p.label)]);
+  applyHeaderStyle(headerRow, 3 + sortedPeriods.length);
   ws.getRow(1).height = 20;
   for (const sku of weightSkus) {
     const closingStocks: number[] = [];
@@ -1337,16 +1338,16 @@ function buildIntlPlanningFgSheet(
         }
         return null;
       });
-      const row = ws.addRow([ri === 0 ? sku.name : "", rowLabel, ...vals]);
-      bd(row.getCell(1)); bd(row.getCell(2));
-      if (rowLabel === "Closing Stock") applySubtotalStyle(row, 2 + sortedPeriods.length);
+      const row = ws.addRow([ri === 0 ? sku.name : "", ri === 0 ? (sku.packagingType ?? "New") : "", rowLabel, ...vals]);
+      bd(row.getCell(1)); bd(row.getCell(2)); bd(row.getCell(3));
+      if (rowLabel === "Closing Stock") applySubtotalStyle(row, 3 + sortedPeriods.length);
       if (rowLabel === "Stock Weeks") row.eachCell(c => { c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE8F5E9" } }; bd(c); });
-      for (let i = 0; i < vals.length; i++) { const c = row.getCell(3 + i); c.value = vals[i]; bd(c); }
+      for (let i = 0; i < vals.length; i++) { const c = row.getCell(4 + i); c.value = vals[i]; bd(c); }
     }
     ws.addRow([]);
   }
-  ws.getColumn(1).width = 30; ws.getColumn(2).width = 22;
-  for (let i = 3; i <= 2 + sortedPeriods.length; i++) ws.getColumn(i).width = 12;
+  ws.getColumn(1).width = 30; ws.getColumn(2).width = 12; ws.getColumn(3).width = 22;
+  for (let i = 4; i <= 3 + sortedPeriods.length; i++) ws.getColumn(i).width = 12;
   return ws;
 }
 

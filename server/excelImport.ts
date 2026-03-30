@@ -43,22 +43,31 @@ function findWorksheet(wb: ExcelJS.Workbook, preferredNames: string[]): ExcelJS.
 
 interface SkuEntry { id: number; weight: string }
 
-async function resolveSkuMap(country: string): Promise<{ byNameWeight: Map<string, SkuEntry>; byName: Map<string, SkuEntry> }> {
+type SkuMap = { byNameWeightPkg: Map<string, SkuEntry>; byNameWeight: Map<string, SkuEntry>; byName: Map<string, SkuEntry> };
+
+async function resolveSkuMap(country: string): Promise<SkuMap> {
   const skuList = country === "Lebanon"
     ? await db.getAllSkus()
     : await db.getSkusForCountry(country as any);
+  const byNameWeightPkg = new Map<string, SkuEntry>();
   const byNameWeight = new Map<string, SkuEntry>();
   const byName = new Map<string, SkuEntry>();
   for (const s of skuList) {
     const key = s.name.trim().toLowerCase();
     byNameWeight.set(`${key}||${s.weight.trim().toLowerCase()}`, { id: s.id, weight: s.weight });
     byName.set(key, { id: s.id, weight: s.weight });
+    const pkg = ((s as any).packagingType ?? "New").toString().trim().toLowerCase();
+    byNameWeightPkg.set(`${key}||${s.weight.trim().toLowerCase()}||${pkg}`, { id: s.id, weight: s.weight });
   }
-  return { byNameWeight, byName };
+  return { byNameWeightPkg, byNameWeight, byName };
 }
 
-function lookupSku(skuMap: { byNameWeight: Map<string, SkuEntry>; byName: Map<string, SkuEntry> }, name: string, weight?: string): SkuEntry | undefined {
+function lookupSku(skuMap: SkuMap, name: string, weight?: string, packaging?: string): SkuEntry | undefined {
   const normName = name.trim().toLowerCase();
+  if (weight && packaging) {
+    const exact = skuMap.byNameWeightPkg.get(`${normName}||${weight.trim().toLowerCase()}||${packaging.trim().toLowerCase()}`);
+    if (exact) return exact;
+  }
   if (weight) {
     const exact = skuMap.byNameWeight.get(`${normName}||${weight.trim().toLowerCase()}`);
     if (exact) return exact;
@@ -91,19 +100,21 @@ function safeCellCount(row: ExcelJS.Row): number {
   return Math.min(row.cellCount || 0, MAX_COL);
 }
 
-function findHeaderRow(ws: ExcelJS.Worksheet): { row: number; periodCols: Map<string, number>; weightCol: number | null } | null {
+function findHeaderRow(ws: ExcelJS.Worksheet): { row: number; periodCols: Map<string, number>; weightCol: number | null; packagingCol: number | null } | null {
   for (let r = 1; r <= Math.min(5, ws.rowCount); r++) {
     const row = ws.getRow(r);
     const periodCols = new Map<string, number>();
     let weightCol: number | null = null;
+    let packagingCol: number | null = null;
     for (let c = 1; c <= safeCellCount(row) + 5; c++) {
       const val = normalizeStr(row.getCell(c).value).toLowerCase();
       if (/^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+\d{2,4}$/.test(val)) {
         periodCols.set(val, c);
       }
       if (val === "weight") weightCol = c;
+      if (val === "packaging") packagingCol = c;
     }
-    if (periodCols.size > 0) return { row: r, periodCols, weightCol };
+    if (periodCols.size > 0) return { row: r, periodCols, weightCol, packagingCol };
   }
   return null;
 }
@@ -127,7 +138,8 @@ export async function importForecastSheet(buffer: Buffer, country: string, usern
     const rawName = normalizeStr(row.getCell(skuNameCol).value);
     if (!rawName || rawName.toLowerCase().startsWith("subtotal") || rawName.toLowerCase().startsWith("grand total") || rawName === "←") continue;
     const weight = header.weightCol ? normalizeStr(row.getCell(header.weightCol).value) : undefined;
-    const sku = lookupSku(skuMap, rawName, weight);
+    const packaging = header.packagingCol ? normalizeStr(row.getCell(header.packagingCol).value) : undefined;
+    const sku = lookupSku(skuMap, rawName, weight, packaging || undefined);
     if (!sku) { skipped.push(weight ? `${rawName} (${weight})` : rawName); continue; }
 
     for (const [periodLabel, col] of header.periodCols) {
@@ -169,6 +181,7 @@ export async function importImsSheet(buffer: Buffer, country: string, username: 
   const skipped: string[] = [];
   let currentSkuName = "";
   let currentWeight = "";
+  let currentPackaging = "";
 
   for (let r = header.row + 1; r <= ws.rowCount; r++) {
     const row = ws.getRow(r);
@@ -176,6 +189,7 @@ export async function importImsSheet(buffer: Buffer, country: string, username: 
     if (rawName && !rawName.toLowerCase().startsWith("subtotal") && !rawName.toLowerCase().startsWith("grand total") && rawName !== "←") {
       currentSkuName = rawName;
       if (header.weightCol) currentWeight = normalizeStr(row.getCell(header.weightCol).value);
+      if (header.packagingCol) currentPackaging = normalizeStr(row.getCell(header.packagingCol).value);
     }
     if (!currentSkuName) continue;
 
@@ -183,7 +197,7 @@ export async function importImsSheet(buffer: Buffer, country: string, username: 
     if (rowLabel === "Forecast" || rowLabel === "Variance") continue;
     if (rowLabel !== null && rowLabel !== "IMS") continue;
 
-    const sku = lookupSku(skuMap, currentSkuName, currentWeight || undefined);
+    const sku = lookupSku(skuMap, currentSkuName, currentWeight || undefined, currentPackaging || undefined);
     if (!sku) { skipped.push(currentSkuName); continue; }
 
     for (const [periodLabel, col] of header.periodCols) {
@@ -329,17 +343,34 @@ export async function importPlanningFgSheet(buffer: Buffer, weight: string, coun
   if (!header) throw new Error("Could not find period headers. Expected month columns like 'Jan 25'.");
 
   const isLebanon = country === "Lebanon";
-  const skuNameCol = isLebanon ? 2 : 1;
-  const rowLabelCol = isLebanon ? 3 : 2;
+  let packagingCol: number | null = null;
+  let rowLabelCol: number;
+  let skuNameCol: number;
+  if (isLebanon) {
+    skuNameCol = 2;
+    rowLabelCol = 3;
+  } else {
+    skuNameCol = 1;
+    const hdrRow = ws.getRow(header.row);
+    for (let c = 1; c <= safeCellCount(hdrRow) + 5; c++) {
+      const v = normalizeStr(hdrRow.getCell(c).value).toLowerCase();
+      if (v === "packaging") { packagingCol = c; break; }
+    }
+    rowLabelCol = packagingCol ? 3 : 2;
+  }
 
   const records: Map<string, { skuId: number; periodId: number; openingStock?: string; adjustments?: string }> = new Map();
   const skipped: string[] = [];
   let currentSkuName = "";
+  let currentPackaging = "";
 
   for (let r = header.row + 1; r <= ws.rowCount; r++) {
     const row = ws.getRow(r);
     const nameCell = normalizeStr(row.getCell(skuNameCol).value);
-    if (nameCell) currentSkuName = nameCell;
+    if (nameCell) {
+      currentSkuName = nameCell;
+      if (packagingCol) currentPackaging = normalizeStr(row.getCell(packagingCol).value);
+    }
     if (!currentSkuName) continue;
 
     const rowLabel = normalizeStr(row.getCell(rowLabelCol).value).toLowerCase();
@@ -349,7 +380,7 @@ export async function importPlanningFgSheet(buffer: Buffer, weight: string, coun
     const isAdjustments = rowLabel.includes("adjustment");
     if (!isOpeningStock && !isAdjustments) continue;
 
-    const sku = lookupSku(skuMap, currentSkuName, weight);
+    const sku = lookupSku(skuMap, currentSkuName, weight, currentPackaging || undefined);
     if (!sku) { skipped.push(currentSkuName); continue; }
     if (sku.weight !== weight) continue;
 
@@ -403,7 +434,8 @@ export async function importRevisedForecastSheet(buffer: Buffer, country: string
 
     const skuName = nameCell.replace(/\s*—\s*Revised$/i, "").trim();
     const weight = header.weightCol ? normalizeStr(row.getCell(header.weightCol).value) : undefined;
-    const sku = lookupSku(skuMap, skuName, weight);
+    const packaging = header.packagingCol ? normalizeStr(row.getCell(header.packagingCol).value) : undefined;
+    const sku = lookupSku(skuMap, skuName, weight, packaging || undefined);
     if (!sku) { skipped.push(skuName); continue; }
 
     for (const [periodLabel, col] of header.periodCols) {
