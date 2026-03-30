@@ -735,6 +735,24 @@ export async function bulkUpsertPlanningFg(records: { skuId: number; periodId: n
   }
 }
 
+export async function bulkUpsertPlanningFgPartial(records: { skuId: number; periodId: number; openingStock?: string; adjustments?: string }[]) {
+  const pool = await getPool();
+  if (!pool || records.length === 0) return;
+  const batchSize = 200;
+  for (let i = 0; i < records.length; i += batchSize) {
+    const batch = records.slice(i, i + batchSize);
+    const values = batch.map((r, idx) => `($${idx * 4 + 1}, $${idx * 4 + 2}, $${idx * 4 + 3}, $${idx * 4 + 4})`).join(",");
+    const params = batch.flatMap(r => [r.skuId, r.periodId, r.openingStock ?? null, r.adjustments ?? null]);
+    await pool.query(
+      `INSERT INTO planning_fg_data ("skuId", "periodId", "openingStock", adjustments) VALUES ${values}
+       ON CONFLICT ("skuId", "periodId") DO UPDATE SET
+         "openingStock" = COALESCE(EXCLUDED."openingStock", planning_fg_data."openingStock"),
+         adjustments = COALESCE(EXCLUDED.adjustments, planning_fg_data.adjustments)`,
+      params
+    );
+  }
+}
+
 export async function ensureDataIndexes() {
   const pool = await getPool();
   if (!pool) return;

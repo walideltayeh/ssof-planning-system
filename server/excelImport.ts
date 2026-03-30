@@ -12,14 +12,23 @@ function normalizeStr(s: any): string {
 }
 
 function cellNum(cell: ExcelJS.Cell): number {
+  const val = cellNumOrNull(cell);
+  return val ?? 0;
+}
+
+function cellNumOrNull(cell: ExcelJS.Cell): number | null {
   const v = cell.value;
-  if (v === null || v === undefined) return 0;
+  if (v === null || v === undefined || v === "") return null;
   if (typeof v === "number") return v;
   if (typeof v === "object" && "result" in v) {
     const r = (v as { result: unknown }).result;
-    return typeof r === "number" ? r : parseFloat(String(r)) || 0;
+    if (r === null || r === undefined) return null;
+    if (typeof r === "number") return r;
+    const parsed = parseFloat(String(r));
+    return isNaN(parsed) ? null : parsed;
   }
-  return parseFloat(String(v)) || 0;
+  const parsed = parseFloat(String(v));
+  return isNaN(parsed) ? null : parsed;
 }
 
 function findWorksheet(wb: ExcelJS.Workbook, preferredNames: string[]): ExcelJS.Worksheet {
@@ -93,7 +102,8 @@ export async function importForecastSheet(buffer: Buffer, country: string, usern
     for (const [periodLabel, col] of header.periodCols) {
       const periodId = periodMap.get(periodLabel);
       if (!periodId) continue;
-      const val = cellNum(row.getCell(col));
+      const val = cellNumOrNull(row.getCell(col));
+      if (val === null) continue;
       records.push({ skuId: sku.id, periodId, value: val.toString() });
     }
   }
@@ -126,22 +136,28 @@ export async function importImsSheet(buffer: Buffer, country: string, username: 
   const skuNameCol = findSkuNameCol(ws, header.row);
   const records: { skuId: number; periodId: number; value: string; isActual: boolean }[] = [];
   const skipped: string[] = [];
+  let currentSkuName = "";
 
   for (let r = header.row + 1; r <= ws.rowCount; r++) {
     const row = ws.getRow(r);
     const rawName = normalizeStr(row.getCell(skuNameCol).value);
-    if (!rawName || rawName.toLowerCase().startsWith("subtotal") || rawName.toLowerCase().startsWith("grand total") || rawName === "←") continue;
+    if (rawName && !rawName.toLowerCase().startsWith("subtotal") && !rawName.toLowerCase().startsWith("grand total") && rawName !== "←") {
+      currentSkuName = rawName;
+    }
+    if (!currentSkuName) continue;
 
     const rowLabel = findRowLabel(ws, row, header.row);
     if (rowLabel === "Forecast" || rowLabel === "Variance") continue;
+    if (rowLabel !== null && rowLabel !== "IMS") continue;
 
-    const sku = skuMap.get(rawName.toLowerCase());
-    if (!sku) { skipped.push(rawName); continue; }
+    const sku = skuMap.get(currentSkuName.toLowerCase());
+    if (!sku) { skipped.push(currentSkuName); continue; }
 
     for (const [periodLabel, col] of header.periodCols) {
       const periodId = periodMap.get(periodLabel);
       if (!periodId) continue;
-      const val = cellNum(row.getCell(col));
+      const val = cellNumOrNull(row.getCell(col));
+      if (val === null) continue;
       records.push({ skuId: sku.id, periodId, value: val.toString(), isActual: true });
     }
   }
@@ -303,7 +319,8 @@ export async function importPlanningFgSheet(buffer: Buffer, weight: string, coun
     for (const [periodLabel, col] of header.periodCols) {
       const periodId = periodMap.get(periodLabel);
       if (!periodId) continue;
-      const val = cellNum(row.getCell(col));
+      const val = cellNumOrNull(row.getCell(col));
+      if (val === null) continue;
       const key = `${sku.id}-${periodId}`;
       const existing = records.get(key) ?? { skuId: sku.id, periodId };
       if (isOpeningStock) existing.openingStock = val.toString();
@@ -314,7 +331,7 @@ export async function importPlanningFgSheet(buffer: Buffer, weight: string, coun
 
   const recordsList = Array.from(records.values());
   if (recordsList.length > 0) {
-    await db.bulkUpsertPlanningFg(recordsList);
+    await db.bulkUpsertPlanningFgPartial(recordsList);
   }
 
   await db.logAudit({
@@ -354,7 +371,8 @@ export async function importRevisedForecastSheet(buffer: Buffer, country: string
     for (const [periodLabel, col] of header.periodCols) {
       const periodId = periodMap.get(periodLabel);
       if (!periodId) continue;
-      const val = cellNum(row.getCell(col));
+      const val = cellNumOrNull(row.getCell(col));
+      if (val === null) continue;
       records.push({ skuId: sku.id, periodId, value: val.toString() });
     }
   }
