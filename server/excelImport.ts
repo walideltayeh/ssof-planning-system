@@ -43,23 +43,32 @@ function findWorksheet(wb: ExcelJS.Workbook, preferredNames: string[]): ExcelJS.
 
 interface SkuEntry { id: number; weight: string }
 
-type SkuMap = { byNameWeightPkg: Map<string, SkuEntry>; byNameWeight: Map<string, SkuEntry>; byName: Map<string, SkuEntry> };
+type SkuMap = {
+  byNameWeightPkg: Map<string, SkuEntry>;
+  byNameWeightAll: Map<string, SkuEntry[]>;
+  byName: Map<string, SkuEntry>;
+  _nwOccurrence: Map<string, number>;
+};
 
 async function resolveSkuMap(country: string): Promise<SkuMap> {
   const skuList = country === "Lebanon"
     ? await db.getAllSkus()
     : await db.getSkusForCountry(country as any);
   const byNameWeightPkg = new Map<string, SkuEntry>();
-  const byNameWeight = new Map<string, SkuEntry>();
+  const byNameWeightAll = new Map<string, SkuEntry[]>();
   const byName = new Map<string, SkuEntry>();
   for (const s of skuList) {
     const key = s.name.trim().toLowerCase();
-    byNameWeight.set(`${key}||${s.weight.trim().toLowerCase()}`, { id: s.id, weight: s.weight });
-    byName.set(key, { id: s.id, weight: s.weight });
+    const nwKey = `${key}||${s.weight.trim().toLowerCase()}`;
+    const entry = { id: s.id, weight: s.weight };
+    const existing = byNameWeightAll.get(nwKey) ?? [];
+    existing.push(entry);
+    byNameWeightAll.set(nwKey, existing);
+    byName.set(key, entry);
     const pkg = ((s as any).packagingType ?? "New").toString().trim().toLowerCase();
-    byNameWeightPkg.set(`${key}||${s.weight.trim().toLowerCase()}||${pkg}`, { id: s.id, weight: s.weight });
+    byNameWeightPkg.set(`${nwKey}||${pkg}`, entry);
   }
-  return { byNameWeightPkg, byNameWeight, byName };
+  return { byNameWeightPkg, byNameWeightAll, byName, _nwOccurrence: new Map() };
 }
 
 function lookupSku(skuMap: SkuMap, name: string, weight?: string, packaging?: string): SkuEntry | undefined {
@@ -69,8 +78,14 @@ function lookupSku(skuMap: SkuMap, name: string, weight?: string, packaging?: st
     if (exact) return exact;
   }
   if (weight) {
-    const exact = skuMap.byNameWeight.get(`${normName}||${weight.trim().toLowerCase()}`);
-    if (exact) return exact;
+    const nwKey = `${normName}||${weight.trim().toLowerCase()}`;
+    const all = skuMap.byNameWeightAll.get(nwKey);
+    if (all && all.length === 1) return all[0];
+    if (all && all.length > 1) {
+      const idx = skuMap._nwOccurrence.get(nwKey) ?? 0;
+      skuMap._nwOccurrence.set(nwKey, idx + 1);
+      return all[idx % all.length];
+    }
   }
   return skuMap.byName.get(normName);
 }
