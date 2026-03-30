@@ -146,8 +146,7 @@ export async function importForecastSheet(buffer: Buffer, country: string, usern
       const periodId = periodMap.get(periodLabel);
       if (!periodId) continue;
       const val = cellNumOrNull(row.getCell(col));
-      if (val === null) continue;
-      records.push({ skuId: sku.id, periodId, value: val.toString() });
+      records.push({ skuId: sku.id, periodId, value: (val ?? 0).toString() });
     }
   }
 
@@ -204,8 +203,7 @@ export async function importImsSheet(buffer: Buffer, country: string, username: 
       const periodId = periodMap.get(periodLabel);
       if (!periodId) continue;
       const val = cellNumOrNull(row.getCell(col));
-      if (val === null) continue;
-      records.push({ skuId: sku.id, periodId, value: val.toString(), isActual: true });
+      records.push({ skuId: sku.id, periodId, value: (val ?? 0).toString(), isActual: true });
     }
   }
 
@@ -442,8 +440,7 @@ export async function importRevisedForecastSheet(buffer: Buffer, country: string
       const periodId = periodMap.get(periodLabel);
       if (!periodId) continue;
       const val = cellNumOrNull(row.getCell(col));
-      if (val === null) continue;
-      records.push({ skuId: sku.id, periodId, value: val.toString() });
+      records.push({ skuId: sku.id, periodId, value: (val ?? 0).toString() });
     }
   }
 
