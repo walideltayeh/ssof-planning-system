@@ -172,6 +172,18 @@ export async function upsertRevisedForecastData(skuId: number, periodId: number,
   }
 }
 
+export async function bulkUpsertRevisedForecast(records: { skuId: number; periodId: number; value: string }[]) {
+  const pool = await getPool();
+  if (!pool || records.length === 0) return;
+  const batchSize = 500;
+  for (let i = 0; i < records.length; i += batchSize) {
+    const batch = records.slice(i, i + batchSize);
+    const values = batch.map((r, idx) => `($${idx * 3 + 1}, $${idx * 3 + 2}, $${idx * 3 + 3})`).join(",");
+    const params = batch.flatMap(r => [r.skuId, r.periodId, r.value]);
+    await pool.query(`INSERT INTO revised_forecast_data ("skuId", "periodId", value) VALUES ${values} ON CONFLICT ("skuId", "periodId") DO UPDATE SET value = EXCLUDED.value`, params);
+  }
+}
+
 export async function getImsDataForCountry(country: Country) {
   const db = await getDb();
   if (!db) return [];
@@ -732,6 +744,7 @@ export async function ensureDataIndexes() {
     await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS shipment_data_sku_period_idx ON shipment_data ("skuId", "periodId")`);
     await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS arrival_data_sku_period_idx ON arrival_data ("skuId", "periodId")`);
     await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS planning_fg_data_sku_period_idx ON planning_fg_data ("skuId", "periodId")`);
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS revised_forecast_data_sku_period_idx ON revised_forecast_data ("skuId", "periodId")`);
   } catch (err) {
     console.warn("[DB] Failed to create indexes (may already exist):", err);
   }

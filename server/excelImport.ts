@@ -16,7 +16,7 @@ function cellNum(cell: ExcelJS.Cell): number {
   if (v === null || v === undefined) return 0;
   if (typeof v === "number") return v;
   if (typeof v === "object" && "result" in v) {
-    const r = (v as any).result;
+    const r = (v as { result: unknown }).result;
     return typeof r === "number" ? r : parseFloat(String(r)) || 0;
   }
   return parseFloat(String(v)) || 0;
@@ -314,7 +314,7 @@ export async function importPlanningFgSheet(buffer: Buffer, weight: string, coun
 
   const recordsList = Array.from(records.values());
   if (recordsList.length > 0) {
-    await db.bulkUpsertPlanningFg(recordsList as any);
+    await db.bulkUpsertPlanningFg(recordsList);
   }
 
   await db.logAudit({
@@ -326,6 +326,52 @@ export async function importPlanningFgSheet(buffer: Buffer, weight: string, coun
   });
 
   return { updated: recordsList.length, skipped: [...new Set(skipped)], sheet: `Planning FG ${weight}` };
+}
+
+export async function importRevisedForecastSheet(buffer: Buffer, country: string, username: string): Promise<ImportResult> {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(buffer);
+  const ws = findWorksheet(wb, ["Forecast vs Actual", "Forecast vs Forecast", "Revised Forecast"]);
+
+  const skuMap = await resolveSkuMap(country);
+  const periodMap = await resolvePeriodMap(country);
+  const header = findHeaderRow(ws);
+  if (!header) throw new Error("Could not find period headers. Expected month columns like 'Jan 25'.");
+
+  const records: { skuId: number; periodId: number; value: string }[] = [];
+  const skipped: string[] = [];
+
+  for (let r = header.row + 1; r <= ws.rowCount; r++) {
+    const row = ws.getRow(r);
+    const nameCell = normalizeStr(row.getCell(1).value);
+    if (!nameCell) continue;
+    if (!nameCell.toLowerCase().includes("revised")) continue;
+
+    const skuName = nameCell.replace(/\s*—\s*Revised$/i, "").trim();
+    const sku = skuMap.get(skuName.toLowerCase());
+    if (!sku) { skipped.push(skuName); continue; }
+
+    for (const [periodLabel, col] of header.periodCols) {
+      const periodId = periodMap.get(periodLabel);
+      if (!periodId) continue;
+      const val = cellNum(row.getCell(col));
+      records.push({ skuId: sku.id, periodId, value: val.toString() });
+    }
+  }
+
+  if (records.length > 0) {
+    await db.bulkUpsertRevisedForecast(records);
+  }
+
+  await db.logAudit({
+    country: country as any,
+    username,
+    action: "import",
+    sheet: "Forecast vs Actual",
+    details: `Imported ${records.length} revised forecast records from Excel. ${skipped.length} SKUs skipped.`,
+  });
+
+  return { updated: records.length, skipped: [...new Set(skipped)], sheet: "Forecast vs Actual" };
 }
 
 function findSkuNameCol(ws: ExcelJS.Worksheet, headerRow: number): number {
@@ -415,6 +461,8 @@ export async function handleImportSheet(
       return importPlanningFgSheet(buffer, "250g", country, username);
     case "planning-fg-1kg":
       return importPlanningFgSheet(buffer, "1kg", country, username);
+    case "forecast-vs-actual":
+      return importRevisedForecastSheet(buffer, country, username);
     default:
       throw new Error(`Unknown sheet type: ${sheet}`);
   }

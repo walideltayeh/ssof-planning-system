@@ -7,6 +7,8 @@ import { useCountry } from "@/contexts/CountryContext";
 import { useUnit } from "@/contexts/UnitContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
+import ExportSheetButton from "@/components/ExportSheetButton";
+import ImportSheetButton from "@/components/ImportSheetButton";
 
 const WEIGHT_ORDER: Record<string, number> = { "1kg": 0, "250g": 1, "50g": 2 };
 
@@ -210,14 +212,20 @@ export default function ForecastVsForecastPage() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-xl font-semibold tracking-tight">Forecast vs Forecast</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Compare original Forecast Production against Revised Forecast. Click Revised cells to edit.
-          <span className="inline-block w-3 h-3 bg-amber-50 border border-amber-200 rounded-sm align-middle mx-1 ml-2"></span>Original Forecast
-          <span className="inline-block w-3 h-3 bg-sky-50 border border-sky-200 rounded-sm align-middle mx-1 ml-2"></span>Revised Forecast
-          <span className="inline-block w-3 h-3 bg-slate-100 border border-slate-200 rounded-sm align-middle mx-1 ml-2"></span>Variance
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight">Forecast vs Forecast</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Compare original Forecast Production against Revised Forecast. Click Revised cells to edit.
+            <span className="inline-block w-3 h-3 bg-amber-50 border border-amber-200 rounded-sm align-middle mx-1 ml-2"></span>Original Forecast
+            <span className="inline-block w-3 h-3 bg-sky-50 border border-sky-200 rounded-sm align-middle mx-1 ml-2"></span>Revised Forecast
+            <span className="inline-block w-3 h-3 bg-slate-100 border border-slate-200 rounded-sm align-middle mx-1 ml-2"></span>Variance
+          </p>
+        </div>
+        <div className="flex items-center gap-1">
+          <ImportSheetButton sheet="forecast-vs-actual" country={country} label="Import Revised" />
+          <ExportSheetButton sheet="forecast-vs-actual" country={country} label="Export Revised" />
+        </div>
       </div>
 
       {/* Search & Filter */}

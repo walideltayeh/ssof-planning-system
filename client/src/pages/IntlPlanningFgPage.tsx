@@ -11,6 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Settings } from "lucide-react";
 import { toast } from "sonner";
+import ExportSheetButton from "@/components/ExportSheetButton";
+import ImportSheetButton from "@/components/ImportSheetButton";
 import { computeArrivalDate } from "./ShipmentPage";
 
 // Row labels for the Planning FG table (Syria/Libya)
@@ -562,6 +564,12 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
             </svg>
             {isFetching ? 'Syncing...' : 'Sync All'}
           </Button>
+          {weight && (
+            <>
+              <ImportSheetButton sheet={`planning-fg-${weight}`} country={country} label={`Import`} />
+              <ExportSheetButton sheet={`planning-fg-${weight}`} country={country} label={`Export Planning FG ${weight}`} />
+            </>
+          )}
         </div>
       </div>
 

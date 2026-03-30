@@ -7,6 +7,8 @@ import { useCountry } from "@/contexts/CountryContext";
 import { useUnit } from "@/contexts/UnitContext";
 import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
+import ExportSheetButton from "@/components/ExportSheetButton";
+import ImportSheetButton from "@/components/ImportSheetButton";
 
 const WEIGHT_ORDER: Record<string, number> = { "1kg": 0, "250g": 1, "50g": 2 };
 
@@ -267,6 +269,8 @@ export default function IntlImsPage() {
             </svg>
             {isFetching ? 'Syncing...' : 'Sync All'}
           </button>
+          <ImportSheetButton sheet="ims" country={country} label="Import IMS" />
+          <ExportSheetButton sheet="ims" country={country} label="Export IMS" />
         </div>
       </div>
 
