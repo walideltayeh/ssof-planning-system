@@ -36,6 +36,7 @@ shared/          # Shared TypeScript types
 - tRPC API is served at `/api/trpc`
 - Excel export endpoints at `/api/export-excel`, `/api/export-sheet?sheet=forecast|ims|shipment|arrival|planning-fg-50g|planning-fg-250g|planning-fg-1kg`, `/api/export-forecast-split`, `/api/export-ims-template`, etc.
 - Per-page export buttons: ExportSheetButton component (`client/src/components/ExportSheetButton.tsx`) used on Forecast, IMS, Shipment, Arrival, and Planning FG pages
+- Per-page import buttons: ImportSheetButton component (`client/src/components/ImportSheetButton.tsx`) next to every export button — uploads `.xlsx` files to `POST /api/import-sheet?sheet=X&country=Y&username=Z`, parses with ExcelJS, bulk-upserts matching SKU+period values. Import logic in `server/excelImport.ts` handles worksheet selection by name for multi-sheet exports. Only editable cells are imported (formula-derived rows like Closing Stock, Weeks, Variance are skipped).
 - IMS template download: `/api/export-ims-template?country=Lebanon` — generates Excel with SKU names, month columns, and current values
 - Temporary data migration endpoints: `GET /api/export-db` and `POST /api/import-db`
 - Bulk upload uses batched SQL INSERT ON CONFLICT for speed (unique indexes on skuId+periodId per data table)

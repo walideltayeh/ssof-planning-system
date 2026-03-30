@@ -12,6 +12,7 @@ import SkuRecommendations from "@/components/SmartRecommendations";
 import BestStrategy from "@/components/BestStrategy";
 import { InvoicedSHPDialog } from "@/components/InvoicedSHPDialog";
 import ExportSheetButton from "@/components/ExportSheetButton";
+import ImportSheetButton from "@/components/ImportSheetButton";
 
 interface PlanningFgPageProps {
   weight: string;
@@ -848,6 +849,7 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
             </p>
           </div>
           <div className="flex items-center gap-1">
+            <ImportSheetButton sheet={`planning-fg-${weight}`} country={country} label={`Import`} />
             <ExportSheetButton sheet={`planning-fg-${weight}`} country={country} label={`Export Planning FG ${weight}`} />
             <button
               onClick={() => setCollapsedYears(new Set(years))}

@@ -91,6 +91,36 @@ async function startServer() {
     }
   });
 
+  app.post("/api/import-sheet", async (req, res) => {
+    try {
+      const multer = (await import("multer")).default;
+      const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+      await new Promise<void>((resolve, reject) => {
+        upload.single("file")(req as any, res as any, (err: any) => {
+          if (err) reject(err); else resolve();
+        });
+      });
+      const file = (req as any).file as Express.Multer.File | undefined;
+      if (!file) {
+        res.status(400).json({ error: "No file uploaded" });
+        return;
+      }
+      const sheet = req.query.sheet as string;
+      const country = (req.query.country as string) || "Lebanon";
+      const username = (req.query.username as string) || "unknown";
+      if (!sheet) {
+        res.status(400).json({ error: "Missing 'sheet' query parameter" });
+        return;
+      }
+      const { handleImportSheet } = await import("../excelImport");
+      const result = await handleImportSheet(file.buffer, sheet, country, username);
+      res.json({ success: true, ...result });
+    } catch (err: any) {
+      console.error("[Sheet Import] Error:", err);
+      res.status(400).json({ error: err?.message || "Import failed" });
+    }
+  });
+
   app.get("/api/export-analysis", async (req, res) => {
     try {
       const { generateAnalysisExcelBuffer } = await import("../excelExport");

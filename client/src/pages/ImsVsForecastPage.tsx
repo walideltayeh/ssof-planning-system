@@ -10,6 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import ExportSheetButton from "@/components/ExportSheetButton";
+import ImportSheetButton from "@/components/ImportSheetButton";
 
 const WEIGHT_ORDER: Record<string, number> = { "1kg": 0, "250g": 1, "50g": 2 };
 
@@ -358,6 +359,7 @@ export default function ImsVsForecastPage() {
               Click IMS cells to edit. Click year headers to collapse months.
             </p>
           </div>
+          <ImportSheetButton sheet="ims" country={country} label="Import IMS" />
           <ExportSheetButton sheet="ims" country={country} label="Export IMS" />
         </div>
       </div>

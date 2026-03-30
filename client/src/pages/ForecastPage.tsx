@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { Settings2 } from "lucide-react";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import ExportSheetButton from "@/components/ExportSheetButton";
+import ImportSheetButton from "@/components/ImportSheetButton";
 import { useGridNav } from "@/hooks/useGridNav";
 
 const WEIGHT_ORDER: Record<string, number> = { "1kg": 0, "250g": 1, "50g": 2 };
@@ -385,6 +386,7 @@ export default function ForecastPage() {
           <p className="text-sm text-muted-foreground mt-1">Monthly {isLebanon ? "forecast" : "forecast production"} by SKU. Grouped by Core/NPI, sorted by weight. Click any cell to edit.</p>
         </div>
         <div className="flex items-center gap-2">
+          <ImportSheetButton sheet="forecast" country={country} label="Import Forecast" />
           <ExportSheetButton sheet="forecast" country={country} label="Export Forecast" />
           <div className="flex items-center gap-1">
             <button
