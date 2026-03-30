@@ -63,11 +63,17 @@ async function resolvePeriodMap(country: string): Promise<Map<string, number>> {
   return map;
 }
 
+const MAX_COL = 500;
+
+function safeCellCount(row: ExcelJS.Row): number {
+  return Math.min(row.cellCount || 0, MAX_COL);
+}
+
 function findHeaderRow(ws: ExcelJS.Worksheet): { row: number; periodCols: Map<string, number> } | null {
   for (let r = 1; r <= Math.min(5, ws.rowCount); r++) {
     const row = ws.getRow(r);
     const periodCols = new Map<string, number>();
-    for (let c = 1; c <= row.cellCount + 5; c++) {
+    for (let c = 1; c <= safeCellCount(row) + 5; c++) {
       const val = normalizeStr(row.getCell(c).value).toLowerCase();
       if (/^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+\d{2,4}$/.test(val)) {
         periodCols.set(val, c);
@@ -394,11 +400,11 @@ export async function importRevisedForecastSheet(buffer: Buffer, country: string
 
 function findSkuNameCol(ws: ExcelJS.Worksheet, headerRow: number): number {
   const row = ws.getRow(headerRow);
-  for (let c = 1; c <= row.cellCount + 5; c++) {
+  for (let c = 1; c <= safeCellCount(row) + 5; c++) {
     const val = normalizeStr(row.getCell(c).value).toLowerCase();
     if (val === "sku name" || val === "sku") return c;
   }
-  for (let c = 1; c <= row.cellCount + 5; c++) {
+  for (let c = 1; c <= safeCellCount(row) + 5; c++) {
     const val = normalizeStr(row.getCell(c).value).toLowerCase();
     if (val.includes("name")) return c;
   }
@@ -407,7 +413,7 @@ function findSkuNameCol(ws: ExcelJS.Worksheet, headerRow: number): number {
 
 function findRowLabel(ws: ExcelJS.Worksheet, row: ExcelJS.Row, headerRowNum: number): string | null {
   const headerRow = ws.getRow(headerRowNum);
-  for (let c = 1; c <= headerRow.cellCount + 5; c++) {
+  for (let c = 1; c <= safeCellCount(headerRow) + 5; c++) {
     const hVal = normalizeStr(headerRow.getCell(c).value).toLowerCase();
     if (hVal === "row") {
       return normalizeStr(row.getCell(c).value);
@@ -421,7 +427,7 @@ function findShipmentPeriodCols(ws: ExcelJS.Worksheet): Map<string, number> {
   const row1 = ws.getRow(1);
   const row2 = ws.getRow(2);
 
-  for (let c = 1; c <= (row1.cellCount || 0) + 20; c++) {
+  for (let c = 1; c <= safeCellCount(row1) + 20; c++) {
     const val = normalizeStr(row1.getCell(c).value).toLowerCase();
     if (/^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+\d{2,4}$/.test(val)) {
       const w1 = normalizeStr(row2.getCell(c).value).toLowerCase();
@@ -433,7 +439,7 @@ function findShipmentPeriodCols(ws: ExcelJS.Worksheet): Map<string, number> {
 
   if (periodCols.size === 0) {
     let lastPeriodLabel = "";
-    for (let c = 4; c <= (row1.cellCount || 0) + 50; c++) {
+    for (let c = 4; c <= safeCellCount(row1) + 50; c++) {
       const hVal = normalizeStr(row1.getCell(c).value).toLowerCase();
       if (/^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+\d{2,4}$/.test(hVal)) {
         lastPeriodLabel = hVal;
@@ -450,7 +456,7 @@ function findShipmentPeriodCols(ws: ExcelJS.Worksheet): Map<string, number> {
 
 function findSkuNameColShipment(ws: ExcelJS.Worksheet): number {
   const row = ws.getRow(1);
-  for (let c = 1; c <= (row.cellCount || 0) + 5; c++) {
+  for (let c = 1; c <= safeCellCount(row) + 5; c++) {
     const val = normalizeStr(row.getCell(c).value).toLowerCase();
     if (val === "sku name" || val === "sku") return c;
     if (val.includes("name")) return c;
