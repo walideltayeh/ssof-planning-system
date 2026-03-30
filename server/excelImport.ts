@@ -63,6 +63,14 @@ async function resolvePeriodMap(country: string): Promise<Map<string, number>> {
   return map;
 }
 
+function dedup<T extends { skuId: number; periodId: number }>(records: T[]): T[] {
+  const map = new Map<string, T>();
+  for (const r of records) {
+    map.set(`${r.skuId}-${r.periodId}`, r);
+  }
+  return Array.from(map.values());
+}
+
 const MAX_COL = 500;
 
 function safeCellCount(row: ExcelJS.Row): number {
@@ -115,7 +123,7 @@ export async function importForecastSheet(buffer: Buffer, country: string, usern
   }
 
   if (records.length > 0) {
-    await db.bulkUpsertForecast(records);
+    await db.bulkUpsertForecast(dedup(records));
   }
 
   await db.logAudit({
@@ -169,7 +177,7 @@ export async function importImsSheet(buffer: Buffer, country: string, username: 
   }
 
   if (records.length > 0) {
-    await db.bulkUpsertIms(records);
+    await db.bulkUpsertIms(dedup(records));
   }
 
   await db.logAudit({
@@ -221,7 +229,7 @@ export async function importShipmentSheet(buffer: Buffer, country: string, usern
   }
 
   if (records.length > 0) {
-    await db.bulkUpsertShipment(records);
+    await db.bulkUpsertShipment(dedup(records));
   }
 
   await db.logAudit({
@@ -273,7 +281,7 @@ export async function importArrivalSheet(buffer: Buffer, country: string, userna
   }
 
   if (records.length > 0) {
-    await db.bulkUpsertArrival(records);
+    await db.bulkUpsertArrival(dedup(records));
   }
 
   await db.logAudit({
@@ -384,7 +392,7 @@ export async function importRevisedForecastSheet(buffer: Buffer, country: string
   }
 
   if (records.length > 0) {
-    await db.bulkUpsertRevisedForecast(records);
+    await db.bulkUpsertRevisedForecast(dedup(records));
   }
 
   await db.logAudit({
