@@ -56,7 +56,15 @@ export default function ImportSheetButton({ sheet, country, label, onSuccess }: 
         ? ` (${result.skipped.length} unrecognized SKUs skipped)`
         : "";
 
-      toast.success(`Imported ${result.updated} records into ${result.sheet}${skippedMsg}`, { duration: 5000 });
+      const periodInfo = result.matchedPeriods?.length > 0
+        ? ` — Periods: ${result.matchedPeriods.join(", ")}`
+        : "";
+
+      toast.success(`Imported ${result.updated} records into ${result.sheet}${skippedMsg}${periodInfo}`, { duration: 6000 });
+
+      if (result.unmatchedPeriods?.length > 0) {
+        toast.warning(`Unrecognized periods in file: ${result.unmatchedPeriods.join(", ")}`, { duration: 8000 });
+      }
 
       if (result.skipped?.length > 0) {
         toast.warning(`Skipped SKUs: ${result.skipped.join(", ")}`, { duration: 8000 });

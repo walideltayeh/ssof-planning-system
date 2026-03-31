@@ -121,7 +121,8 @@ function findHeaderRow(ws: ExcelJS.Worksheet): { row: number; periodCols: Map<st
     const periodCols = new Map<string, number>();
     let weightCol: number | null = null;
     let packagingCol: number | null = null;
-    for (let c = 1; c <= safeCellCount(row) + 5; c++) {
+    const maxCol = Math.max(safeCellCount(row) + 50, ws.columnCount || 0, 100);
+    for (let c = 1; c <= maxCol; c++) {
       const val = normalizeStr(row.getCell(c).value).toLowerCase();
       if (/^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+\d{2,4}$/.test(val)) {
         periodCols.set(val, c);
@@ -169,15 +170,20 @@ export async function importForecastSheet(buffer: Buffer, country: string, usern
     await db.bulkUpsertForecast(dedup(records));
   }
 
+  const detectedPeriods = [...header.periodCols.keys()];
+  const matchedPeriods = detectedPeriods.filter(p => periodMap.has(p));
+  const unmatchedPeriods = detectedPeriods.filter(p => !periodMap.has(p));
+  console.log(`[Forecast Import] ${country}: Detected ${detectedPeriods.length} periods: ${detectedPeriods.join(", ")}. Matched: ${matchedPeriods.length}. Unmatched: ${unmatchedPeriods.join(", ") || "none"}`);
+
   await db.logAudit({
     country: country as any,
     username,
     action: "import",
     sheet: "Forecast",
-    details: `Imported ${records.length} cells from Excel. ${skipped.length} SKUs skipped.`,
+    details: `Imported ${records.length} cells from Excel (${matchedPeriods.length} periods). ${skipped.length} SKUs skipped.${unmatchedPeriods.length > 0 ? ` Unmatched periods: ${unmatchedPeriods.join(", ")}` : ""}`,
   });
 
-  return { updated: records.length, skipped: [...new Set(skipped)], sheet: "Forecast" };
+  return { updated: records.length, skipped: [...new Set(skipped)], sheet: "Forecast", detectedPeriods, matchedPeriods, unmatchedPeriods };
 }
 
 export async function importImsSheet(buffer: Buffer, country: string, username: string): Promise<ImportResult> {
@@ -280,15 +286,20 @@ export async function importShipmentSheet(buffer: Buffer, country: string, usern
     await db.bulkUpsertShipment(dedup(records));
   }
 
+  const detectedPeriods = [...periodCols.keys()];
+  const matchedPeriods = detectedPeriods.filter(p => periodMap.has(p));
+  const unmatchedPeriods = detectedPeriods.filter(p => !periodMap.has(p));
+  console.log(`[Shipment Import] ${country}: Detected ${detectedPeriods.length} periods: ${detectedPeriods.join(", ")}. Matched: ${matchedPeriods.length}. Unmatched: ${unmatchedPeriods.join(", ") || "none"}`);
+
   await db.logAudit({
     country: country as any,
     username,
     action: "import",
     sheet: "Shipment",
-    details: `Imported ${records.length} period-records from Excel. ${skipped.length} SKUs skipped.`,
+    details: `Imported ${records.length} period-records from Excel (${matchedPeriods.length} periods). ${skipped.length} SKUs skipped.${unmatchedPeriods.length > 0 ? ` Unmatched periods: ${unmatchedPeriods.join(", ")}` : ""}`,
   });
 
-  return { updated: records.length, skipped: [...new Set(skipped)], sheet: "Shipment" };
+  return { updated: records.length, skipped: [...new Set(skipped)], sheet: "Shipment", detectedPeriods, matchedPeriods, unmatchedPeriods };
 }
 
 export async function importArrivalSheet(buffer: Buffer, country: string, username: string): Promise<ImportResult> {
@@ -502,8 +513,9 @@ function findShipmentPeriodCols(ws: ExcelJS.Worksheet): Map<string, number> {
   const periodCols = new Map<string, number>();
   const row1 = ws.getRow(1);
   const row2 = ws.getRow(2);
+  const maxCol = Math.max(safeCellCount(row1) + 50, safeCellCount(row2) + 50, ws.columnCount || 0, 100);
 
-  for (let c = 1; c <= safeCellCount(row1) + 20; c++) {
+  for (let c = 1; c <= maxCol; c++) {
     const val = normalizeStr(row1.getCell(c).value).toLowerCase();
     if (/^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+\d{2,4}$/.test(val)) {
       const w1 = normalizeStr(row2.getCell(c).value).toLowerCase();
@@ -515,7 +527,7 @@ function findShipmentPeriodCols(ws: ExcelJS.Worksheet): Map<string, number> {
 
   if (periodCols.size === 0) {
     let lastPeriodLabel = "";
-    for (let c = 4; c <= safeCellCount(row1) + 50; c++) {
+    for (let c = 1; c <= maxCol; c++) {
       const hVal = normalizeStr(row1.getCell(c).value).toLowerCase();
       if (/^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+\d{2,4}$/.test(hVal)) {
         lastPeriodLabel = hVal;
