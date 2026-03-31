@@ -62,8 +62,7 @@ export default function ImportSheetButton({ sheet, country, label, onSuccess }: 
         toast.warning(`Skipped SKUs: ${result.skipped.join(", ")}`, { duration: 8000 });
       }
 
-      utils.data.invalidate();
-      utils.country.invalidate();
+      utils.invalidate();
       onSuccess?.();
     } catch (err: any) {
       toast.error("Import failed: " + (err?.message || "Unknown error"));
