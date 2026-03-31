@@ -166,8 +166,23 @@ export async function importForecastSheet(buffer: Buffer, country: string, usern
     }
   }
 
-  if (records.length > 0) {
-    await db.bulkUpsertForecast(dedup(records));
+  const dedupedRecords = dedup(records);
+  if (dedupedRecords.length > 0) {
+    await db.bulkUpsertForecast(dedupedRecords);
+  }
+
+  // For Syria & Libya, auto-sync forecast data into Production (Shipment) table
+  if (country !== "Lebanon" && dedupedRecords.length > 0) {
+    const shipmentRecords = dedupedRecords.map(r => ({
+      skuId: r.skuId,
+      periodId: r.periodId,
+      week1: r.value,
+      week2: "0",
+      week3: "0",
+      week4: "0",
+    }));
+    await db.bulkUpsertShipment(shipmentRecords);
+    console.log(`[Forecast Import] ${country}: Auto-synced ${shipmentRecords.length} records to Production (Shipment) table`);
   }
 
   const detectedPeriods = [...header.periodCols.keys()];
@@ -180,10 +195,10 @@ export async function importForecastSheet(buffer: Buffer, country: string, usern
     username,
     action: "import",
     sheet: "Forecast",
-    details: `Imported ${records.length} cells from Excel (${matchedPeriods.length} periods). ${skipped.length} SKUs skipped.${unmatchedPeriods.length > 0 ? ` Unmatched periods: ${unmatchedPeriods.join(", ")}` : ""}`,
+    details: `Imported ${dedupedRecords.length} cells from Excel (${matchedPeriods.length} periods). ${skipped.length} SKUs skipped.${country !== "Lebanon" ? " Auto-synced to Production." : ""}${unmatchedPeriods.length > 0 ? ` Unmatched periods: ${unmatchedPeriods.join(", ")}` : ""}`,
   });
 
-  return { updated: records.length, skipped: [...new Set(skipped)], sheet: "Forecast", detectedPeriods, matchedPeriods, unmatchedPeriods };
+  return { updated: dedupedRecords.length, skipped: [...new Set(skipped)], sheet: "Forecast", detectedPeriods, matchedPeriods, unmatchedPeriods };
 }
 
 export async function importImsSheet(buffer: Buffer, country: string, username: string): Promise<ImportResult> {
