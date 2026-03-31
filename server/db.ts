@@ -2193,6 +2193,49 @@ export async function getIntlAnalysis(country: "Syria" | "Libya") {
     .sort((a, b) => b.totalIms - a.totalIms)
     .slice(0, 10);
 
+  // Flavour (name) breakdown — aggregate across all weights
+  const flavourProd = new Map<string, number>();
+  const flavourIms = new Map<string, number>();
+  const flavourForecast = new Map<string, number>();
+  const flavourSkuCount = new Map<string, number>();
+  for (const sku of skuList) {
+    const name = sku.name;
+    flavourProd.set(name, (flavourProd.get(name) ?? 0) + (skuProd.get(sku.id) ?? 0));
+    flavourIms.set(name, (flavourIms.get(name) ?? 0) + (skuIms.get(sku.id) ?? 0));
+    flavourSkuCount.set(name, (flavourSkuCount.get(name) ?? 0) + 1);
+  }
+  for (const row of forecastRows) {
+    const sku = skuMap.get(row.skuId);
+    if (!sku) continue;
+    const val = parseFloat(row.value ?? '0') || 0;
+    flavourForecast.set(sku.name, (flavourForecast.get(sku.name) ?? 0) + val);
+  }
+  const flavourNames = [...new Set(skuList.map(s => s.name))];
+  const totalProdAll = [...flavourProd.values()].reduce((a, b) => a + b, 0);
+  const totalImsAll = [...flavourIms.values()].reduce((a, b) => a + b, 0);
+  const totalForecastAll = [...flavourForecast.values()].reduce((a, b) => a + b, 0);
+  const flavourBreakdown = flavourNames
+    .map(name => ({
+      name,
+      skuCount: flavourSkuCount.get(name) ?? 0,
+      totalProduction: flavourProd.get(name) ?? 0,
+      totalIms: flavourIms.get(name) ?? 0,
+      totalForecast: flavourForecast.get(name) ?? 0,
+      pctProduction: totalProdAll > 0 ? Math.round(((flavourProd.get(name) ?? 0) / totalProdAll) * 1000) / 10 : 0,
+      pctIms: totalImsAll > 0 ? Math.round(((flavourIms.get(name) ?? 0) / totalImsAll) * 1000) / 10 : 0,
+      pctForecast: totalForecastAll > 0 ? Math.round(((flavourForecast.get(name) ?? 0) / totalForecastAll) * 1000) / 10 : 0,
+    }))
+    .sort((a, b) => b.totalProduction - a.totalProduction);
+
+  // Weight breakdown with forecast and percentages
+  const weightForecast = new Map<string, number>();
+  for (const row of forecastRows) {
+    const sku = skuMap.get(row.skuId);
+    if (!sku) continue;
+    const val = parseFloat(row.value ?? '0') || 0;
+    weightForecast.set(sku.weight, (weightForecast.get(sku.weight) ?? 0) + val);
+  }
+
   return {
     country,
     totalSkus: skuList.length,
@@ -2208,7 +2251,17 @@ export async function getIntlAnalysis(country: "Syria" | "Libya") {
     monthlyRevisedForecastSeries,
     periodLabels,
     skuProductionBreakdown,
-    weightBreakdown,
+    weightBreakdown: weights.map((w) => ({
+      weight: w,
+      totalProduction: weightProd.get(w) ?? 0,
+      totalIms: weightIms.get(w) ?? 0,
+      totalForecast: weightForecast.get(w) ?? 0,
+      skuCount: skuList.filter((s) => s.weight === w).length,
+      pctProduction: totalProdAll > 0 ? Math.round(((weightProd.get(w) ?? 0) / totalProdAll) * 1000) / 10 : 0,
+      pctIms: totalImsAll > 0 ? Math.round(((weightIms.get(w) ?? 0) / totalImsAll) * 1000) / 10 : 0,
+      pctForecast: totalForecastAll > 0 ? Math.round(((weightForecast.get(w) ?? 0) / totalForecastAll) * 1000) / 10 : 0,
+    })),
+    flavourBreakdown,
     packagingBreakdown,
     clearanceBatches,
     forecastAccuracyByPeriod,

@@ -214,6 +214,7 @@ export default function IntlAnalysisPage() {
     overallForecastAccuracy,
     imsGrowthRate,
     topSkusByIms,
+    flavourBreakdown,
   } = data as any;
 
   const shortLabels = (periodLabels as string[]).map((l: string) => l.slice(0, 3) + "'" + l.slice(-2));
@@ -1047,6 +1048,213 @@ export default function IntlAnalysisPage() {
     );
   };
 
+  const ByFlavourTab = () => {
+    const [sortKey, setSortKey] = useState<"production" | "ims" | "forecast">("production");
+    const fb = flavourBreakdown as any[] ?? [];
+    const sorted = useMemo(() => {
+      return [...fb].sort((a, b) => {
+        if (sortKey === "production") return b.totalProduction - a.totalProduction;
+        if (sortKey === "ims") return b.totalIms - a.totalIms;
+        return b.totalForecast - a.totalForecast;
+      });
+    }, [fb, sortKey]);
+    const maxVal = Math.max(...sorted.map((f: any) => Math.max(f.totalProduction, f.totalIms, f.totalForecast)), 1);
+
+    return (
+      <div className="space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-sm">Forecast by Flavour</CardTitle></CardHeader>
+            <CardContent>
+              <DonutChart
+                segments={fb.filter((f: any) => f.totalForecast > 0).map((f: any, i: number) => ({
+                  label: f.name, value: f.totalForecast, color: PALETTE[i % PALETTE.length],
+                }))}
+                formatter={fmt}
+              />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-sm">Production by Flavour</CardTitle></CardHeader>
+            <CardContent>
+              <DonutChart
+                segments={fb.filter((f: any) => f.totalProduction > 0).map((f: any, i: number) => ({
+                  label: f.name, value: f.totalProduction, color: PALETTE[i % PALETTE.length],
+                }))}
+                formatter={fmt}
+              />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-sm">IMS by Flavour</CardTitle></CardHeader>
+            <CardContent>
+              <DonutChart
+                segments={fb.filter((f: any) => f.totalIms > 0).map((f: any, i: number) => ({
+                  label: f.name, value: f.totalIms, color: PALETTE[i % PALETTE.length],
+                }))}
+                formatter={fmt}
+              />
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm">Flavour Breakdown — Forecast / Production / IMS / Share %</CardTitle>
+              <div className="flex gap-1">
+                {(["production", "ims", "forecast"] as const).map((s) => (
+                  <button key={s} onClick={() => setSortKey(s)}
+                    className={`px-2 py-1 text-xs rounded transition-colors ${sortKey === s ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}>
+                    Sort by {s === "production" ? "Production" : s === "ims" ? "IMS" : "Forecast"}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-auto max-h-[500px]">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-background z-10">
+                  <tr className="border-b">
+                    <th className="text-left py-2 px-2 font-medium text-muted-foreground">Flavour</th>
+                    <th className="text-left py-2 px-1 font-medium text-muted-foreground">SKUs</th>
+                    <th className="text-right py-2 px-2 font-medium text-muted-foreground">Forecast</th>
+                    <th className="text-right py-2 px-2 font-medium text-muted-foreground">Production</th>
+                    <th className="text-right py-2 px-2 font-medium text-muted-foreground">IMS</th>
+                    <th className="text-right py-2 px-2 font-medium text-muted-foreground">% Forecast</th>
+                    <th className="text-right py-2 px-2 font-medium text-muted-foreground">% Prod</th>
+                    <th className="text-right py-2 px-2 font-medium text-muted-foreground">% IMS</th>
+                    <th className="py-2 px-2 w-32"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sorted.map((f: any, i: number) => (
+                    <tr key={f.name} className="border-b hover:bg-muted/30 transition-colors">
+                      <td className="py-2 px-2 font-medium">{f.name}</td>
+                      <td className="py-2 px-1 text-muted-foreground">{f.skuCount}</td>
+                      <td className="py-2 px-2 text-right font-mono text-xs">{fmt(f.totalForecast)}</td>
+                      <td className="py-2 px-2 text-right font-mono text-xs">{fmt(f.totalProduction)}</td>
+                      <td className="py-2 px-2 text-right font-mono text-xs">{fmt(f.totalIms)}</td>
+                      <td className="py-2 px-2 text-right font-semibold text-violet-600">{f.pctForecast}%</td>
+                      <td className="py-2 px-2 text-right font-semibold text-amber-600">{f.pctProduction}%</td>
+                      <td className="py-2 px-2 text-right font-semibold text-emerald-600">{f.pctIms}%</td>
+                      <td className="py-2 px-2">
+                        <MiniBar value={sortKey === "ims" ? f.totalIms : sortKey === "forecast" ? f.totalForecast : f.totalProduction} max={maxVal} color={PALETTE[i % PALETTE.length]} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  };
+
+  const ByWeightTab = () => {
+    const wb = (weightBreakdown as any[]) ?? [];
+    const totalProd = wb.reduce((s: number, w: any) => s + w.totalProduction, 0);
+    const totalImsW = wb.reduce((s: number, w: any) => s + w.totalIms, 0);
+    const totalFcast = wb.reduce((s: number, w: any) => s + w.totalForecast, 0);
+
+    return (
+      <div className="space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-sm">Forecast by Weight</CardTitle></CardHeader>
+            <CardContent>
+              <DonutChart
+                segments={wb.filter((w: any) => w.totalForecast > 0).map((w: any) => ({
+                  label: `${w.weight} (${w.skuCount} SKUs)`, value: w.totalForecast, color: WEIGHT_COLOR[w.weight] ?? "#6b7280",
+                }))}
+                formatter={fmt}
+              />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-sm">Production by Weight</CardTitle></CardHeader>
+            <CardContent>
+              <DonutChart
+                segments={wb.filter((w: any) => w.totalProduction > 0).map((w: any) => ({
+                  label: `${w.weight} (${w.skuCount} SKUs)`, value: w.totalProduction, color: WEIGHT_COLOR[w.weight] ?? "#6b7280",
+                }))}
+                formatter={fmt}
+              />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-sm">IMS by Weight</CardTitle></CardHeader>
+            <CardContent>
+              <DonutChart
+                segments={wb.filter((w: any) => w.totalIms > 0).map((w: any) => ({
+                  label: w.weight, value: w.totalIms, color: WEIGHT_COLOR[w.weight] ?? "#6b7280",
+                }))}
+                formatter={fmt}
+              />
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card>
+          <CardHeader className="pb-2"><CardTitle className="text-sm">Weight Breakdown — Forecast / Production / IMS / Share %</CardTitle></CardHeader>
+          <CardContent>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left py-2 px-2 font-medium text-muted-foreground">Weight</th>
+                  <th className="text-left py-2 px-1 font-medium text-muted-foreground">SKUs</th>
+                  <th className="text-right py-2 px-2 font-medium text-muted-foreground">Forecast</th>
+                  <th className="text-right py-2 px-2 font-medium text-muted-foreground">Production</th>
+                  <th className="text-right py-2 px-2 font-medium text-muted-foreground">IMS</th>
+                  <th className="text-right py-2 px-2 font-medium text-muted-foreground">% Forecast</th>
+                  <th className="text-right py-2 px-2 font-medium text-muted-foreground">% Prod</th>
+                  <th className="text-right py-2 px-2 font-medium text-muted-foreground">% IMS</th>
+                  <th className="py-2 px-2 w-40"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {wb.map((w: any) => (
+                  <tr key={w.weight} className="border-b hover:bg-muted/30 transition-colors">
+                    <td className="py-3 px-2"><WeightBadge weight={w.weight} /></td>
+                    <td className="py-3 px-1 text-muted-foreground">{w.skuCount}</td>
+                    <td className="py-3 px-2 text-right font-mono text-xs">{fmt(w.totalForecast)}</td>
+                    <td className="py-3 px-2 text-right font-mono text-xs">{fmt(w.totalProduction)}</td>
+                    <td className="py-3 px-2 text-right font-mono text-xs">{fmt(w.totalIms)}</td>
+                    <td className="py-3 px-2 text-right font-semibold text-violet-600">{w.pctForecast}%</td>
+                    <td className="py-3 px-2 text-right font-semibold text-amber-600">{w.pctProduction}%</td>
+                    <td className="py-3 px-2 text-right font-semibold text-emerald-600">{w.pctIms}%</td>
+                    <td className="py-3 px-2">
+                      <div className="space-y-1">
+                        <MiniBar value={w.totalForecast} max={totalFcast} color="#8b5cf6" label={`${w.pctForecast}%`} />
+                        <MiniBar value={w.totalProduction} max={totalProd} color="#f59e0b" label={`${w.pctProduction}%`} />
+                        <MiniBar value={w.totalIms} max={totalImsW} color="#10b981" label={`${w.pctIms}%`} />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 font-bold">
+                  <td className="py-2 px-2">Total</td>
+                  <td className="py-2 px-1">{wb.reduce((s: number, w: any) => s + w.skuCount, 0)}</td>
+                  <td className="py-2 px-2 text-right font-mono text-xs">{fmt(totalFcast)}</td>
+                  <td className="py-2 px-2 text-right font-mono text-xs">{fmt(totalProd)}</td>
+                  <td className="py-2 px-2 text-right font-mono text-xs">{fmt(totalImsW)}</td>
+                  <td className="py-2 px-2 text-right">100%</td>
+                  <td className="py-2 px-2 text-right">100%</td>
+                  <td className="py-2 px-2 text-right">100%</td>
+                  <td></td>
+                </tr>
+              </tfoot>
+            </table>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  };
+
     return (
     <div className="p-4 space-y-4">
       <div>
@@ -1067,6 +1275,8 @@ export default function IntlAnalysisPage() {
               <span className="ml-1.5 px-1.5 py-0.5 rounded bg-red-500 text-white text-[9px] font-bold">{batchesWithDelay}</span>
             )}
           </TabsTrigger>
+          <TabsTrigger value="byflavour" className="font-semibold text-violet-600">By Flavour</TabsTrigger>
+          <TabsTrigger value="byweight" className="font-semibold text-orange-600">By Weight</TabsTrigger>
           <TabsTrigger value="runrate" className="font-semibold text-blue-600">Running Rate</TabsTrigger>
           <TabsTrigger value="stocklvl" className="font-semibold text-emerald-600">Stock Levels</TabsTrigger>
         </TabsList>
@@ -1075,6 +1285,8 @@ export default function IntlAnalysisPage() {
         <TabsContent value="forecast"><ForecastAccuracyTab /></TabsContent>
         <TabsContent value="ims"><StockHealthTab /></TabsContent>
         <TabsContent value="clearance"><ClearanceTab /></TabsContent>
+        <TabsContent value="byflavour"><ByFlavourTab /></TabsContent>
+        <TabsContent value="byweight"><ByWeightTab /></TabsContent>
         <TabsContent value="runrate"><RunningRateTab /></TabsContent>
         <TabsContent value="stocklvl"><StockLevelTab /></TabsContent>
       </Tabs>
