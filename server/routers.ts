@@ -1824,17 +1824,19 @@ export const appRouter = router({
         mastercaseKg: z.number().positive(),
         targetMonth: z.number().min(1).max(12),
         targetYear: z.number().min(2024).max(2030),
+        includeNpi: z.boolean().optional().default(true),
         previousMonthContext: z.string().optional(),
         monthPositionInForecast: z.number().optional(),
         totalForecastDuration: z.number().optional(),
       }))
       .mutation(async ({ input }) => {
-        const { country: countryRaw, totalTons, mastercaseKg, targetMonth, targetYear, previousMonthContext, monthPositionInForecast, totalForecastDuration } = input;
+        const { country: countryRaw, totalTons, mastercaseKg, targetMonth, targetYear, includeNpi, previousMonthContext, monthPositionInForecast, totalForecastDuration } = input;
         const country = countryRaw as 'Lebanon' | 'Syria' | 'Libya';
 
-        // 1. Fetch all SKUs for this country
-        const skus = await db.getSkusForCountry(country);
-        if (!skus.length) throw new TRPCError({ code: 'NOT_FOUND', message: 'No SKUs found for this country' });
+        // 1. Fetch all SKUs for this country, optionally filtering out NPI
+        const allSkus = await db.getSkusForCountry(country);
+        const skus = includeNpi ? allSkus : allSkus.filter(s => (s.category ?? 'Core') === 'Core');
+        if (!skus.length) throw new TRPCError({ code: 'NOT_FOUND', message: includeNpi ? 'No SKUs found for this country' : 'No Core SKUs found for this country (all SKUs are NPI)' });
 
         // 2. Fetch all IMS data for this country
         const periods = await db.getPeriodsForCountry(country);

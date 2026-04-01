@@ -258,6 +258,7 @@ export default function ForecastSplitPage() {
   const [targetMonth, setTargetMonth] = useState(String(now.getMonth() + 2 > 12 ? 1 : now.getMonth() + 2));
   const [targetYear, setTargetYear] = useState(String(now.getMonth() + 2 > 12 ? now.getFullYear() + 1 : now.getFullYear()));
   const [duration, setDuration] = useState<1 | 3 | 6 | 12>(1);
+  const [includeNpi, setIncludeNpi] = useState(true);
   
   // Single-month result (backward compat)
   const [result, setResult] = useState<RecommendResult | null>(null);
@@ -607,6 +608,7 @@ export default function ForecastSplitPage() {
         mastercaseKg: mcKg,
         targetMonth: month,
         targetYear: year,
+        includeNpi,
       });
     } else {
       // Multi-month — call recommend endpoint sequentially for each month
@@ -648,6 +650,7 @@ export default function ForecastSplitPage() {
             mastercaseKg: mcKg,
             targetMonth: m.month,
             targetYear: m.year,
+            includeNpi,
             ...(previousMonthContext ? {
               previousMonthContext,
               monthPositionInForecast: i + 1,
@@ -1057,6 +1060,31 @@ export default function ForecastSplitPage() {
                 ))}
               </div>
             </div>
+          </div>
+
+          <div className="mt-4 flex items-center gap-3">
+            <Label className="text-sm font-medium">Include NPI (New Products)</Label>
+            <div className="flex rounded-lg border overflow-hidden h-9" style={{ minWidth: '160px' }}>
+              <button
+                type="button"
+                onClick={() => setIncludeNpi(true)}
+                className={`flex-1 text-sm font-medium transition-colors px-4 whitespace-nowrap ${includeNpi ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+              >
+                Yes
+              </button>
+              <button
+                type="button"
+                onClick={() => setIncludeNpi(false)}
+                className={`flex-1 text-sm font-medium transition-colors px-4 whitespace-nowrap ${!includeNpi ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+              >
+                Core Only
+              </button>
+            </div>
+            {!includeNpi && (
+              <span className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1">
+                NPI SKUs excluded — forecast will be split across Core SKUs only
+              </span>
+            )}
           </div>
 
           {/* Duration preview */}
