@@ -379,6 +379,7 @@ export default function ForecastSplitPage() {
       recommendations: result.recommendations.map(r => ({
         skuName: r.skuName,
         weight: r.weight,
+        packagingType: r.packagingType,
         recommendedMastercases: r.recommendedMastercases,
       })),
       username: appUser?.displayName,
@@ -394,6 +395,7 @@ export default function ForecastSplitPage() {
       snapshot: snapshot.map(s => ({
         skuName: s.skuName,
         weight: s.weight,
+        packagingType: s.packagingType,
         previousValue: s.previousValue ?? "",
         previousImsValue: s.previousImsValue ?? "0",
       })),
@@ -412,6 +414,7 @@ export default function ForecastSplitPage() {
       recommendations: result.recommendations.map(r => ({
         skuName: r.skuName,
         weight: r.weight,
+        packagingType: r.packagingType,
         recommendedMastercases: r.recommendedMastercases,
         sharePercent: r.sharePercent,
       })),
@@ -434,6 +437,7 @@ export default function ForecastSplitPage() {
             recommendations: mr.recommendations.map(r => ({
               skuName: r.skuName,
               weight: r.weight,
+              packagingType: r.packagingType,
               recommendedMastercases: r.recommendedMastercases,
             })),
             username: appUser?.displayName,
@@ -512,6 +516,7 @@ export default function ForecastSplitPage() {
           recommendations: m.rows.map(r => ({
             skuName: r.skuName,
             weight: r.weight,
+            packagingType: (r as any).packagingType,
             recommendedMastercases: r.recommendedMastercases,
           })),
           username: appUser?.displayName,

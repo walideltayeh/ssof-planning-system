@@ -1841,9 +1841,9 @@ export const appRouter = router({
         const imsData = await db.getImsDataForCountry(country);
 
         // 3. Build per-SKU monthly IMS history
-        const skuHistory: Record<number, { name: string; weight: string; category: string; monthlyIms: { year: number; month: number; value: number }[] }> = {};
+        const skuHistory: Record<number, { name: string; weight: string; category: string; packagingType: string; monthlyIms: { year: number; month: number; value: number }[] }> = {};
         for (const sku of skus) {
-          skuHistory[sku.id] = { name: sku.name, weight: sku.weight, category: sku.category ?? 'Core', monthlyIms: [] };
+          skuHistory[sku.id] = { name: sku.name, weight: sku.weight, category: sku.category ?? 'Core', packagingType: (sku as any).packagingType ?? 'New', monthlyIms: [] };
         }
         for (const row of imsData) {
           const period = periods.find(p => p.id === row.periodId);
@@ -1945,7 +1945,8 @@ export const appRouter = router({
         const totalMastercases = Math.floor(totalKg / mastercaseKg);
         // 5. Deep analytics per SKU
         const monthName = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][targetMonth - 1];
-        const skuSummaries = Object.values(skuHistory).map(sku => {
+        const skuSummaries = Object.entries(skuHistory).map(([skuIdStr, sku]) => {
+          const skuId = parseInt(skuIdStr);
           const sorted = [...sku.monthlyIms].sort((a, b) => a.year !== b.year ? a.year - b.year : a.month - b.month);
           const nonZero = sorted.filter(m => m.value > 0);
           const totalIms = nonZero.reduce((s, m) => s + m.value, 0);
@@ -1975,9 +1976,16 @@ export const appRouter = router({
             // We store raw values here; actual share vs total will be computed after grandTotal is known
             // For now store raw values; confidenceScore will be computed after skuSummaries is built
           }
+          const nwKey = `${sku.name}|${sku.weight}`;
+          const hasDuplicateNameWeight = Object.values(skuHistory).filter(s => `${s.name}|${s.weight}` === nwKey).length > 1;
+          const displayName = hasDuplicateNameWeight ? `${sku.name} ${sku.weight} ${sku.packagingType}` : `${sku.name} ${sku.weight}`;
           return {
-            name: `${sku.name} ${sku.weight}`,
+            skuId,
+            name: displayName,
+            rawName: sku.name,
+            rawWeight: sku.weight,
             category: sku.category,
+            packagingType: sku.packagingType,
             totalIms,
             avgMonthly: avgMonthly.toFixed(0),
             rollingTrend,
@@ -2119,7 +2127,7 @@ export const appRouter = router({
         let totalBaseScore = 0;
         for (const sk of skuSummaries) {
           const conf = skuConfidenceScores[sk.name] ?? 50;
-          const skuObj = skus.find(s => `${s.name} ${s.weight}` === sk.name);
+          const skuObj = skus.find(s => s.id === sk.skuId);
           const health = skuObj ? stockHealthBySku[skuObj.id] : null;
 
           // Factor 1: Historical trend score (35%) — based on avg monthly IMS relative to total
@@ -2224,12 +2232,12 @@ SECTION D: PER-SKU DETAILED ANALYTICS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Total historical IMS: ${grandTotal.toFixed(0)} mastercases | Data depth: ${Math.max(...Object.values(skuHistory).map(s => s.monthlyIms.length))} months
 ${skuSummaries.map(s => {
-  const skuObj = skus.find(sk => `${sk.name} ${sk.weight}` === s.name);
+  const skuObj = skus.find(sk => sk.id === s.skuId);
   const health = skuObj ? stockHealthBySku[skuObj.id] : null;
   const conf = skuConfidenceScores[s.name] ?? 50;
   const baseAlloc = skuBaseAllocPct[s.name]?.toFixed(1) ?? 'N/A';
   return [
-    `▸ SKU: ${s.name} [${s.category}] | Packaging: ${skuObj?.packagingType ?? 'New'} | Base alloc: ${baseAlloc}% | Confidence: ${conf}%`,
+    `▸ SKU: ${s.name} [${s.category}] | Packaging: ${s.packagingType} | Base alloc: ${baseAlloc}% | Confidence: ${conf}%`,
     `  IMS: avg/month=${s.avgMonthly} | total=${s.totalIms.toFixed(0)} | months of data=${s.monthsOfData}`,
     `  Trend: 3-month rolling vs prior 3 months: ${s.rollingTrend}% | YoY same month: ${s.yoyGrowth}%`,
     `  Seasonality index for ${monthName}: ${s.seasonalityIndex} | Same month prior years: ${s.sameMonthHistory || 'no data'}`,
@@ -2308,7 +2316,7 @@ REQUIRED OUTPUT FORMAT (valid JSON only, no markdown):
           const algorithmicRecs = skuSummaries.map(sk => {
             const allocPct = skuBaseAllocPct[sk.name] ?? 0;
             const mc = Math.round(totalMastercases * allocPct / 100);
-            const skuObj = skus.find(s => `${s.name} ${s.weight}` === sk.name);
+            const skuObj = skus.find(s => s.id === sk.skuId);
             const health = skuObj ? stockHealthBySku[skuObj.id] : null;
             const conf = skuConfidenceScores[sk.name] ?? 50;
 
@@ -2341,10 +2349,10 @@ REQUIRED OUTPUT FORMAT (valid JSON only, no markdown):
             const seasonalityNote = `Seasonality index for ${monthName}: ${isNaN(si) ? 'N/A' : si.toFixed(2)}. ${isRamadanMonth ? `Ramadan effect applies (+${ramadanBoostPct}%).` : currentSeasonalInfo.effect}`;
 
             return {
-              skuName: sk.name.replace(/ (50g|250g|1kg)$/, ''),
-              weight: skuObj?.weight ?? '',
+              skuName: sk.rawName,
+              weight: sk.rawWeight,
               category: sk.category,
-              packagingType: (skuObj as any)?.packagingType ?? 'New',
+              packagingType: sk.packagingType,
               recommendedMastercases: mc,
               sharePercent: Math.round(allocPct * 10) / 10,
               reasoning: `Based on ${sk.monthsOfData} months of IMS data. Average monthly: ${sk.avgMonthly}. Rolling trend: ${sk.rollingTrend}%. ${health ? `Stock health: ${health.currentWeeks}wks [${health.currentZone}].` : ''}`,
@@ -2399,7 +2407,9 @@ REQUIRED OUTPUT FORMAT (valid JSON only, no markdown):
 
         const recommendations = (parsed.recommendations ?? []).map((rec: any) => {
           if (!isRamadanMonth && rec.primaryDriver === 'ramadan_uplift') {
-            const skuObj = skus.find(sk => `${sk.name} ${sk.weight}` === rec.skuName);
+            const skuObj = rec.packagingType
+              ? skus.find(sk => sk.name === rec.skuName && sk.weight === rec.weight && (sk as any).packagingType === rec.packagingType)
+              : skus.find(sk => sk.name === rec.skuName && sk.weight === rec.weight) ?? skus.find(sk => sk.name === rec.skuName);
             const health = skuObj ? stockHealthBySku[skuObj.id] : null;
             let correctedDriver = 'historical_share';
             if (health) {
@@ -2450,6 +2460,7 @@ REQUIRED OUTPUT FORMAT (valid JSON only, no markdown):
         recommendations: z.array(z.object({
           skuName: z.string(),
           weight: z.string(),
+          packagingType: z.string().optional(),
           recommendedMastercases: z.number().int().min(0),
         })),
         username: z.string().optional(),
@@ -2461,17 +2472,18 @@ REQUIRED OUTPUT FORMAT (valid JSON only, no markdown):
         const period = allPeriods.find(p => p.year === input.targetYear && p.month === input.targetMonth);
         if (!period) throw new TRPCError({ code: 'NOT_FOUND', message: `No period found for ${input.targetYear}-${input.targetMonth} in ${country}` });
         // Snapshot previous values before overwriting
-        const snapshot: { skuName: string; weight: string; previousValue: string; previousImsValue: string }[] = [];
+        const snapshot: { skuName: string; weight: string; packagingType?: string; previousValue: string; previousImsValue: string }[] = [];
         let applied = 0;
         for (const rec of input.recommendations) {
-          let sku = allSkus.find(s => s.name === rec.skuName && s.weight === rec.weight);
+          let sku = rec.packagingType
+            ? allSkus.find(s => s.name === rec.skuName && s.weight === rec.weight && (s as any).packagingType === rec.packagingType)
+            : null;
+          if (!sku) sku = allSkus.find(s => s.name === rec.skuName && s.weight === rec.weight);
           if (!sku) sku = allSkus.find(s => s.name === rec.skuName);
           if (!sku) continue;
-          // Read current forecast value before overwriting
           const currentRows = await db.getForecastValueForPeriod(sku.id, period.id);
-          // Read current IMS value before overwriting
           const currentIms = await db.getImsValueForPeriod(sku.id, period.id);
-          snapshot.push({ skuName: rec.skuName, weight: rec.weight, previousValue: currentRows ?? '0', previousImsValue: currentIms ?? '0' });
+          snapshot.push({ skuName: rec.skuName, weight: rec.weight, packagingType: rec.packagingType, previousValue: currentRows ?? '0', previousImsValue: currentIms ?? '0' });
           const value = rec.recommendedMastercases.toString();
           // Write to Forecast
           await db.upsertForecastData(sku.id, period.id, value);
@@ -2496,6 +2508,7 @@ REQUIRED OUTPUT FORMAT (valid JSON only, no markdown):
         snapshot: z.array(z.object({
           skuName: z.string(),
           weight: z.string(),
+          packagingType: z.string().optional(),
           previousValue: z.string(),
           previousImsValue: z.string().optional(),
         })),
@@ -2509,7 +2522,10 @@ REQUIRED OUTPUT FORMAT (valid JSON only, no markdown):
         if (!period) throw new TRPCError({ code: 'NOT_FOUND', message: `No period found for ${input.targetYear}-${input.targetMonth} in ${country}` });
         let restored = 0;
         for (const snap of input.snapshot) {
-          let sku = allSkus.find(s => s.name === snap.skuName && s.weight === snap.weight);
+          let sku = snap.packagingType
+            ? allSkus.find(s => s.name === snap.skuName && s.weight === snap.weight && (s as any).packagingType === snap.packagingType)
+            : null;
+          if (!sku) sku = allSkus.find(s => s.name === snap.skuName && s.weight === snap.weight);
           if (!sku) sku = allSkus.find(s => s.name === snap.skuName);
           if (!sku) continue;
           // Restore Forecast
@@ -2536,6 +2552,7 @@ REQUIRED OUTPUT FORMAT (valid JSON only, no markdown):
         recommendations: z.array(z.object({
           skuName: z.string(),
           weight: z.string(),
+          packagingType: z.string().optional(),
           recommendedMastercases: z.number(),
           sharePercent: z.number(),
         })),
@@ -2556,7 +2573,10 @@ REQUIRED OUTPUT FORMAT (valid JSON only, no markdown):
           }
           let applied = 0;
           for (const rec of recommendations) {
-            let sku = skus.find(s => s.name === rec.skuName && s.weight === rec.weight);
+            let sku = rec.packagingType
+              ? skus.find(s => s.name === rec.skuName && s.weight === rec.weight && (s as any).packagingType === rec.packagingType)
+              : null;
+            if (!sku) sku = skus.find(s => s.name === rec.skuName && s.weight === rec.weight);
             if (!sku) sku = skus.find(s => s.name === rec.skuName);
             if (!sku) continue;
             const value = rec.recommendedMastercases.toString();
