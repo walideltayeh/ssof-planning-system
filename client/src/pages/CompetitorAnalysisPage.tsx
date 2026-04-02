@@ -258,7 +258,8 @@ export default function CompetitorAnalysisPage() {
   const { user } = useAppAuth();
   const { formatVal, unitLabel } = useUnit();
   const [selectedYear, setSelectedYear] = useState<number>(2025);
-  const [comparisonYear, setComparisonYear] = useState<number>(2024);
+  const [compareYear1, setCompareYear1] = useState<number>(2024);
+  const [compareYear2, setCompareYear2] = useState<number>(2023);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -306,17 +307,13 @@ export default function CompetitorAnalysisPage() {
 
   const handleSelectedYearChange = (y: number) => {
     setSelectedYear(y);
-    if (comparisonYear === y) {
-      const fallback = activeYears.filter(v => v !== y);
-      setComparisonYear(fallback.length > 0 ? fallback[fallback.length - 1] : y);
+    if (compareYear1 === y) {
+      const fb = activeYears.filter(v => v !== y && v !== compareYear2);
+      if (fb.length) setCompareYear1(fb[fb.length - 1]);
     }
-  };
-
-  const handleComparisonYearChange = (y: number) => {
-    setComparisonYear(y);
-    if (selectedYear === y) {
-      const fallback = activeYears.filter(v => v !== y);
-      setSelectedYear(fallback.length > 0 ? fallback[fallback.length - 1] : y);
+    if (compareYear2 === y) {
+      const fb = activeYears.filter(v => v !== y && v !== compareYear1);
+      if (fb.length) setCompareYear2(fb[0]);
     }
   };
 
@@ -359,7 +356,7 @@ export default function CompetitorAnalysisPage() {
   }, [activeBrandYearly, activeYears]);
 
   const totalMarket = totals[selectedYear] ?? 0;
-  const prevTotal = totals[comparisonYear] ?? 0;
+  const prevTotal = totals[compareYear1] ?? 0;
 
   const maxYear = Math.max(...activeYears);
   const is2026 = selectedYear === maxYear && selectedYear >= 2026;
@@ -393,23 +390,35 @@ export default function CompetitorAnalysisPage() {
           </Button>
           <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleUpload} />
           <div className="h-5 w-px bg-border mx-1" />
-          <Select value={selectedYear.toString()} onValueChange={v => handleSelectedYearChange(Number(v))}>
-            <SelectTrigger className="w-[100px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {activeYears.map(y => <SelectItem key={y} value={y.toString()}>{y}{y === maxYear && y >= 2026 ? " (YTD)" : ""}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <span className="text-xs text-muted-foreground">vs</span>
-          <Select value={comparisonYear.toString()} onValueChange={v => handleComparisonYearChange(Number(v))}>
-            <SelectTrigger className="w-[100px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {activeYears.filter(y => y !== selectedYear).map(y => <SelectItem key={y} value={y.toString()}>{y}</SelectItem>)}
-            </SelectContent>
-          </Select>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] font-semibold text-muted-foreground uppercase">Year</span>
+            <Select value={selectedYear.toString()} onValueChange={v => handleSelectedYearChange(Number(v))}>
+              <SelectTrigger className="w-[90px] h-8 text-xs font-semibold border-primary/40">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {activeYears.map(y => <SelectItem key={y} value={y.toString()}>{y}{y === maxYear && y >= 2026 ? " (YTD)" : ""}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <span className="text-[10px] text-muted-foreground">vs</span>
+            <Select value={compareYear1.toString()} onValueChange={v => setCompareYear1(Number(v))}>
+              <SelectTrigger className="w-[80px] h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {activeYears.filter(y => y !== selectedYear && y !== compareYear2).map(y => <SelectItem key={y} value={y.toString()}>{y}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <span className="text-[10px] text-muted-foreground">vs</span>
+            <Select value={compareYear2.toString()} onValueChange={v => setCompareYear2(Number(v))}>
+              <SelectTrigger className="w-[80px] h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {activeYears.filter(y => y !== selectedYear && y !== compareYear1).map(y => <SelectItem key={y} value={y.toString()}>{y}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </div>
 
@@ -450,24 +459,17 @@ export default function CompetitorAnalysisPage() {
 
       {activeMainBrands.length > 0 && <>
       {(() => {
+        const displayYears = [selectedYear, compareYear1, compareYear2].sort((a, b) => b - a);
         const top5 = Object.entries(activeBrandYearly)
-          .map(([name, yrs]) => ({
-            name,
-            vol: yrs[selectedYear] ?? 0,
-            prev: yrs[comparisonYear] ?? 0,
-          }))
-          .sort((a, b) => b.vol - a.vol)
+          .map(([name, yrs]) => ({ name, yrs }))
+          .sort((a, b) => (b.yrs[selectedYear] ?? 0) - (a.yrs[selectedYear] ?? 0))
           .slice(0, 5);
         return (
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-semibold flex items-center gap-2">
                 <BarChart3 className="w-4 h-4 text-muted-foreground" />
-                Top 5 Brands — {selectedYear}{is2026 ? " (YTD)" : ""}
-                <span className="ml-auto text-xs font-normal text-muted-foreground">
-                  Total Market: <span className="font-semibold text-foreground">{formatVal(totalMarket)} {unitLabel}</span>
-                  {prevTotal > 0 && <> ({yoyGrowth(totalMarket, prevTotal).label} vs {comparisonYear})</>}
-                </span>
+                Top Brands — Head to Head
               </CardTitle>
             </CardHeader>
             <CardContent className="pt-0">
@@ -477,16 +479,26 @@ export default function CompetitorAnalysisPage() {
                     <tr className="border-b text-muted-foreground">
                       <th className="text-left py-2 font-medium">#</th>
                       <th className="text-left py-2 font-medium">Brand</th>
-                      <th className="text-right py-2 font-medium px-2">Volume ({unitLabel})</th>
-                      <th className="text-right py-2 font-medium px-2">Market Share</th>
-                      <th className="text-right py-2 font-medium px-2">YoY vs {comparisonYear}</th>
-                      <th className="py-2 font-medium px-2 w-[180px]">Share</th>
+                      {displayYears.map(y => (
+                        <th key={y} className={`text-right py-2 font-medium px-2 ${y === selectedYear ? "text-foreground" : ""}`}>
+                          {y}{y === maxYear && y >= 2026 ? " *" : ""}
+                          <div className="text-[9px] font-normal">({unitLabel})</div>
+                        </th>
+                      ))}
+                      <th className="text-right py-2 font-medium px-2">
+                        Share {selectedYear}
+                      </th>
+                      <th className="text-right py-2 font-medium px-2">
+                        {selectedYear} vs {compareYear1}
+                      </th>
+                      <th className="py-2 font-medium px-2 w-[140px]">Share</th>
                     </tr>
                   </thead>
                   <tbody>
                     {top5.map((b, idx) => {
-                      const share = totalMarket > 0 ? (b.vol / totalMarket) * 100 : 0;
-                      const growth = yoyGrowth(b.vol, b.prev);
+                      const vol = b.yrs[selectedYear] ?? 0;
+                      const share = totalMarket > 0 ? (vol / totalMarket) * 100 : 0;
+                      const prevVol = b.yrs[compareYear1] ?? 0;
                       return (
                         <tr key={b.name} className={`border-b last:border-0 hover:bg-muted/50 ${b.name === "Al Fakher" ? "bg-blue-50/50 dark:bg-blue-950/20" : ""}`}>
                           <td className="py-2.5 font-semibold text-muted-foreground">{idx + 1}</td>
@@ -497,28 +509,40 @@ export default function CompetitorAnalysisPage() {
                               {idx === 0 && <Crown className="w-3 h-3 text-amber-500" />}
                             </span>
                           </td>
-                          <td className="text-right py-2.5 px-2 tabular-nums font-semibold">{formatVal(b.vol)}</td>
+                          {displayYears.map(y => (
+                            <td key={y} className={`text-right py-2.5 px-2 tabular-nums ${y === selectedYear ? "font-bold" : "text-muted-foreground"}`}>
+                              {formatVal(b.yrs[y] ?? 0)}
+                            </td>
+                          ))}
                           <td className="text-right py-2.5 px-2 tabular-nums">{share.toFixed(1)}%</td>
                           <td className="text-right py-2.5 px-2">
-                            <GrowthBadge current={b.vol} previous={b.prev} />
+                            <GrowthBadge current={vol} previous={prevVol} />
                           </td>
                           <td className="py-2.5 px-2">
                             <div className="h-4 bg-muted rounded overflow-hidden">
-                              <div
-                                className="h-full rounded transition-all duration-500"
-                                style={{
-                                  width: `${Math.min(share, 100)}%`,
-                                  backgroundColor: BRAND_COLORS[b.name] ?? "#9ca3af",
-                                }}
-                              />
+                              <div className="h-full rounded transition-all duration-500" style={{ width: `${Math.min(share, 100)}%`, backgroundColor: BRAND_COLORS[b.name] ?? "#9ca3af" }} />
                             </div>
                           </td>
                         </tr>
                       );
                     })}
+                    <tr className="border-t-2 font-semibold">
+                      <td className="py-2.5" colSpan={2}>Total Market</td>
+                      {displayYears.map(y => (
+                        <td key={y} className={`text-right py-2.5 px-2 tabular-nums ${y === selectedYear ? "font-bold" : "text-muted-foreground"}`}>
+                          {formatVal(totals[y] ?? 0)}
+                        </td>
+                      ))}
+                      <td className="text-right py-2.5 px-2">100%</td>
+                      <td className="text-right py-2.5 px-2">
+                        <GrowthBadge current={totals[selectedYear] ?? 0} previous={totals[compareYear1] ?? 0} />
+                      </td>
+                      <td></td>
+                    </tr>
                   </tbody>
                 </table>
               </div>
+              {is2026 && <p className="text-[10px] text-muted-foreground mt-2">* Year-to-date data</p>}
             </CardContent>
           </Card>
         );
@@ -534,7 +558,7 @@ export default function CompetitorAnalysisPage() {
         </TabsList>
 
         <TabsContent value="market-share" className="space-y-4">
-          <MarketShareTab selectedYear={selectedYear} comparisonYear={comparisonYear} totals={totals} brandYearly={activeBrandYearly} brands={activeMainBrands} years={activeYears} formatVal={formatVal} unitLabel={unitLabel} />
+          <MarketShareTab selectedYear={selectedYear} comparisonYear={compareYear1} totals={totals} brandYearly={activeBrandYearly} brands={activeMainBrands} years={activeYears} formatVal={formatVal} unitLabel={unitLabel} />
         </TabsContent>
 
         <TabsContent value="monthly-trends" className="space-y-4">
@@ -546,8 +570,8 @@ export default function CompetitorAnalysisPage() {
         </TabsContent>
 
         <TabsContent value="two-apple" className="space-y-4">
-          <TwoAppleComparison selectedYear={selectedYear} comparisonYear={comparisonYear} flavorData={activeFlavorData} formatVal={formatVal} unitLabel={unitLabel} />
-          <TwoAppleMarketShareTab selectedYear={selectedYear} comparisonYear={comparisonYear} flavorData={activeFlavorData} formatVal={formatVal} unitLabel={unitLabel} />
+          <TwoAppleComparison selectedYear={selectedYear} comparisonYear={compareYear1} flavorData={activeFlavorData} formatVal={formatVal} unitLabel={unitLabel} />
+          <TwoAppleMarketShareTab selectedYear={selectedYear} comparisonYear={compareYear1} flavorData={activeFlavorData} formatVal={formatVal} unitLabel={unitLabel} />
         </TabsContent>
 
         <TabsContent value="emerging" className="space-y-4">
