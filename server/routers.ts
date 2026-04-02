@@ -1586,6 +1586,19 @@ export const appRouter = router({
         return db.getStockLevelAnalysis(input.country);
       }),
 
+    competitorData: publicProcedure
+      .input(z.object({ country: z.string() }))
+      .query(async ({ input }) => {
+        const data = await db.getCompetitorData(input.country);
+        if (!data) return null;
+        return {
+          brandMonthly: data.brandMonthly,
+          flavorYearly: data.flavorYearly,
+          uploadedBy: data.uploadedBy,
+          uploadedAt: data.uploadedAt?.toISOString() ?? null,
+        };
+      }),
+
     updatePlanningFgCell: publicProcedure
       .input(z.object({
         skuId: z.number(),

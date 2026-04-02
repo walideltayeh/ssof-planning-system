@@ -1,7 +1,7 @@
 import { eq, and, asc, inArray, sql, desc, gt } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { InsertUser, users, skus, periods, forecastData, imsData, shipmentData, arrivalData, planningFgData, uploadHistory, auditTrail, ssofVersions, versionComments, revisedForecastData, clearanceEvents, appUsers } from "../drizzle/schema";
+import { InsertUser, users, skus, periods, forecastData, imsData, shipmentData, arrivalData, planningFgData, uploadHistory, auditTrail, ssofVersions, versionComments, revisedForecastData, clearanceEvents, appUsers, competitorData } from "../drizzle/schema";
 import type { AuditTrail, InsertAuditTrail, InsertSsofVersion, Country, ClearanceEvent, AppUserRow, InsertAppUser } from "../drizzle/schema";
 import type { Sku, InsertSku, Period, ForecastData, ImsData, ShipmentData, ArrivalData, PlanningFgData, SsofVersion } from "../drizzle/schema";
 import { ENV } from './_core/env';
@@ -2992,6 +2992,27 @@ export async function getStockLevelAnalysis(country: "Lebanon" | "Syria" | "Liby
     totalSkus: skuStocks.length,
     zoneColors,
   };
+}
+
+// ==================== COMPETITOR DATA ====================
+export async function getCompetitorData(country: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(competitorData).where(eq(competitorData.country, country)).orderBy(desc(competitorData.uploadedAt));
+  return rows.length > 0 ? rows[0] : null;
+}
+
+export async function upsertCompetitorData(country: string, brandMonthly: any, flavorYearly: any, uploadedBy: string) {
+  const db = await getDb();
+  if (!db) return;
+  const existing = await db.select().from(competitorData).where(eq(competitorData.country, country));
+  if (existing.length > 0) {
+    await db.update(competitorData)
+      .set({ brandMonthly, flavorYearly, uploadedBy, uploadedAt: new Date() })
+      .where(eq(competitorData.country, country));
+  } else {
+    await db.insert(competitorData).values({ country, brandMonthly, flavorYearly, uploadedBy, uploadedAt: new Date() });
+  }
 }
 
 /** Row type for the expiry dashboard */

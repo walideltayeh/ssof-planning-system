@@ -235,3 +235,13 @@ export const userPresence = pgTable("user_presence", {
   lastSeen: timestamp("lastSeen").defaultNow().notNull(),
 });
 export type UserPresence = typeof userPresence.$inferSelect;
+
+export const competitorData = pgTable("competitor_data", {
+  id: serial("id").primaryKey(),
+  country: varchar("country", { length: 50 }).notNull().default("Lebanon"),
+  brandMonthly: json("brand_monthly"),
+  flavorYearly: json("flavor_yearly"),
+  uploadedBy: varchar("uploaded_by", { length: 100 }),
+  uploadedAt: timestamp("uploaded_at").defaultNow().notNull(),
+});
+export type CompetitorDataRow = typeof competitorData.$inferSelect;

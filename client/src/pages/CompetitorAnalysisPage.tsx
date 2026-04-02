@@ -1,9 +1,14 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { TrendingUp, TrendingDown, Minus, Crown, Target, BarChart3, PieChart } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { TrendingUp, TrendingDown, Minus, Crown, Target, BarChart3, PieChart, Download, Upload, Loader2, CheckCircle2 } from "lucide-react";
+import { toast } from "sonner";
+import { trpc } from "@/lib/trpc";
+import { useCountry } from "@/contexts/CountryContext";
+import { useAppAuth } from "@/contexts/AuthContext";
 
 const BRAND_COLORS: Record<string, string> = {
   "Al Fakher": "#2563eb",
@@ -240,22 +245,28 @@ function BarChart({ items, maxValue }: { items: { label: string; value: number; 
   );
 }
 
-function TwoAppleComparison() {
-  const years = [2020, 2021, 2022, 2023, 2024, 2025, 2026];
-  const brands = ["Al Fakher", "Nakhla", "Mazaya", "Khalil Maamoun"] as const;
-  const data: Record<string, Record<number, number>> = {
-    "Al Fakher": FLAVOR_DATA["Al Fakher"]["Two Apple"],
-    "Nakhla": FLAVOR_DATA["Nakhla"]["Two Apple"],
-    "Mazaya": FLAVOR_DATA["Mazaya"]["Two Apple"],
-    "Khalil Maamoun": OTHER_BRANDS_FLAVOR["Khalil Maamoun"]["Two Apple"],
-  };
+function TwoAppleComparison({ flavorData }: { flavorData: Record<string, Record<string, Record<number, number>>> }) {
+  const twoAppleData = useMemo(() => {
+    const data: Record<string, Record<number, number>> = {};
+    const allSources = { ...OTHER_BRANDS_FLAVOR, ...flavorData };
+    for (const [brand, flavors] of Object.entries(allSources)) {
+      if (flavors["Two Apple"]) data[brand] = flavors["Two Apple"];
+    }
+    return data;
+  }, [flavorData]);
+  const taBrands = Object.keys(twoAppleData).sort((a, b) => {
+    const aVol = Math.max(...Object.values(twoAppleData[a] ?? {}));
+    const bVol = Math.max(...Object.values(twoAppleData[b] ?? {}));
+    return bVol - aVol;
+  });
+  const allYears = [...new Set(taBrands.flatMap(b => Object.keys(twoAppleData[b] ?? {}).map(Number)))].sort();
 
   return (
     <Card>
       <CardHeader className="pb-3">
         <CardTitle className="text-sm font-semibold flex items-center gap-2">
           <Crown className="w-4 h-4 text-amber-500" />
-          Two Apple Battle (Lebanon's #1 Flavor)
+          Two Apple Battle (#1 Flavor)
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -264,31 +275,27 @@ function TwoAppleComparison() {
             <thead>
               <tr className="border-b">
                 <th className="text-left py-2 font-medium">Brand</th>
-                {years.map(y => <th key={y} className="text-right py-2 font-medium px-2">{y}</th>)}
+                {allYears.map(y => <th key={y} className="text-right py-2 font-medium px-2">{y}</th>)}
                 <th className="text-right py-2 font-medium px-2">Trend</th>
               </tr>
             </thead>
             <tbody>
-              {brands.map(b => (
+              {taBrands.map(b => (
                 <tr key={b} className="border-b last:border-0 hover:bg-muted/50">
                   <td className="py-2 font-medium flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: BRAND_COLORS[b] }} />
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: BRAND_COLORS[b] ?? "#9ca3af" }} />
                     {b}
                   </td>
-                  {years.map(y => (
-                    <td key={y} className="text-right py-2 px-2 tabular-nums">{fmt(data[b]?.[y] ?? 0)}</td>
+                  {allYears.map(y => (
+                    <td key={y} className="text-right py-2 px-2 tabular-nums">{fmt(twoAppleData[b]?.[y] ?? 0)}</td>
                   ))}
                   <td className="py-2 px-2">
-                    <MiniSparkline data={years.map(y => data[b]?.[y] ?? 0)} color={BRAND_COLORS[b]} />
+                    <MiniSparkline data={allYears.map(y => twoAppleData[b]?.[y] ?? 0)} color={BRAND_COLORS[b] ?? "#9ca3af"} />
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </div>
-        <div className="mt-3 p-2 bg-blue-50 rounded text-xs text-blue-800 dark:bg-blue-900/20 dark:text-blue-300">
-          Nakhla dominates Two Apple with their "Bahraini" variant — 265K MC in 2025 vs Al Fakher's 159K MC. 
-          Their Two Apple represents 99% of Nakhla's total volume.
         </div>
       </CardContent>
     </Card>
@@ -296,13 +303,57 @@ function TwoAppleComparison() {
 }
 
 export default function CompetitorAnalysisPage() {
+  const { country } = useCountry();
+  const { user } = useAppAuth();
   const [selectedYear, setSelectedYear] = useState<number>(2025);
   const [comparisonYear, setComparisonYear] = useState<number>(2024);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const { data: dbData, refetch } = trpc.country.competitorData.useQuery(
+    { country: country ?? "Lebanon" },
+    { staleTime: 60_000 }
+  );
+
+  const activeBrandMonthly = useMemo<Record<string, Record<number, number[]>>>(() => {
+    if (dbData?.brandMonthly) return dbData.brandMonthly as any;
+    return BRAND_MONTHLY;
+  }, [dbData]);
+
+  const activeBrandYearly = useMemo<Record<string, Record<number, number>>>(() => {
+    const bm = activeBrandMonthly;
+    const result: Record<string, Record<number, number>> = {};
+    for (const [brand, years] of Object.entries(bm)) {
+      result[brand] = {};
+      for (const [y, months] of Object.entries(years)) {
+        result[brand][Number(y)] = (months as number[]).reduce((s, v) => s + v, 0);
+      }
+    }
+    return result;
+  }, [activeBrandMonthly]);
+
+  const activeFlavorData = useMemo<Record<string, Record<string, Record<number, number>>>>(() => {
+    if (dbData?.flavorYearly) return dbData.flavorYearly as any;
+    return FLAVOR_DATA;
+  }, [dbData]);
+
+  const activeYears = useMemo(() => {
+    const yearSet = new Set<number>();
+    for (const years of Object.values(activeBrandYearly)) {
+      for (const y of Object.keys(years)) yearSet.add(Number(y));
+    }
+    const sorted = Array.from(yearSet).sort((a, b) => a - b);
+    return sorted.length > 0 ? sorted : YEARS;
+  }, [activeBrandYearly]);
+
+  const activeMainBrands = useMemo(() => {
+    return Object.keys(activeBrandYearly);
+  }, [activeBrandYearly]);
 
   const handleSelectedYearChange = (y: number) => {
     setSelectedYear(y);
     if (comparisonYear === y) {
-      const fallback = YEARS.filter(v => v !== y);
+      const fallback = activeYears.filter(v => v !== y);
       setComparisonYear(fallback.length > 0 ? fallback[fallback.length - 1] : y);
     }
   };
@@ -310,51 +361,101 @@ export default function CompetitorAnalysisPage() {
   const handleComparisonYearChange = (y: number) => {
     setComparisonYear(y);
     if (selectedYear === y) {
-      const fallback = YEARS.filter(v => v !== y);
+      const fallback = activeYears.filter(v => v !== y);
       setSelectedYear(fallback.length > 0 ? fallback[fallback.length - 1] : y);
+    }
+  };
+
+  const handleDownloadTemplate = () => {
+    const c = country ?? "Lebanon";
+    window.open(`/api/export-competitor-template?country=${encodeURIComponent(c)}`, "_blank");
+  };
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const c = country ?? "Lebanon";
+      const u = user?.username ?? "unknown";
+      const res = await fetch(`/api/import-competitor?country=${encodeURIComponent(c)}&username=${encodeURIComponent(u)}`, {
+        method: "POST",
+        body: formData,
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Upload failed");
+      toast.success(`Competitor data uploaded: ${json.brands} brands, ${json.flavors} flavor entries`);
+      refetch();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to upload competitor data");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
   const totals = useMemo(() => {
     const result: Record<number, number> = {};
-    for (const y of YEARS) {
-      result[y] = Object.values(BRAND_YEARLY).reduce((s, bv) => s + (bv[y] ?? 0), 0);
+    for (const y of activeYears) {
+      result[y] = Object.values(activeBrandYearly).reduce((s, bv) => s + (bv[y] ?? 0), 0);
     }
     return result;
-  }, []);
+  }, [activeBrandYearly, activeYears]);
 
   const totalMarket = totals[selectedYear] ?? 0;
   const prevTotal = totals[comparisonYear] ?? 0;
-  const afVolume = BRAND_YEARLY["Al Fakher"][selectedYear] ?? 0;
-  const afPrevVolume = BRAND_YEARLY["Al Fakher"][comparisonYear] ?? 0;
-  const afShare = totalMarket > 0 ? afVolume / totalMarket : 0;
-  const nakhlaVolume = BRAND_YEARLY["Nakhla"][selectedYear] ?? 0;
-  const mazayaVolume = BRAND_YEARLY["Mazaya"][selectedYear] ?? 0;
+  const afVolume = activeBrandYearly["Al Fakher"]?.[selectedYear] ?? 0;
+  const afPrevVolume = activeBrandYearly["Al Fakher"]?.[comparisonYear] ?? 0;
+  const nakhlaVolume = activeBrandYearly["Nakhla"]?.[selectedYear] ?? 0;
+  const mazayaVolume = activeBrandYearly["Mazaya"]?.[selectedYear] ?? 0;
 
-  const marketLeader = nakhlaVolume > mazayaVolume && nakhlaVolume > afVolume
-    ? "Nakhla" : mazayaVolume > afVolume ? "Mazaya" : "Al Fakher";
+  const marketLeader = useMemo(() => {
+    const brands = Object.entries(activeBrandYearly)
+      .map(([name, years]) => ({ name, vol: years[selectedYear] ?? 0 }))
+      .sort((a, b) => b.vol - a.vol);
+    return brands[0]?.name ?? "N/A";
+  }, [activeBrandYearly, selectedYear]);
 
-  const is2026 = selectedYear === 2026;
+  const maxYear = Math.max(...activeYears);
+  const is2026 = selectedYear === maxYear && selectedYear >= 2026;
 
   const monthlyActiveCount = useMemo(() => {
-    if (!BRAND_MONTHLY["Al Fakher"][selectedYear]) return 12;
-    return BRAND_MONTHLY["Al Fakher"][selectedYear].filter(v => v > 0).length;
-  }, [selectedYear]);
+    if (!activeBrandMonthly["Al Fakher"]?.[selectedYear]) return 12;
+    return activeBrandMonthly["Al Fakher"][selectedYear].filter(v => v > 0).length;
+  }, [selectedYear, activeBrandMonthly]);
+
+  const dataSource = dbData?.uploadedAt
+    ? `Last updated by ${dbData.uploadedBy ?? "unknown"} on ${new Date(dbData.uploadedAt).toLocaleDateString()}`
+    : "Regie Official Data (Default)";
 
   return (
     <div className="space-y-6 p-4 md:p-6 max-w-[1400px] mx-auto">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Competitor Analysis</h1>
-          <p className="text-sm text-muted-foreground">Lebanon Market — Regie Official Data (Mastercases)</p>
+          <p className="text-sm text-muted-foreground">
+            {country ?? "Lebanon"} Market — {dataSource} (Mastercases)
+          </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={handleDownloadTemplate}>
+            <Download className="w-3.5 h-3.5" />
+            Template
+          </Button>
+          <Button variant="outline" size="sm" className="gap-1.5" disabled={uploading} onClick={() => fileInputRef.current?.click()}>
+            {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+            Upload
+          </Button>
+          <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleUpload} />
+          <div className="h-5 w-px bg-border mx-1" />
           <Select value={selectedYear.toString()} onValueChange={v => handleSelectedYearChange(Number(v))}>
             <SelectTrigger className="w-[100px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {YEARS.map(y => <SelectItem key={y} value={y.toString()}>{y}{y === 2026 ? " (YTD)" : ""}</SelectItem>)}
+              {activeYears.map(y => <SelectItem key={y} value={y.toString()}>{y}{y === maxYear && y >= 2026 ? " (YTD)" : ""}</SelectItem>)}
             </SelectContent>
           </Select>
           <span className="text-xs text-muted-foreground">vs</span>
@@ -363,11 +464,18 @@ export default function CompetitorAnalysisPage() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {YEARS.filter(y => y !== selectedYear).map(y => <SelectItem key={y} value={y.toString()}>{y}</SelectItem>)}
+              {activeYears.filter(y => y !== selectedYear).map(y => <SelectItem key={y} value={y.toString()}>{y}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
       </div>
+
+      {dbData?.uploadedAt && (
+        <div className="flex items-center gap-2 p-2 bg-green-50 border border-green-200 rounded text-xs text-green-800 dark:bg-green-900/20 dark:text-green-300 dark:border-green-800">
+          <CheckCircle2 className="w-3.5 h-3.5" />
+          Using uploaded competitor data. Download template to view/edit, then re-upload.
+        </div>
+      )}
 
       {is2026 && (
         <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-800">
@@ -393,7 +501,7 @@ export default function CompetitorAnalysisPage() {
         <KpiCard
           title="Market Leader"
           value={marketLeader}
-          subtitle={`${fmt(BRAND_YEARLY[marketLeader]?.[selectedYear] ?? 0)} MC`}
+          subtitle={`${fmt(activeBrandYearly[marketLeader]?.[selectedYear] ?? 0)} MC`}
           color={BRAND_COLORS[marketLeader]}
           icon={<Crown className="w-4 h-4" />}
         />
@@ -416,52 +524,55 @@ export default function CompetitorAnalysisPage() {
         </TabsList>
 
         <TabsContent value="market-share" className="space-y-4">
-          <MarketShareTab selectedYear={selectedYear} comparisonYear={comparisonYear} totals={totals} />
+          <MarketShareTab selectedYear={selectedYear} comparisonYear={comparisonYear} totals={totals} brandYearly={activeBrandYearly} brands={activeMainBrands} years={activeYears} />
         </TabsContent>
 
         <TabsContent value="monthly-trends" className="space-y-4">
-          <MonthlyTrendsTab selectedYear={selectedYear} monthlyActiveCount={monthlyActiveCount} />
+          <MonthlyTrendsTab selectedYear={selectedYear} monthlyActiveCount={monthlyActiveCount} brandMonthly={activeBrandMonthly} brands={activeMainBrands} />
         </TabsContent>
 
         <TabsContent value="flavor-battle" className="space-y-4">
-          <FlavorBreakdownTab selectedYear={selectedYear} />
+          <FlavorBreakdownTab selectedYear={selectedYear} flavorData={activeFlavorData} />
         </TabsContent>
 
         <TabsContent value="two-apple" className="space-y-4">
-          <TwoAppleComparison />
-          <TwoAppleMarketShareTab />
+          <TwoAppleComparison flavorData={activeFlavorData} />
+          <TwoAppleMarketShareTab flavorData={activeFlavorData} />
         </TabsContent>
 
         <TabsContent value="emerging" className="space-y-4">
-          <EmergingBrandsTab selectedYear={selectedYear} />
+          <EmergingBrandsTab selectedYear={selectedYear} flavorData={activeFlavorData} />
         </TabsContent>
       </Tabs>
     </div>
   );
 }
 
-function MarketShareTab({ selectedYear, comparisonYear, totals }: { selectedYear: number; comparisonYear: number; totals: Record<number, number> }) {
+function MarketShareTab({ selectedYear, comparisonYear, totals, brandYearly, brands, years }: { selectedYear: number; comparisonYear: number; totals: Record<number, number>; brandYearly: Record<string, Record<number, number>>; brands: string[]; years: number[] }) {
   const insights = useMemo(() => {
-    const ranked = MAIN_BRANDS
+    const ranked = brands
       .filter(b => b !== "Others")
-      .map(b => ({ name: b, vol: BRAND_YEARLY[b]?.[selectedYear] ?? 0 }))
+      .map(b => ({ name: b, vol: brandYearly[b]?.[selectedYear] ?? 0 }))
       .sort((a, b) => b.vol - a.vol);
     const leader = ranked[0];
+    if (!leader) return [];
     const growths = ranked.map(b => ({
       name: b.name,
-      growth: BRAND_YEARLY[b.name]?.[comparisonYear]
-        ? ((b.vol - (BRAND_YEARLY[b.name]?.[comparisonYear] ?? 0)) / (BRAND_YEARLY[b.name]?.[comparisonYear] ?? 1)) * 100
+      growth: brandYearly[b.name]?.[comparisonYear]
+        ? ((b.vol - (brandYearly[b.name]?.[comparisonYear] ?? 0)) / (brandYearly[b.name]?.[comparisonYear] ?? 1)) * 100
         : 0,
     })).sort((a, b) => b.growth - a.growth);
     const fastestGrower = growths[0];
     const afRank = ranked.findIndex(b => b.name === "Al Fakher") + 1;
     return [
       `${leader.name} leads the market in ${selectedYear} with ${fmtFull(leader.vol)} MC`,
-      `${fastestGrower.name} has the highest YoY growth at ${fastestGrower.growth > 0 ? "+" : ""}${fastestGrower.growth.toFixed(1)}% vs ${comparisonYear}`,
-      `Al Fakher ranks #${afRank} by volume with the most diversified flavor portfolio`,
-      `Total Lebanon molasses market: ${fmt(totals[selectedYear])} MC in ${selectedYear} (${yoyGrowth(totals[selectedYear], totals[comparisonYear]).label} vs ${comparisonYear})`,
-    ];
-  }, [selectedYear, comparisonYear, totals]);
+      fastestGrower ? `${fastestGrower.name} has the highest YoY growth at ${fastestGrower.growth > 0 ? "+" : ""}${fastestGrower.growth.toFixed(1)}% vs ${comparisonYear}` : "",
+      afRank > 0 ? `Al Fakher ranks #${afRank} by volume` : "",
+      `Total market: ${fmt(totals[selectedYear])} MC in ${selectedYear} (${yoyGrowth(totals[selectedYear], totals[comparisonYear]).label} vs ${comparisonYear})`,
+    ].filter(Boolean);
+  }, [selectedYear, comparisonYear, totals, brandYearly, brands]);
+
+  const maxYear = Math.max(...years);
 
   return (
     <div className="grid md:grid-cols-2 gap-4">
@@ -471,18 +582,18 @@ function MarketShareTab({ selectedYear, comparisonYear, totals }: { selectedYear
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {YEARS.map(y => {
+            {years.map(y => {
               const total = totals[y] ?? 1;
-              const segments = MAIN_BRANDS.map(b => ({
-                value: BRAND_YEARLY[b]?.[y] ?? 0,
-                color: BRAND_COLORS[b],
+              const segments = brands.map(b => ({
+                value: brandYearly[b]?.[y] ?? 0,
+                color: BRAND_COLORS[b] ?? "#9ca3af",
                 label: b,
               }));
               return (
                 <div key={y}>
                   <div className="flex items-center justify-between mb-1">
                     <span className={`text-xs font-semibold ${y === selectedYear ? "text-foreground" : "text-muted-foreground"}`}>
-                      {y}{y === 2026 ? " (YTD)" : ""}
+                      {y}{y === maxYear && y >= 2026 ? " (YTD)" : ""}
                     </span>
                     <span className="text-xs text-muted-foreground">{fmtFull(total)} MC</span>
                   </div>
@@ -492,9 +603,9 @@ function MarketShareTab({ selectedYear, comparisonYear, totals }: { selectedYear
             })}
           </div>
           <div className="flex flex-wrap gap-3 mt-4 pt-3 border-t">
-            {MAIN_BRANDS.map(b => (
+            {brands.map(b => (
               <div key={b} className="flex items-center gap-1.5 text-xs">
-                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: BRAND_COLORS[b] }} />
+                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: BRAND_COLORS[b] ?? "#9ca3af" }} />
                 {b}
               </div>
             ))}
@@ -508,9 +619,9 @@ function MarketShareTab({ selectedYear, comparisonYear, totals }: { selectedYear
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {MAIN_BRANDS.map(b => {
-              const vol = BRAND_YEARLY[b]?.[selectedYear] ?? 0;
-              const prevVol = BRAND_YEARLY[b]?.[comparisonYear] ?? 0;
+            {brands.map(b => {
+              const vol = brandYearly[b]?.[selectedYear] ?? 0;
+              const prevVol = brandYearly[b]?.[comparisonYear] ?? 0;
               const total = totals[selectedYear] ?? 1;
               const share = (vol / total * 100).toFixed(1);
               return (
@@ -557,20 +668,20 @@ function MarketShareTab({ selectedYear, comparisonYear, totals }: { selectedYear
   );
 }
 
-function MonthlyTrendsTab({ selectedYear, monthlyActiveCount }: { selectedYear: number; monthlyActiveCount: number }) {
+function MonthlyTrendsTab({ selectedYear, monthlyActiveCount, brandMonthly, brands }: { selectedYear: number; monthlyActiveCount: number; brandMonthly: Record<string, Record<number, number[]>>; brands: string[] }) {
   const monthData = useMemo(() => {
-    return MONTHS.map((m, i) => ({
-      month: m,
-      "Al Fakher": BRAND_MONTHLY["Al Fakher"]?.[selectedYear]?.[i] ?? 0,
-      "Mazaya": BRAND_MONTHLY["Mazaya"]?.[selectedYear]?.[i] ?? 0,
-      "Nakhla": BRAND_MONTHLY["Nakhla"]?.[selectedYear]?.[i] ?? 0,
-      "Others": BRAND_MONTHLY["Others"]?.[selectedYear]?.[i] ?? 0,
-    }));
-  }, [selectedYear]);
+    return MONTHS.map((m, i) => {
+      const row: Record<string, any> = { month: m };
+      for (const b of brands) {
+        row[b] = brandMonthly[b]?.[selectedYear]?.[i] ?? 0;
+      }
+      return row;
+    });
+  }, [selectedYear, brandMonthly, brands]);
 
   const maxMonthly = useMemo(() => {
-    return Math.max(...monthData.map(d => Math.max(d["Al Fakher"], d["Mazaya"], d["Nakhla"], d["Others"])));
-  }, [monthData]);
+    return Math.max(...monthData.map(d => Math.max(...brands.map(b => (d[b] as number) ?? 0))));
+  }, [monthData, brands]);
 
   return (
     <Card>
@@ -583,10 +694,10 @@ function MonthlyTrendsTab({ selectedYear, monthlyActiveCount }: { selectedYear: 
             <thead>
               <tr className="border-b">
                 <th className="text-left py-2 font-medium w-16">Month</th>
-                {MAIN_BRANDS.map(b => (
+                {brands.map(b => (
                   <th key={b} className="text-right py-2 font-medium px-2">
                     <span className="flex items-center justify-end gap-1">
-                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: BRAND_COLORS[b] }} />
+                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: BRAND_COLORS[b] ?? "#9ca3af" }} />
                       {b}
                     </span>
                   </th>
@@ -597,14 +708,15 @@ function MonthlyTrendsTab({ selectedYear, monthlyActiveCount }: { selectedYear: 
             </thead>
             <tbody>
               {monthData.map((d, i) => {
-                const total = d["Al Fakher"] + d["Mazaya"] + d["Nakhla"] + d["Others"];
+                const total = brands.reduce((s, b) => s + ((d[b] as number) ?? 0), 0);
                 if (total === 0) return null;
-                const afShare = total > 0 ? ((d["Al Fakher"] / total) * 100).toFixed(1) : "0";
+                const afVal = (d["Al Fakher"] as number) ?? 0;
+                const afShare = total > 0 ? ((afVal / total) * 100).toFixed(1) : "0";
                 return (
                   <tr key={i} className="border-b last:border-0 hover:bg-muted/50">
                     <td className="py-2 font-medium">{d.month}</td>
-                    {MAIN_BRANDS.map(b => (
-                      <td key={b} className="text-right py-2 px-2 tabular-nums">{fmtFull(d[b as keyof typeof d] as number)}</td>
+                    {brands.map(b => (
+                      <td key={b} className="text-right py-2 px-2 tabular-nums">{fmtFull((d[b] as number) ?? 0)}</td>
                     ))}
                     <td className="text-right py-2 px-2 tabular-nums font-semibold">{fmtFull(total)}</td>
                     <td className="text-right py-2 px-2 tabular-nums">{afShare}%</td>
@@ -618,21 +730,21 @@ function MonthlyTrendsTab({ selectedYear, monthlyActiveCount }: { selectedYear: 
         <div className="mt-4 pt-3 border-t">
           <h4 className="text-xs font-semibold text-muted-foreground uppercase mb-3">Visual Trend</h4>
           <div className="space-y-3">
-            {MAIN_BRANDS.map(b => (
+            {brands.map(b => (
               <div key={b} className="flex items-center gap-3">
                 <div className="min-w-[80px] text-xs font-medium flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: BRAND_COLORS[b] }} />
+                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: BRAND_COLORS[b] ?? "#9ca3af" }} />
                   {b}
                 </div>
                 <div className="flex-1 flex items-end gap-[2px]" style={{ height: 40 }}>
-                  {(BRAND_MONTHLY[b]?.[selectedYear] ?? []).map((v, i) => {
+                  {(brandMonthly[b]?.[selectedYear] ?? []).map((v, i) => {
                     if (v === 0 && i >= monthlyActiveCount) return <div key={i} className="flex-1" />;
                     const h = maxMonthly > 0 ? (v / maxMonthly) * 36 + 2 : 2;
                     return (
                       <div
                         key={i}
                         className="flex-1 rounded-t transition-all"
-                        style={{ height: h, backgroundColor: BRAND_COLORS[b], opacity: 0.8 }}
+                        style={{ height: h, backgroundColor: BRAND_COLORS[b] ?? "#9ca3af", opacity: 0.8 }}
                         title={`${MONTHS[i]}: ${fmtFull(v)} MC`}
                       />
                     );
@@ -647,7 +759,7 @@ function MonthlyTrendsTab({ selectedYear, monthlyActiveCount }: { selectedYear: 
   );
 }
 
-function FlavorBreakdownTab({ selectedYear }: { selectedYear: number }) {
+function FlavorBreakdownTab({ selectedYear, flavorData }: { selectedYear: number; flavorData: Record<string, Record<string, Record<number, number>>> }) {
   const FLAVOR_COLORS: Record<string, string> = {
     "Two Apple": "#dc2626",
     "Lemon Mint": "#16a34a",
@@ -659,12 +771,13 @@ function FlavorBreakdownTab({ selectedYear }: { selectedYear: number }) {
     "Other": "#6b7280",
   };
 
-  const brands = ["Al Fakher", "Mazaya", "Nakhla"] as const;
+  const flavorBrands = Object.keys(flavorData).filter(b => b !== "Others");
+  const allFlavors = [...new Set(flavorBrands.flatMap(b => Object.keys(flavorData[b] ?? {})))];
 
   return (
     <div className="grid md:grid-cols-3 gap-4">
-      {brands.map(brand => {
-        const flavors = FLAVOR_DATA[brand];
+      {flavorBrands.map(brand => {
+        const flavors = flavorData[brand] ?? {};
         const items = Object.entries(flavors)
           .map(([f, years]) => ({ flavor: f, volume: years[selectedYear] ?? 0 }))
           .sort((a, b) => b.volume - a.volume);
@@ -717,10 +830,10 @@ function FlavorBreakdownTab({ selectedYear }: { selectedYear: number }) {
               <thead>
                 <tr className="border-b">
                   <th className="text-left py-2 font-medium">Flavor</th>
-                  {brands.map(b => (
+                  {flavorBrands.map(b => (
                     <th key={b} className="text-right py-2 font-medium px-3">
                       <span className="flex items-center justify-end gap-1">
-                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: BRAND_COLORS[b] }} />
+                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: BRAND_COLORS[b] ?? "#9ca3af" }} />
                         {b}
                       </span>
                     </th>
@@ -729,8 +842,8 @@ function FlavorBreakdownTab({ selectedYear }: { selectedYear: number }) {
                 </tr>
               </thead>
               <tbody>
-                {["Two Apple", "Lemon Mint", "Grapes", "Grape Mint", "Mint", "Gum", "Other Flavors"].map(flavor => {
-                  const vals = brands.map(b => FLAVOR_DATA[b]?.[flavor]?.[selectedYear] ?? 0);
+                {allFlavors.map(flavor => {
+                  const vals = flavorBrands.map(b => flavorData[b]?.[flavor]?.[selectedYear] ?? 0);
                   const maxIdx = vals.indexOf(Math.max(...vals));
                   return (
                     <tr key={flavor} className="border-b last:border-0 hover:bg-muted/50">
@@ -738,14 +851,14 @@ function FlavorBreakdownTab({ selectedYear }: { selectedYear: number }) {
                         <span className="w-2 h-2 rounded-full" style={{ backgroundColor: FLAVOR_COLORS[flavor] ?? "#9ca3af" }} />
                         {flavor}
                       </td>
-                      {brands.map((b, i) => (
+                      {flavorBrands.map((b, i) => (
                         <td key={b} className={`text-right py-2 px-3 tabular-nums ${i === maxIdx ? "font-bold" : ""}`}>
                           {fmtFull(vals[i])}
                         </td>
                       ))}
                       <td className="text-right py-2 px-3">
-                        <Badge variant="secondary" className="text-[10px]" style={{ color: BRAND_COLORS[brands[maxIdx]] }}>
-                          {brands[maxIdx]}
+                        <Badge variant="secondary" className="text-[10px]" style={{ color: BRAND_COLORS[flavorBrands[maxIdx]] ?? "#9ca3af" }}>
+                          {flavorBrands[maxIdx]}
                         </Badge>
                       </td>
                     </tr>
@@ -760,19 +873,21 @@ function FlavorBreakdownTab({ selectedYear }: { selectedYear: number }) {
   );
 }
 
-function TwoAppleMarketShareTab() {
-  const years = [2020, 2021, 2022, 2023, 2024, 2025, 2026];
+function TwoAppleMarketShareTab({ flavorData }: { flavorData: Record<string, Record<string, Record<number, number>>> }) {
+  const twoAppleBrands = useMemo(() => {
+    const result: { name: string; data: Record<number, number> }[] = [];
+    const allSources = { ...OTHER_BRANDS_FLAVOR, ...flavorData };
+    for (const [brand, flavors] of Object.entries(allSources)) {
+      if (flavors["Two Apple"]) result.push({ name: brand, data: flavors["Two Apple"] });
+    }
+    return result;
+  }, [flavorData]);
 
-  const twoAppleBrands = [
-    { name: "Nakhla", data: FLAVOR_DATA["Nakhla"]["Two Apple"] },
-    { name: "Al Fakher", data: FLAVOR_DATA["Al Fakher"]["Two Apple"] },
-    { name: "Mazaya", data: FLAVOR_DATA["Mazaya"]["Two Apple"] },
-    { name: "Khalil Maamoun", data: OTHER_BRANDS_FLAVOR["Khalil Maamoun"]["Two Apple"] },
-    { name: "Mawal", data: OTHER_BRANDS_FLAVOR["Mawal"]["Two Apple"] },
-    { name: "Gold Dahab", data: OTHER_BRANDS_FLAVOR["Gold Dahab"]["Two Apple"] },
-    { name: "Al Basha", data: OTHER_BRANDS_FLAVOR["Al Basha"]["Two Apple"] },
-    { name: "Al Ostoura", data: OTHER_BRANDS_FLAVOR["Al Ostoura"]["Two Apple"] },
-  ];
+  const years = useMemo(() => {
+    return [...new Set(twoAppleBrands.flatMap(b => Object.keys(b.data).map(Number)))].sort();
+  }, [twoAppleBrands]);
+
+  const maxYear = years.length > 0 ? Math.max(...years) : 2026;
 
   return (
     <Card>
@@ -783,14 +898,14 @@ function TwoAppleMarketShareTab() {
         <div className="space-y-3">
           {years.map(y => {
             const segments = twoAppleBrands
-              .map(b => ({ value: b.data[y] ?? 0, color: BRAND_COLORS[b.name], label: b.name }))
+              .map(b => ({ value: b.data[y] ?? 0, color: BRAND_COLORS[b.name] ?? "#9ca3af", label: b.name }))
               .filter(s => s.value > 0);
             const total = segments.reduce((s, x) => s + x.value, 0);
             if (total === 0) return null;
             return (
               <div key={y}>
                 <div className="flex justify-between mb-1">
-                  <span className="text-xs font-semibold">{y}{y === 2026 ? " (YTD)" : ""}</span>
+                  <span className="text-xs font-semibold">{y}{y === maxYear && y >= 2026 ? " (YTD)" : ""}</span>
                   <span className="text-xs text-muted-foreground">{fmtFull(total)} MC</span>
                 </div>
                 <StackedBar segments={segments} height={22} labels />
@@ -801,7 +916,7 @@ function TwoAppleMarketShareTab() {
         <div className="flex flex-wrap gap-2 mt-3 pt-2 border-t">
           {twoAppleBrands.map(b => (
             <div key={b.name} className="flex items-center gap-1 text-[10px]">
-              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: BRAND_COLORS[b.name] }} />
+              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: BRAND_COLORS[b.name] ?? "#9ca3af" }} />
               {b.name}
             </div>
           ))}
@@ -811,11 +926,14 @@ function TwoAppleMarketShareTab() {
   );
 }
 
-function EmergingBrandsTab({ selectedYear }: { selectedYear: number }) {
+function EmergingBrandsTab({ selectedYear, flavorData }: { selectedYear: number; flavorData: Record<string, Record<string, Record<number, number>>> }) {
   const emerging = useMemo(() => {
+    const merged = { ...OTHER_BRANDS_FLAVOR, ...flavorData };
+    const mainBrandNames = new Set(["Al Fakher", "Mazaya", "Nakhla", "Others"]);
     const brands: { name: string; volume: number; prevVolume: number; flavors: string[] }[] = [];
 
-    for (const [brand, flavors] of Object.entries(OTHER_BRANDS_FLAVOR)) {
+    for (const [brand, flavors] of Object.entries(merged)) {
+      if (mainBrandNames.has(brand)) continue;
       let vol = 0;
       let prevVol = 0;
       const flavorNames: string[] = [];
@@ -830,7 +948,7 @@ function EmergingBrandsTab({ selectedYear }: { selectedYear: number }) {
     }
 
     return brands.sort((a, b) => b.volume - a.volume);
-  }, [selectedYear]);
+  }, [selectedYear, flavorData]);
 
   const maxVol = Math.max(...emerging.map(b => b.volume), 1);
 
