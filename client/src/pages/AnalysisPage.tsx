@@ -1544,16 +1544,16 @@ export default function AnalysisPage() {
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="flex flex-wrap h-auto gap-1 bg-muted p-1 rounded-lg">
-          <TabsTrigger value="overview" className="text-xs">Overview</TabsTrigger>
-          <TabsTrigger value="sku" className="text-xs">By SKU</TabsTrigger>
-          <TabsTrigger value="weight" className="text-xs">By Weight</TabsTrigger>
-          <TabsTrigger value="category" className="text-xs">By Category</TabsTrigger>
-          <TabsTrigger value="flavor" className="text-xs">By Flavor</TabsTrigger>
-          <TabsTrigger value="production" className="text-xs">Production</TabsTrigger>
-          <TabsTrigger value="health" className="text-xs">Stock Health</TabsTrigger>
-          <TabsTrigger value="runrate" className="text-xs font-semibold text-blue-600">Running Rate</TabsTrigger>
-          <TabsTrigger value="stocklvl" className="text-xs font-semibold text-emerald-600">Stock Levels</TabsTrigger>
-          <TabsTrigger value="snapshot" className="text-xs font-semibold text-red-600">Snapshot</TabsTrigger>
+          <TabsTrigger value="overview" className="text-xs tab-dark-red">Overview</TabsTrigger>
+          <TabsTrigger value="sku" className="text-xs tab-dark-red">By SKU</TabsTrigger>
+          <TabsTrigger value="weight" className="text-xs tab-dark-red">By Weight</TabsTrigger>
+          <TabsTrigger value="category" className="text-xs tab-dark-red">By Category</TabsTrigger>
+          <TabsTrigger value="flavor" className="text-xs tab-dark-red">By Flavor</TabsTrigger>
+          <TabsTrigger value="production" className="text-xs tab-dark-red">Production</TabsTrigger>
+          <TabsTrigger value="health" className="text-xs tab-dark-red">Stock Health</TabsTrigger>
+          <TabsTrigger value="runrate" className="text-xs tab-dark-red">Running Rate</TabsTrigger>
+          <TabsTrigger value="stocklvl" className="text-xs tab-dark-red">Stock Levels</TabsTrigger>
+          <TabsTrigger value="snapshot" className="text-xs tab-dark-red">Snapshot</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview"><OverviewTab /></TabsContent>

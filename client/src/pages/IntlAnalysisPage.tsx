@@ -1266,19 +1266,19 @@ export default function IntlAnalysisPage() {
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="flex flex-wrap h-auto gap-1 bg-muted p-1 rounded-lg mb-4">
-          <TabsTrigger value="production">Production</TabsTrigger>
-          <TabsTrigger value="forecast">Forecast Accuracy</TabsTrigger>
-          <TabsTrigger value="ims">IMS & Stock Health</TabsTrigger>
-          <TabsTrigger value="clearance">
+          <TabsTrigger value="production" className="tab-dark-red">Production</TabsTrigger>
+          <TabsTrigger value="forecast" className="tab-dark-red">Forecast Accuracy</TabsTrigger>
+          <TabsTrigger value="ims" className="tab-dark-red">IMS & Stock Health</TabsTrigger>
+          <TabsTrigger value="clearance" className="tab-dark-red">
             Clearance
             {batchesWithDelay > 0 && (
               <span className="ml-1.5 px-1.5 py-0.5 rounded bg-red-500 text-white text-[9px] font-bold">{batchesWithDelay}</span>
             )}
           </TabsTrigger>
-          <TabsTrigger value="byflavour" className="font-semibold text-violet-600">By Flavour</TabsTrigger>
-          <TabsTrigger value="byweight" className="font-semibold text-orange-600">By Weight</TabsTrigger>
-          <TabsTrigger value="runrate" className="font-semibold text-blue-600">Running Rate</TabsTrigger>
-          <TabsTrigger value="stocklvl" className="font-semibold text-emerald-600">Stock Levels</TabsTrigger>
+          <TabsTrigger value="byflavour" className="tab-dark-red">By Flavour</TabsTrigger>
+          <TabsTrigger value="byweight" className="tab-dark-red">By Weight</TabsTrigger>
+          <TabsTrigger value="runrate" className="tab-dark-red">Running Rate</TabsTrigger>
+          <TabsTrigger value="stocklvl" className="tab-dark-red">Stock Levels</TabsTrigger>
         </TabsList>
 
         <TabsContent value="production"><ProductionTab /></TabsContent>

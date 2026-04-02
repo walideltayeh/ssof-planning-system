@@ -724,8 +724,8 @@ export default function DataVersionsPage() {
 
       <Tabs defaultValue="upload" className="w-full">
         <TabsList className="mb-4">
-          <TabsTrigger value="upload">Upload Data</TabsTrigger>
-          <TabsTrigger value="versions" className="relative">
+          <TabsTrigger value="upload" className="tab-dark-red">Upload Data</TabsTrigger>
+          <TabsTrigger value="versions" className="relative tab-dark-red">
             Version Manager
             {editCount > 0 && (
               <span className="ml-2 inline-flex items-center justify-center h-4 w-4 rounded-full bg-amber-500 text-white text-[10px] font-bold">

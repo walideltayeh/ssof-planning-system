@@ -700,12 +700,12 @@ export default function CompetitorAnalysisPage() {
       })()}
 
       <Tabs defaultValue="market-share" className="space-y-4">
-        <TabsList className="flex-wrap h-auto gap-1 competitor-tabs-list-original">
-          <TabsTrigger value="market-share" className="competitor-tab-original">Market Share</TabsTrigger>
-          <TabsTrigger value="monthly-trends" className="competitor-tab-original">Monthly Trends</TabsTrigger>
-          <TabsTrigger value="flavor-battle" className="competitor-tab-original">Flavor Breakdown</TabsTrigger>
-          <TabsTrigger value="two-apple" className="competitor-tab-original">Two Apple Deep Dive</TabsTrigger>
-          <TabsTrigger value="emerging" className="competitor-tab-original">Emerging Brands</TabsTrigger>
+        <TabsList className="flex-wrap h-auto gap-1">
+          <TabsTrigger value="market-share" className="tab-dark-red">Market Share</TabsTrigger>
+          <TabsTrigger value="monthly-trends" className="tab-dark-red">Monthly Trends</TabsTrigger>
+          <TabsTrigger value="flavor-battle" className="tab-dark-red">Flavor Breakdown</TabsTrigger>
+          <TabsTrigger value="two-apple" className="tab-dark-red">Two Apple Deep Dive</TabsTrigger>
+          <TabsTrigger value="emerging" className="tab-dark-red">Emerging Brands</TabsTrigger>
         </TabsList>
 
         <TabsContent value="market-share" className="space-y-4">
