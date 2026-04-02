@@ -273,8 +273,8 @@ async function startServer() {
         },
       };
 
-      const brandMonthly = (existing?.brandMonthly as any) || defaultBrandMonthly;
-      const flavorYearly = (existing?.flavorYearly as any) || defaultFlavorYearly;
+      const brandMonthly = (existing?.brandMonthly as any) || (country === "Lebanon" ? defaultBrandMonthly : {});
+      const flavorYearly = (existing?.flavorYearly as any) || (country === "Lebanon" ? defaultFlavorYearly : {});
 
       const wb = new ExcelJS.Workbook();
 

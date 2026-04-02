@@ -315,10 +315,12 @@ export default function CompetitorAnalysisPage() {
     { staleTime: 60_000 }
   );
 
+  const isLebanon = (country ?? "Lebanon") === "Lebanon";
+
   const activeBrandMonthly = useMemo<Record<string, Record<number, number[]>>>(() => {
     if (dbData?.brandMonthly) return dbData.brandMonthly as any;
-    return BRAND_MONTHLY;
-  }, [dbData]);
+    return isLebanon ? BRAND_MONTHLY : {};
+  }, [dbData, isLebanon]);
 
   const activeBrandYearly = useMemo<Record<string, Record<number, number>>>(() => {
     const bm = activeBrandMonthly;
@@ -334,8 +336,8 @@ export default function CompetitorAnalysisPage() {
 
   const activeFlavorData = useMemo<Record<string, Record<string, Record<number, number>>>>(() => {
     if (dbData?.flavorYearly) return dbData.flavorYearly as any;
-    return FLAVOR_DATA;
-  }, [dbData]);
+    return isLebanon ? FLAVOR_DATA : {};
+  }, [dbData, isLebanon]);
 
   const activeYears = useMemo(() => {
     const yearSet = new Set<number>();
@@ -428,7 +430,7 @@ export default function CompetitorAnalysisPage() {
 
   const dataSource = dbData?.uploadedAt
     ? `Last updated by ${dbData.uploadedBy ?? "unknown"} on ${new Date(dbData.uploadedAt).toLocaleDateString()}`
-    : "Regie Official Data (Default)";
+    : isLebanon ? "Regie Official Data (Default)" : "No data uploaded yet";
 
   return (
     <div className="space-y-6 p-4 md:p-6 max-w-[1400px] mx-auto">
@@ -483,6 +485,29 @@ export default function CompetitorAnalysisPage() {
         </div>
       )}
 
+      {!isLebanon && !dbData?.uploadedAt && activeMainBrands.length === 0 && (
+        <Card className="p-8 text-center">
+          <div className="flex flex-col items-center gap-3">
+            <Upload className="w-10 h-10 text-muted-foreground" />
+            <h3 className="text-lg font-semibold">No competitor data for {country}</h3>
+            <p className="text-sm text-muted-foreground max-w-md">
+              Download the template, fill in competitor brand and flavor data for {country}, then upload it to see the analysis.
+            </p>
+            <div className="flex gap-2 mt-2">
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={handleDownloadTemplate}>
+                <Download className="w-3.5 h-3.5" />
+                Download Template
+              </Button>
+              <Button variant="default" size="sm" className="gap-1.5" onClick={() => fileInputRef.current?.click()}>
+                <Upload className="w-3.5 h-3.5" />
+                Upload Data
+              </Button>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {activeMainBrands.length > 0 && <>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <KpiCard
           title="Total Market"
@@ -544,6 +569,7 @@ export default function CompetitorAnalysisPage() {
           <EmergingBrandsTab selectedYear={selectedYear} flavorData={activeFlavorData} />
         </TabsContent>
       </Tabs>
+      </>}
     </div>
   );
 }
