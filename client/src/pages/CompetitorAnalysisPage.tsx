@@ -699,35 +699,37 @@ export default function CompetitorAnalysisPage() {
         );
       })()}
 
-      <Tabs defaultValue="market-share" className="space-y-4">
-        <TabsList className="flex-wrap h-auto gap-1">
-          <TabsTrigger value="market-share">Market Share</TabsTrigger>
-          <TabsTrigger value="monthly-trends">Monthly Trends</TabsTrigger>
-          <TabsTrigger value="flavor-battle">Flavor Breakdown</TabsTrigger>
-          <TabsTrigger value="two-apple">Two Apple Deep Dive</TabsTrigger>
-          <TabsTrigger value="emerging">Emerging Brands</TabsTrigger>
+      <Tabs defaultValue="market-share" className="competitor-tabs">
+        <TabsList className="competitor-tabs-list">
+          <TabsTrigger value="market-share" className="competitor-tab-trigger">Market Share</TabsTrigger>
+          <TabsTrigger value="monthly-trends" className="competitor-tab-trigger">Monthly Trends</TabsTrigger>
+          <TabsTrigger value="flavor-battle" className="competitor-tab-trigger">Flavor Breakdown</TabsTrigger>
+          <TabsTrigger value="two-apple" className="competitor-tab-trigger">Two Apple Deep Dive</TabsTrigger>
+          <TabsTrigger value="emerging" className="competitor-tab-trigger">Emerging Brands</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="market-share" className="space-y-4">
-          <MarketShareTab selectedYear={selectedYear} comparisonYear={compareYear1} totals={totals} brandYearly={activeBrandYearly} brands={activeMainBrands} years={activeYears} unit={unit} unitLabel={unitLabel} />
-        </TabsContent>
+        <div className="competitor-tabs-content-frame">
+          <TabsContent value="market-share" className="space-y-4 mt-0">
+            <MarketShareTab selectedYear={selectedYear} comparisonYear={compareYear1} totals={totals} brandYearly={activeBrandYearly} brands={activeMainBrands} years={activeYears} unit={unit} unitLabel={unitLabel} />
+          </TabsContent>
 
-        <TabsContent value="monthly-trends" className="space-y-4">
-          <MonthlyTrendsTab selectedYear={selectedYear} monthlyActiveCount={monthlyActiveCount} brandMonthly={activeBrandMonthly} brands={activeMainBrands} unit={unit} unitLabel={unitLabel} />
-        </TabsContent>
+          <TabsContent value="monthly-trends" className="space-y-4 mt-0">
+            <MonthlyTrendsTab selectedYear={selectedYear} monthlyActiveCount={monthlyActiveCount} brandMonthly={activeBrandMonthly} brands={activeMainBrands} unit={unit} unitLabel={unitLabel} />
+          </TabsContent>
 
-        <TabsContent value="flavor-battle" className="space-y-4">
-          <FlavorBreakdownTab selectedYear={selectedYear} flavorData={activeFlavorData} unit={unit} unitLabel={unitLabel} />
-        </TabsContent>
+          <TabsContent value="flavor-battle" className="space-y-4 mt-0">
+            <FlavorBreakdownTab selectedYear={selectedYear} flavorData={activeFlavorData} unit={unit} unitLabel={unitLabel} />
+          </TabsContent>
 
-        <TabsContent value="two-apple" className="space-y-4">
-          <TwoAppleComparison selectedYear={selectedYear} comparisonYear={compareYear1} flavorData={activeFlavorData} otherBrandsFlavorData={activeOtherBrandsFlavorData} unit={unit} unitLabel={unitLabel} />
-          <TwoAppleMarketShareTab selectedYear={selectedYear} comparisonYear={compareYear1} flavorData={activeFlavorData} otherBrandsFlavorData={activeOtherBrandsFlavorData} unit={unit} unitLabel={unitLabel} />
-        </TabsContent>
+          <TabsContent value="two-apple" className="space-y-4 mt-0">
+            <TwoAppleComparison selectedYear={selectedYear} comparisonYear={compareYear1} flavorData={activeFlavorData} otherBrandsFlavorData={activeOtherBrandsFlavorData} unit={unit} unitLabel={unitLabel} />
+            <TwoAppleMarketShareTab selectedYear={selectedYear} comparisonYear={compareYear1} flavorData={activeFlavorData} otherBrandsFlavorData={activeOtherBrandsFlavorData} unit={unit} unitLabel={unitLabel} />
+          </TabsContent>
 
-        <TabsContent value="emerging" className="space-y-4">
-          <EmergingBrandsTab selectedYear={selectedYear} flavorData={activeFlavorData} otherBrandsFlavorData={activeOtherBrandsFlavorData} unit={unit} unitLabel={unitLabel} />
-        </TabsContent>
+          <TabsContent value="emerging" className="space-y-4 mt-0">
+            <EmergingBrandsTab selectedYear={selectedYear} flavorData={activeFlavorData} otherBrandsFlavorData={activeOtherBrandsFlavorData} unit={unit} unitLabel={unitLabel} />
+          </TabsContent>
+        </div>
       </Tabs>
       </>}
     </div>
