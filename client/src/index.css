@@ -192,71 +192,10 @@
   animation: cell-flash 2.5s ease-in-out forwards;
 }
 
-.competitor-tabs {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}
-
-.competitor-tabs-list {
-  display: inline-flex;
-  flex-wrap: wrap;
-  height: auto;
-  gap: 0;
-  background: transparent !important;
-  padding: 0 !important;
-  border-radius: 0 !important;
-  border-bottom: 2px solid color-mix(in oklch, var(--border) 40%, transparent);
-  width: 100%;
-  justify-content: flex-start;
-}
-
-.competitor-tab-trigger {
-  position: relative;
-  border-radius: 0 !important;
-  border: none !important;
-  box-shadow: none !important;
-  background: transparent !important;
-  padding: 0.625rem 1.25rem !important;
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: var(--muted-foreground);
-  transition: all 0.2s ease;
-  cursor: pointer;
-}
-
-.competitor-tab-trigger::after {
-  content: '';
-  position: absolute;
-  bottom: -2px;
-  left: 0;
-  right: 0;
-  height: 2.5px;
-  background: transparent;
-  border-radius: 2px 2px 0 0;
-  transition: background 0.2s ease;
-}
-
-.competitor-tab-trigger:hover {
-  color: var(--foreground);
-  background: color-mix(in oklch, var(--muted) 40%, transparent) !important;
-}
-
-.competitor-tab-trigger[data-state="active"] {
-  color: var(--primary) !important;
+.competitor-tab-original[data-state="active"] {
+  border: 2px solid #7f1d1d !important;
+  background: rgba(127, 29, 29, 0.08) !important;
+  color: #7f1d1d !important;
   font-weight: 600 !important;
-  background: transparent !important;
-  box-shadow: none !important;
-}
-
-.competitor-tab-trigger[data-state="active"]::after {
-  background: var(--primary);
-}
-
-.competitor-tabs-content-frame {
-  border: 1px solid color-mix(in oklch, var(--border) 40%, transparent);
-  border-top: none;
-  border-radius: 0 0 0.5rem 0.5rem;
-  background: color-mix(in oklch, var(--card) 50%, transparent);
-  padding: 1.25rem;
+  box-shadow: 0 0 0 1px rgba(127, 29, 29, 0.15) !important;
 }
