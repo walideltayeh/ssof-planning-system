@@ -11,6 +11,37 @@ import { useCountry } from "@/contexts/CountryContext";
 import { useAppAuth } from "@/contexts/AuthContext";
 import { useUnit } from "@/contexts/UnitContext";
 
+const BRAND_MC_TO_KG: Record<string, number> = {
+  "Al Fakher": 6,
+  "Mazaya": 6,
+  "Nakhla": 11.12,
+  "Al Ostoura": 8.5,
+  "Al Fakhama": 6,
+  "Frisky": 6,
+  "Khalil Maamoun": 10,
+  "Al Basha": 10,
+  "Gold Dahab": 10,
+  "Mawal": 10,
+  "H Hooka": 6,
+  "True Passion": 6,
+  "Malke": 6,
+  "Others": 8.5,
+};
+const DEFAULT_MC_TO_KG = 8.5;
+
+function convertBrandMc(mc: number, brand: string, unit: string): number {
+  if (unit === "MC") return mc;
+  const factor = BRAND_MC_TO_KG[brand] ?? DEFAULT_MC_TO_KG;
+  if (unit === "KG") return mc * factor;
+  return mc * factor / 1000;
+}
+
+function fmtBrandVal(mc: number, brand: string, unit: string, decimals?: number): string {
+  const v = convertBrandMc(mc, brand, unit);
+  const d = decimals ?? (unit === "Tons" ? 2 : 0);
+  return v.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+
 const BRAND_COLORS: Record<string, string> = {
   "Al Fakher": "#2563eb",
   "Mazaya": "#dc2626",
@@ -180,7 +211,7 @@ function StackedBar({ segments, height = 24, labels, formatVal: fv, unitLabel: u
 }
 
 
-function TwoAppleComparison({ selectedYear, comparisonYear, flavorData, formatVal, unitLabel }: { selectedYear: number; comparisonYear: number; flavorData: Record<string, Record<string, Record<number, number>>>; formatVal: (v: number, d?: number) => string; unitLabel: string }) {
+function TwoAppleComparison({ selectedYear, comparisonYear, flavorData, unit, unitLabel }: { selectedYear: number; comparisonYear: number; flavorData: Record<string, Record<string, Record<number, number>>>; unit: string; unitLabel: string }) {
   const twoAppleData = useMemo(() => {
     const data: Record<string, Record<number, number>> = {};
     const allSources = { ...OTHER_BRANDS_FLAVOR, ...flavorData };
@@ -191,8 +222,10 @@ function TwoAppleComparison({ selectedYear, comparisonYear, flavorData, formatVa
   }, [flavorData]);
   const taBrands = Object.keys(twoAppleData)
     .filter(b => (twoAppleData[b]?.[selectedYear] ?? 0) > 0)
-    .sort((a, b) => (twoAppleData[b]?.[selectedYear] ?? 0) - (twoAppleData[a]?.[selectedYear] ?? 0));
-  const totalTwoApple = taBrands.reduce((s, b) => s + (twoAppleData[b]?.[selectedYear] ?? 0), 0);
+    .sort((a, b) => convertBrandMc(twoAppleData[b]?.[selectedYear] ?? 0, b, unit) - convertBrandMc(twoAppleData[a]?.[selectedYear] ?? 0, a, unit));
+  const totalTwoAppleConverted = taBrands.reduce((s, b) => s + convertBrandMc(twoAppleData[b]?.[selectedYear] ?? 0, b, unit), 0);
+  const prevTotalConverted = Object.keys(twoAppleData).reduce((s, b) => s + convertBrandMc(twoAppleData[b]?.[comparisonYear] ?? 0, b, unit), 0);
+  const fmtN = (v: number) => { const d = unit === "Tons" ? 2 : 0; return v.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d }); };
 
   return (
     <Card>
@@ -201,7 +234,7 @@ function TwoAppleComparison({ selectedYear, comparisonYear, flavorData, formatVa
           <Crown className="w-4 h-4 text-amber-500" />
           Two Apple Battle — {selectedYear}
           <span className="ml-auto text-xs font-normal text-muted-foreground">
-            Total: {formatVal(totalTwoApple)} {unitLabel}
+            Total: {fmtN(totalTwoAppleConverted)} {unitLabel}
           </span>
         </CardTitle>
       </CardHeader>
@@ -220,9 +253,9 @@ function TwoAppleComparison({ selectedYear, comparisonYear, flavorData, formatVa
             </thead>
             <tbody>
               {taBrands.map((b, idx) => {
-                const vol = twoAppleData[b]?.[selectedYear] ?? 0;
-                const prev = twoAppleData[b]?.[comparisonYear] ?? 0;
-                const share = totalTwoApple > 0 ? (vol / totalTwoApple) * 100 : 0;
+                const vol = convertBrandMc(twoAppleData[b]?.[selectedYear] ?? 0, b, unit);
+                const prev = convertBrandMc(twoAppleData[b]?.[comparisonYear] ?? 0, b, unit);
+                const share = totalTwoAppleConverted > 0 ? (vol / totalTwoAppleConverted) * 100 : 0;
                 return (
                   <tr key={b} className="border-b last:border-0 hover:bg-muted/50">
                     <td className="py-2 text-muted-foreground font-semibold">{idx + 1}</td>
@@ -232,7 +265,7 @@ function TwoAppleComparison({ selectedYear, comparisonYear, flavorData, formatVa
                         {b}
                       </span>
                     </td>
-                    <td className="text-right py-2 px-2 tabular-nums font-semibold">{formatVal(vol)}</td>
+                    <td className="text-right py-2 px-2 tabular-nums font-semibold">{fmtN(vol)}</td>
                     <td className="text-right py-2 px-2 tabular-nums">{share.toFixed(1)}%</td>
                     <td className="text-right py-2 px-2">
                       <GrowthBadge current={vol} previous={prev} />
@@ -256,7 +289,13 @@ function TwoAppleComparison({ selectedYear, comparisonYear, flavorData, formatVa
 export default function CompetitorAnalysisPage() {
   const { country } = useCountry();
   const { user } = useAppAuth();
-  const { formatVal, unitLabel } = useUnit();
+  const { unitLabel, unit } = useUnit();
+  const fmtNum = (n: number, decimals?: number) => {
+    const d = decimals ?? (unit === "Tons" ? 2 : 0);
+    return n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+  };
+  const cvt = (mc: number, brand: string) => convertBrandMc(mc, brand, unit);
+  const fmtBrand = (mc: number, brand: string) => fmtNum(cvt(mc, brand));
   const [selectedYear, setSelectedYear] = useState<number>(2025);
   const [compareYear1, setCompareYear1] = useState<number>(2024);
   const [compareYear2, setCompareYear2] = useState<number>(2023);
@@ -355,8 +394,20 @@ export default function CompetitorAnalysisPage() {
     return result;
   }, [activeBrandYearly, activeYears]);
 
-  const totalMarket = totals[selectedYear] ?? 0;
-  const prevTotal = totals[compareYear1] ?? 0;
+  const totalMarketConverted = useMemo(() => {
+    const result: Record<number, number> = {};
+    for (const y of activeYears) {
+      let sum = 0;
+      for (const [brand, yrs] of Object.entries(activeBrandYearly)) {
+        sum += cvt(yrs[y] ?? 0, brand);
+      }
+      result[y] = sum;
+    }
+    return result;
+  }, [activeBrandYearly, activeYears, unit]);
+
+  const totalMarket = totalMarketConverted[selectedYear] ?? 0;
+  const prevTotal = totalMarketConverted[compareYear1] ?? 0;
 
   const maxYear = Math.max(...activeYears);
   const is2026 = selectedYear === maxYear && selectedYear >= 2026;
@@ -462,7 +513,7 @@ export default function CompetitorAnalysisPage() {
         const displayYears = [selectedYear, compareYear1, compareYear2].sort((a, b) => b - a);
         const top5 = Object.entries(activeBrandYearly)
           .map(([name, yrs]) => ({ name, yrs }))
-          .sort((a, b) => (b.yrs[selectedYear] ?? 0) - (a.yrs[selectedYear] ?? 0))
+          .sort((a, b) => cvt(b.yrs[selectedYear] ?? 0, b.name) - cvt(a.yrs[selectedYear] ?? 0, a.name))
           .slice(0, 5);
         return (
           <Card>
@@ -496,9 +547,9 @@ export default function CompetitorAnalysisPage() {
                   </thead>
                   <tbody>
                     {top5.map((b, idx) => {
-                      const vol = b.yrs[selectedYear] ?? 0;
+                      const vol = cvt(b.yrs[selectedYear] ?? 0, b.name);
                       const share = totalMarket > 0 ? (vol / totalMarket) * 100 : 0;
-                      const prevVol = b.yrs[compareYear1] ?? 0;
+                      const prevVol = cvt(b.yrs[compareYear1] ?? 0, b.name);
                       return (
                         <tr key={b.name} className={`border-b last:border-0 hover:bg-muted/50 ${b.name === "Al Fakher" ? "bg-blue-50/50 dark:bg-blue-950/20" : ""}`}>
                           <td className="py-2.5 font-semibold text-muted-foreground">{idx + 1}</td>
@@ -511,7 +562,7 @@ export default function CompetitorAnalysisPage() {
                           </td>
                           {displayYears.map(y => (
                             <td key={y} className={`text-right py-2.5 px-2 tabular-nums ${y === selectedYear ? "font-bold" : "text-muted-foreground"}`}>
-                              {formatVal(b.yrs[y] ?? 0)}
+                              {fmtBrand(b.yrs[y] ?? 0, b.name)}
                             </td>
                           ))}
                           <td className="text-right py-2.5 px-2 tabular-nums">{share.toFixed(1)}%</td>
@@ -530,12 +581,12 @@ export default function CompetitorAnalysisPage() {
                       <td className="py-2.5" colSpan={2}>Total Market</td>
                       {displayYears.map(y => (
                         <td key={y} className={`text-right py-2.5 px-2 tabular-nums ${y === selectedYear ? "font-bold" : "text-muted-foreground"}`}>
-                          {formatVal(totals[y] ?? 0)}
+                          {fmtNum(totalMarketConverted[y] ?? 0)}
                         </td>
                       ))}
                       <td className="text-right py-2.5 px-2">100%</td>
                       <td className="text-right py-2.5 px-2">
-                        <GrowthBadge current={totals[selectedYear] ?? 0} previous={totals[compareYear1] ?? 0} />
+                        <GrowthBadge current={totalMarketConverted[selectedYear] ?? 0} previous={totalMarketConverted[compareYear1] ?? 0} />
                       </td>
                       <td></td>
                     </tr>
@@ -558,24 +609,24 @@ export default function CompetitorAnalysisPage() {
         </TabsList>
 
         <TabsContent value="market-share" className="space-y-4">
-          <MarketShareTab selectedYear={selectedYear} comparisonYear={compareYear1} totals={totals} brandYearly={activeBrandYearly} brands={activeMainBrands} years={activeYears} formatVal={formatVal} unitLabel={unitLabel} />
+          <MarketShareTab selectedYear={selectedYear} comparisonYear={compareYear1} totals={totals} brandYearly={activeBrandYearly} brands={activeMainBrands} years={activeYears} unit={unit} unitLabel={unitLabel} />
         </TabsContent>
 
         <TabsContent value="monthly-trends" className="space-y-4">
-          <MonthlyTrendsTab selectedYear={selectedYear} monthlyActiveCount={monthlyActiveCount} brandMonthly={activeBrandMonthly} brands={activeMainBrands} formatVal={formatVal} unitLabel={unitLabel} />
+          <MonthlyTrendsTab selectedYear={selectedYear} monthlyActiveCount={monthlyActiveCount} brandMonthly={activeBrandMonthly} brands={activeMainBrands} unit={unit} unitLabel={unitLabel} />
         </TabsContent>
 
         <TabsContent value="flavor-battle" className="space-y-4">
-          <FlavorBreakdownTab selectedYear={selectedYear} flavorData={activeFlavorData} formatVal={formatVal} unitLabel={unitLabel} />
+          <FlavorBreakdownTab selectedYear={selectedYear} flavorData={activeFlavorData} unit={unit} unitLabel={unitLabel} />
         </TabsContent>
 
         <TabsContent value="two-apple" className="space-y-4">
-          <TwoAppleComparison selectedYear={selectedYear} comparisonYear={compareYear1} flavorData={activeFlavorData} formatVal={formatVal} unitLabel={unitLabel} />
-          <TwoAppleMarketShareTab selectedYear={selectedYear} comparisonYear={compareYear1} flavorData={activeFlavorData} formatVal={formatVal} unitLabel={unitLabel} />
+          <TwoAppleComparison selectedYear={selectedYear} comparisonYear={compareYear1} flavorData={activeFlavorData} unit={unit} unitLabel={unitLabel} />
+          <TwoAppleMarketShareTab selectedYear={selectedYear} comparisonYear={compareYear1} flavorData={activeFlavorData} unit={unit} unitLabel={unitLabel} />
         </TabsContent>
 
         <TabsContent value="emerging" className="space-y-4">
-          <EmergingBrandsTab selectedYear={selectedYear} flavorData={activeFlavorData} formatVal={formatVal} unitLabel={unitLabel} />
+          <EmergingBrandsTab selectedYear={selectedYear} flavorData={activeFlavorData} unit={unit} unitLabel={unitLabel} />
         </TabsContent>
       </Tabs>
       </>}
@@ -583,29 +634,46 @@ export default function CompetitorAnalysisPage() {
   );
 }
 
-function MarketShareTab({ selectedYear, comparisonYear, totals, brandYearly, brands, years, formatVal, unitLabel }: { selectedYear: number; comparisonYear: number; totals: Record<number, number>; brandYearly: Record<string, Record<number, number>>; brands: string[]; years: number[]; formatVal: (v: number, d?: number) => string; unitLabel: string }) {
+function MarketShareTab({ selectedYear, comparisonYear, totals, brandYearly, brands, years, unit, unitLabel }: { selectedYear: number; comparisonYear: number; totals: Record<number, number>; brandYearly: Record<string, Record<number, number>>; brands: string[]; years: number[]; unit: string; unitLabel: string }) {
+  const fbv = (mc: number, brand: string) => fmtBrandVal(mc, brand, unit);
+  const totalConverted = (year: number) => {
+    let sum = 0;
+    for (const [b, yrs] of Object.entries(brandYearly)) sum += convertBrandMc(yrs[year] ?? 0, b, unit);
+    return sum;
+  };
+  const fmtTotalConverted = (year: number) => {
+    const v = totalConverted(year);
+    const d = unit === "Tons" ? 2 : 0;
+    return v.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+  };
+
   const insights = useMemo(() => {
     const ranked = brands
       .filter(b => b !== "Others")
-      .map(b => ({ name: b, vol: brandYearly[b]?.[selectedYear] ?? 0 }))
+      .map(b => ({ name: b, vol: convertBrandMc(brandYearly[b]?.[selectedYear] ?? 0, b, unit) }))
       .sort((a, b) => b.vol - a.vol);
     const leader = ranked[0];
     if (!leader) return [];
     const growths = ranked.map(b => ({
       name: b.name,
-      growth: brandYearly[b.name]?.[comparisonYear]
-        ? ((b.vol - (brandYearly[b.name]?.[comparisonYear] ?? 0)) / (brandYearly[b.name]?.[comparisonYear] ?? 1)) * 100
-        : 0,
+      growth: (() => {
+        const prev = convertBrandMc(brandYearly[b.name]?.[comparisonYear] ?? 0, b.name, unit);
+        return prev ? ((b.vol - prev) / prev) * 100 : 0;
+      })(),
     })).sort((a, b) => b.growth - a.growth);
     const fastestGrower = growths[0];
     const afRank = ranked.findIndex(b => b.name === "Al Fakher") + 1;
+    const tc = totalConverted(selectedYear);
+    const tcPrev = totalConverted(comparisonYear);
+    const d = unit === "Tons" ? 2 : 0;
+    const fmtL = (v: number) => v.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
     return [
-      `${leader.name} leads the market in ${selectedYear} with ${formatVal(leader.vol)} ${unitLabel}`,
+      `${leader.name} leads the market in ${selectedYear} with ${fmtL(leader.vol)} ${unitLabel}`,
       fastestGrower ? `${fastestGrower.name} has the highest YoY growth at ${fastestGrower.growth > 0 ? "+" : ""}${fastestGrower.growth.toFixed(1)}% vs ${comparisonYear}` : "",
       afRank > 0 ? `Al Fakher ranks #${afRank} by volume` : "",
-      `Total market: ${formatVal(totals[selectedYear])} ${unitLabel} in ${selectedYear} (${yoyGrowth(totals[selectedYear], totals[comparisonYear]).label} vs ${comparisonYear})`,
+      `Total market: ${fmtL(tc)} ${unitLabel} in ${selectedYear} (${yoyGrowth(tc, tcPrev).label} vs ${comparisonYear})`,
     ].filter(Boolean);
-  }, [selectedYear, comparisonYear, totals, brandYearly, brands, formatVal, unitLabel]);
+  }, [selectedYear, comparisonYear, totals, brandYearly, brands, unit, unitLabel]);
 
   const maxYear = Math.max(...years);
 
@@ -620,7 +688,7 @@ function MarketShareTab({ selectedYear, comparisonYear, totals, brandYearly, bra
             {years.map(y => {
               const total = totals[y] ?? 1;
               const segments = brands.map(b => ({
-                value: brandYearly[b]?.[y] ?? 0,
+                value: convertBrandMc(brandYearly[b]?.[y] ?? 0, b, unit),
                 color: BRAND_COLORS[b] ?? "#9ca3af",
                 label: b,
               }));
@@ -630,9 +698,9 @@ function MarketShareTab({ selectedYear, comparisonYear, totals, brandYearly, bra
                     <span className={`text-xs font-semibold ${y === selectedYear ? "text-foreground" : "text-muted-foreground"}`}>
                       {y}{y === maxYear && y >= 2026 ? " (YTD)" : ""}
                     </span>
-                    <span className="text-xs text-muted-foreground">{formatVal(total)} {unitLabel}</span>
+                    <span className="text-xs text-muted-foreground">{fmtTotalConverted(y)} {unitLabel}</span>
                   </div>
-                  <StackedBar segments={segments} height={y === selectedYear ? 28 : 20} labels={y === selectedYear} formatVal={formatVal} unitLabel={unitLabel} />
+                  <StackedBar segments={segments} height={y === selectedYear ? 28 : 20} labels={y === selectedYear} />
                 </div>
               );
             })}
@@ -655,10 +723,10 @@ function MarketShareTab({ selectedYear, comparisonYear, totals, brandYearly, bra
         <CardContent>
           <div className="space-y-4">
             {brands.map(b => {
-              const vol = brandYearly[b]?.[selectedYear] ?? 0;
-              const prevVol = brandYearly[b]?.[comparisonYear] ?? 0;
-              const total = totals[selectedYear] ?? 1;
-              const share = (vol / total * 100).toFixed(1);
+              const volC = convertBrandMc(brandYearly[b]?.[selectedYear] ?? 0, b, unit);
+              const prevVolC = convertBrandMc(brandYearly[b]?.[comparisonYear] ?? 0, b, unit);
+              const tc = totalConverted(selectedYear);
+              const share = tc > 0 ? (volC / tc * 100).toFixed(1) : "0";
               return (
                 <div key={b} className="flex items-center gap-3">
                   <div className="min-w-[80px]">
@@ -673,18 +741,18 @@ function MarketShareTab({ selectedYear, comparisonYear, totals, brandYearly, bra
                       <div
                         className="h-full rounded transition-all"
                         style={{
-                          width: `${(vol / (totals[selectedYear] ?? 1)) * 100}%`,
+                          width: `${tc > 0 ? (volC / tc) * 100 : 0}%`,
                           backgroundColor: BRAND_COLORS[b],
                           opacity: 0.85,
                         }}
                       />
                       <span className="absolute right-2 top-0 h-full flex items-center text-[10px] font-bold">
-                        {formatVal(vol)} {unitLabel}
+                        {fbv(brandYearly[b]?.[selectedYear] ?? 0, b)} {unitLabel}
                       </span>
                     </div>
                   </div>
                   <div className="min-w-[60px] text-right">
-                    <GrowthBadge current={vol} previous={prevVol} />
+                    <GrowthBadge current={volC} previous={prevVolC} />
                   </div>
                 </div>
               );
@@ -703,7 +771,7 @@ function MarketShareTab({ selectedYear, comparisonYear, totals, brandYearly, bra
   );
 }
 
-function MonthlyTrendsTab({ selectedYear, monthlyActiveCount, brandMonthly, brands, formatVal, unitLabel }: { selectedYear: number; monthlyActiveCount: number; brandMonthly: Record<string, Record<number, number[]>>; brands: string[]; formatVal: (v: number, d?: number) => string; unitLabel: string }) {
+function MonthlyTrendsTab({ selectedYear, monthlyActiveCount, brandMonthly, brands, unit, unitLabel }: { selectedYear: number; monthlyActiveCount: number; brandMonthly: Record<string, Record<number, number[]>>; brands: string[]; unit: string; unitLabel: string }) {
   const monthData = useMemo(() => {
     return MONTHS.map((m, i) => {
       const row: Record<string, any> = { month: m };
@@ -715,8 +783,8 @@ function MonthlyTrendsTab({ selectedYear, monthlyActiveCount, brandMonthly, bran
   }, [selectedYear, brandMonthly, brands]);
 
   const maxMonthly = useMemo(() => {
-    return Math.max(...monthData.map(d => Math.max(...brands.map(b => (d[b] as number) ?? 0))));
-  }, [monthData, brands]);
+    return Math.max(...monthData.map(d => Math.max(...brands.map(b => convertBrandMc((d[b] as number) ?? 0, b, unit)))));
+  }, [monthData, brands, unit]);
 
   return (
     <Card>
@@ -743,17 +811,18 @@ function MonthlyTrendsTab({ selectedYear, monthlyActiveCount, brandMonthly, bran
             </thead>
             <tbody>
               {monthData.map((d, i) => {
-                const total = brands.reduce((s, b) => s + ((d[b] as number) ?? 0), 0);
-                if (total === 0) return null;
-                const afVal = (d["Al Fakher"] as number) ?? 0;
-                const afShare = total > 0 ? ((afVal / total) * 100).toFixed(1) : "0";
+                const totalRaw = brands.reduce((s, b) => s + ((d[b] as number) ?? 0), 0);
+                if (totalRaw === 0) return null;
+                const totalConv = brands.reduce((s, b) => s + convertBrandMc((d[b] as number) ?? 0, b, unit), 0);
+                const afValConv = convertBrandMc((d["Al Fakher"] as number) ?? 0, "Al Fakher", unit);
+                const afShare = totalConv > 0 ? ((afValConv / totalConv) * 100).toFixed(1) : "0";
                 return (
                   <tr key={i} className="border-b last:border-0 hover:bg-muted/50">
                     <td className="py-2 font-medium">{d.month}</td>
                     {brands.map(b => (
-                      <td key={b} className="text-right py-2 px-2 tabular-nums">{formatVal((d[b] as number) ?? 0)}</td>
+                      <td key={b} className="text-right py-2 px-2 tabular-nums">{fmtBrandVal((d[b] as number) ?? 0, b, unit)}</td>
                     ))}
-                    <td className="text-right py-2 px-2 tabular-nums font-semibold">{formatVal(total)}</td>
+                    <td className="text-right py-2 px-2 tabular-nums font-semibold">{(() => { let s = 0; brands.forEach(b => s += convertBrandMc((d[b] as number) ?? 0, b, unit)); const dd = unit === "Tons" ? 2 : 0; return s.toLocaleString("en-US", { minimumFractionDigits: dd, maximumFractionDigits: dd }); })()}</td>
                     <td className="text-right py-2 px-2 tabular-nums">{afShare}%</td>
                   </tr>
                 );
@@ -774,13 +843,14 @@ function MonthlyTrendsTab({ selectedYear, monthlyActiveCount, brandMonthly, bran
                 <div className="flex-1 flex items-end gap-[2px]" style={{ height: 40 }}>
                   {(brandMonthly[b]?.[selectedYear] ?? []).map((v, i) => {
                     if (v === 0 && i >= monthlyActiveCount) return <div key={i} className="flex-1" />;
-                    const h = maxMonthly > 0 ? (v / maxMonthly) * 36 + 2 : 2;
+                    const vc = convertBrandMc(v, b, unit);
+                    const h = maxMonthly > 0 ? (vc / maxMonthly) * 36 + 2 : 2;
                     return (
                       <div
                         key={i}
                         className="flex-1 rounded-t transition-all"
                         style={{ height: h, backgroundColor: BRAND_COLORS[b] ?? "#9ca3af", opacity: 0.8 }}
-                        title={`${MONTHS[i]}: ${formatVal(v)} ${unitLabel}`}
+                        title={`${MONTHS[i]}: ${fmtBrandVal(v, b, unit)} ${unitLabel}`}
                       />
                     );
                   })}
@@ -794,7 +864,7 @@ function MonthlyTrendsTab({ selectedYear, monthlyActiveCount, brandMonthly, bran
   );
 }
 
-function FlavorBreakdownTab({ selectedYear, flavorData, formatVal, unitLabel }: { selectedYear: number; flavorData: Record<string, Record<string, Record<number, number>>>; formatVal: (v: number, d?: number) => string; unitLabel: string }) {
+function FlavorBreakdownTab({ selectedYear, flavorData, unit, unitLabel }: { selectedYear: number; flavorData: Record<string, Record<string, Record<number, number>>>; unit: string; unitLabel: string }) {
   const FLAVOR_COLORS: Record<string, string> = {
     "Two Apple": "#dc2626",
     "Lemon Mint": "#16a34a",
@@ -827,7 +897,7 @@ function FlavorBreakdownTab({ selectedYear, flavorData, formatVal, unitLabel }: 
                   <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: BRAND_COLORS[brand] }} />
                   {brand}
                 </CardTitle>
-                <Badge variant="secondary" className="text-[10px]">{formatVal(brandTotal)} {unitLabel}</Badge>
+                <Badge variant="secondary" className="text-[10px]">{fmtBrandVal(brandTotal, brand, unit)} {unitLabel}</Badge>
               </div>
             </CardHeader>
             <CardContent>
@@ -839,15 +909,13 @@ function FlavorBreakdownTab({ selectedYear, flavorData, formatVal, unitLabel }: 
                 }))}
                 height={20}
                 labels
-                formatVal={formatVal}
-                unitLabel={unitLabel}
               />
               <div className="mt-3 space-y-1.5">
                 {items.map(x => (
                   <div key={x.flavor} className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full" style={{ backgroundColor: FLAVOR_COLORS[x.flavor] ?? "#9ca3af" }} />
                     <span className="text-xs flex-1">{x.flavor}</span>
-                    <span className="text-xs tabular-nums font-medium">{formatVal(x.volume)}</span>
+                    <span className="text-xs tabular-nums font-medium">{fmtBrandVal(x.volume, brand, unit)}</span>
                     <span className="text-[10px] text-muted-foreground min-w-[35px] text-right">{pct(x.volume, brandTotal)}</span>
                   </div>
                 ))}
@@ -881,7 +949,8 @@ function FlavorBreakdownTab({ selectedYear, flavorData, formatVal, unitLabel }: 
               <tbody>
                 {allFlavors.map(flavor => {
                   const vals = flavorBrands.map(b => flavorData[b]?.[flavor]?.[selectedYear] ?? 0);
-                  const maxIdx = vals.indexOf(Math.max(...vals));
+                  const valsConverted = flavorBrands.map((b, i) => convertBrandMc(vals[i], b, unit));
+                  const maxIdx = valsConverted.indexOf(Math.max(...valsConverted));
                   return (
                     <tr key={flavor} className="border-b last:border-0 hover:bg-muted/50">
                       <td className="py-2 font-medium flex items-center gap-1.5">
@@ -890,7 +959,7 @@ function FlavorBreakdownTab({ selectedYear, flavorData, formatVal, unitLabel }: 
                       </td>
                       {flavorBrands.map((b, i) => (
                         <td key={b} className={`text-right py-2 px-3 tabular-nums ${i === maxIdx ? "font-bold" : ""}`}>
-                          {formatVal(vals[i])}
+                          {fmtBrandVal(vals[i], b, unit)}
                         </td>
                       ))}
                       <td className="text-right py-2 px-3">
@@ -910,7 +979,7 @@ function FlavorBreakdownTab({ selectedYear, flavorData, formatVal, unitLabel }: 
   );
 }
 
-function TwoAppleMarketShareTab({ selectedYear, comparisonYear, flavorData, formatVal, unitLabel }: { selectedYear: number; comparisonYear: number; flavorData: Record<string, Record<string, Record<number, number>>>; formatVal: (v: number, d?: number) => string; unitLabel: string }) {
+function TwoAppleMarketShareTab({ selectedYear, comparisonYear, flavorData, unit, unitLabel }: { selectedYear: number; comparisonYear: number; flavorData: Record<string, Record<string, Record<number, number>>>; unit: string; unitLabel: string }) {
   const twoAppleBrands = useMemo(() => {
     const result: { name: string; data: Record<number, number> }[] = [];
     const allSources = { ...OTHER_BRANDS_FLAVOR, ...flavorData };
@@ -921,14 +990,16 @@ function TwoAppleMarketShareTab({ selectedYear, comparisonYear, flavorData, form
   }, [flavorData]);
 
   const segments = twoAppleBrands
-    .map(b => ({ value: b.data[selectedYear] ?? 0, color: BRAND_COLORS[b.name] ?? "#9ca3af", label: b.name }))
+    .map(b => ({ value: convertBrandMc(b.data[selectedYear] ?? 0, b.name, unit), color: BRAND_COLORS[b.name] ?? "#9ca3af", label: b.name }))
     .filter(s => s.value > 0)
     .sort((a, b) => b.value - a.value);
   const total = segments.reduce((s, x) => s + x.value, 0);
 
   const prevSegments = twoAppleBrands
-    .map(b => ({ name: b.name, value: b.data[comparisonYear] ?? 0 }));
+    .map(b => ({ name: b.name, value: convertBrandMc(b.data[comparisonYear] ?? 0, b.name, unit) }));
   const prevTotal = prevSegments.reduce((s, x) => s + x.value, 0);
+
+  const fmtN = (v: number) => { const d = unit === "Tons" ? 2 : 0; return v.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d }); };
 
   return (
     <Card>
@@ -936,7 +1007,7 @@ function TwoAppleMarketShareTab({ selectedYear, comparisonYear, flavorData, form
         <CardTitle className="text-sm font-semibold flex items-center gap-2">
           Two Apple — Market Share — {selectedYear}
           <span className="ml-auto text-xs font-normal text-muted-foreground">
-            Total: {formatVal(total)} {unitLabel}
+            Total: {fmtN(total)} {unitLabel}
             {prevTotal > 0 && <> ({yoyGrowth(total, prevTotal).label} vs {comparisonYear})</>}
           </span>
         </CardTitle>
@@ -944,7 +1015,7 @@ function TwoAppleMarketShareTab({ selectedYear, comparisonYear, flavorData, form
       <CardContent>
         {total > 0 ? (
           <>
-            <StackedBar segments={segments} height={28} labels formatVal={formatVal} unitLabel={unitLabel} />
+            <StackedBar segments={segments} height={28} labels />
             <div className="mt-3 space-y-1.5">
               {segments.map(seg => {
                 const share = total > 0 ? (seg.value / total) * 100 : 0;
@@ -953,7 +1024,7 @@ function TwoAppleMarketShareTab({ selectedYear, comparisonYear, flavorData, form
                   <div key={seg.label} className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full" style={{ backgroundColor: seg.color }} />
                     <span className="text-xs flex-1">{seg.label}</span>
-                    <span className="text-xs tabular-nums font-medium">{formatVal(seg.value)}</span>
+                    <span className="text-xs tabular-nums font-medium">{fmtN(seg.value)}</span>
                     <span className="text-xs tabular-nums text-muted-foreground min-w-[40px] text-right">{share.toFixed(1)}%</span>
                     <GrowthBadge current={seg.value} previous={prev} />
                   </div>
@@ -969,7 +1040,7 @@ function TwoAppleMarketShareTab({ selectedYear, comparisonYear, flavorData, form
   );
 }
 
-function EmergingBrandsTab({ selectedYear, flavorData, formatVal, unitLabel }: { selectedYear: number; flavorData: Record<string, Record<string, Record<number, number>>>; formatVal: (v: number, d?: number) => string; unitLabel: string }) {
+function EmergingBrandsTab({ selectedYear, flavorData, unit, unitLabel }: { selectedYear: number; flavorData: Record<string, Record<string, Record<number, number>>>; unit: string; unitLabel: string }) {
   const emerging = useMemo(() => {
     const merged = { ...OTHER_BRANDS_FLAVOR, ...flavorData };
     const mainBrandNames = new Set(["Al Fakher", "Mazaya", "Nakhla", "Others"]);
@@ -986,12 +1057,12 @@ function EmergingBrandsTab({ selectedYear, flavorData, formatVal, unitLabel }: {
         if ((years[selectedYear] ?? 0) > 0) flavorNames.push(flavor);
       }
       if (vol > 0 || prevVol > 0) {
-        brands.push({ name: brand, volume: vol, prevVolume: prevVol, flavors: flavorNames });
+        brands.push({ name: brand, volume: convertBrandMc(vol, brand, unit), prevVolume: convertBrandMc(prevVol, brand, unit), flavors: flavorNames });
       }
     }
 
     return brands.sort((a, b) => b.volume - a.volume);
-  }, [selectedYear, flavorData]);
+  }, [selectedYear, flavorData, unit]);
 
   const maxVol = Math.max(...emerging.map(b => b.volume), 1);
 
@@ -1011,7 +1082,7 @@ function EmergingBrandsTab({ selectedYear, flavorData, formatVal, unitLabel }: {
                     <span className="text-xs font-semibold">{b.name}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs tabular-nums font-medium">{formatVal(b.volume)} {unitLabel}</span>
+                    <span className="text-xs tabular-nums font-medium">{(() => { const d = unit === "Tons" ? 2 : 0; return b.volume.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d }); })()} {unitLabel}</span>
                     <GrowthBadge current={b.volume} previous={b.prevVolume} />
                   </div>
                 </div>

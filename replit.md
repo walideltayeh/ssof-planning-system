@@ -146,9 +146,10 @@ Schema was converted from MySQL to PostgreSQL during Replit import. Uses Drizzle
 - **Flavor Breakdown tab**: Per-brand flavor portfolio comparison + head-to-head flavor table showing which brand leads each flavor
 - **Two Apple Deep Dive tab**: Side-by-side comparison of all brands competing in Two Apple (Lebanon's #1 flavor) with sparkline trends
 - **Emerging Brands tab**: Minor/new entrants analysis (Al Ostoura, Khalil Maamoun, Al Basha, Gold Dahab, Mawal) with strategic insight cards
-- KPI cards: Total Market, Al Fakher Share, Market Leader, Al Fakher YoY
+- Top Brands head-to-head table with 3-year comparison (replaces KPI cards)
 - Year selector with comparison year; 2026 shows YTD warning
-- File: `client/src/pages/CompetitorAnalysisPage.tsx` (static data from parsed Excel)
+- **Brand-specific unit conversion**: Each brand has its own MC-to-KG weight (Al Fakher=6, Mazaya=6, Nakhla=11.12, Others=8.5). The global `useUnit()` context is NOT used for competitor data; instead `convertBrandMc()` applies the correct brand-specific weight. This is defined in `BRAND_MC_TO_KG` at the top of `CompetitorAnalysisPage.tsx`.
+- File: `client/src/pages/CompetitorAnalysisPage.tsx` (static data from parsed Excel + uploaded competitor_data table)
 
 ## Deployment
 
