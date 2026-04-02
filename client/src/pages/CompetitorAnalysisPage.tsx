@@ -4,7 +4,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { TrendingUp, TrendingDown, Minus, Crown, Target, BarChart3, PieChart, Download, Upload, Loader2, CheckCircle2 } from "lucide-react";
+import { TrendingUp, TrendingDown, Minus, Crown, BarChart3, Download, Upload, Loader2, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { useCountry } from "@/contexts/CountryContext";
@@ -28,12 +28,6 @@ const BRAND_COLORS: Record<string, string> = {
   "Malke": "#a855f7",
 };
 
-const BRAND_YEARLY: Record<string, Record<number, number>> = {
-  "Al Fakher": { 2022: 153839, 2023: 157483, 2024: 157349, 2025: 196990, 2026: 55415 },
-  "Mazaya": { 2022: 229627, 2023: 188352, 2024: 224669, 2025: 300968, 2026: 84770 },
-  "Nakhla": { 2022: 142411, 2023: 208098, 2024: 226105, 2025: 268628, 2026: 107415 },
-  "Others": { 2022: 54255, 2023: 15489, 2024: 24958, 2025: 40776, 2026: 15145 },
-};
 
 const BRAND_MONTHLY: Record<string, Record<number, number[]>> = {
   "Al Fakher": {
@@ -120,12 +114,7 @@ const OTHER_BRANDS_FLAVOR: Record<string, Record<string, Record<number, number>>
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const YEARS = [2022, 2023, 2024, 2025, 2026];
-const MAIN_BRANDS = ["Al Fakher", "Mazaya", "Nakhla", "Others"];
 
-function fmt(n: number): string {
-  if (n >= 1000) return (n / 1000).toFixed(1) + "K";
-  return n.toLocaleString();
-}
 
 function fmtFull(n: number): string {
   return n.toLocaleString();
@@ -158,21 +147,6 @@ function GrowthBadge({ current, previous }: { current: number; previous: number 
   );
 }
 
-function KpiCard({ title, value, subtitle, color, icon }: { title: string; value: string; subtitle?: string; color: string; icon?: React.ReactNode }) {
-  return (
-    <Card className="relative overflow-hidden">
-      <div className="absolute top-0 left-0 w-1 h-full" style={{ backgroundColor: color }} />
-      <CardContent className="p-4 pl-5">
-        <div className="flex items-center justify-between">
-          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{title}</p>
-          {icon && <span style={{ color }} className="opacity-60">{icon}</span>}
-        </div>
-        <p className="text-2xl font-bold mt-1" style={{ color }}>{value}</p>
-        {subtitle && <p className="text-xs text-muted-foreground mt-0.5">{subtitle}</p>}
-      </CardContent>
-    </Card>
-  );
-}
 
 function StackedBar({ segments, height = 24, labels, formatVal: fv, unitLabel: ul }: { segments: { value: number; color: string; label: string }[]; height?: number; labels?: boolean; formatVal?: (v: number, d?: number) => string; unitLabel?: string }) {
   const total = segments.reduce((s, seg) => s + seg.value, 0);
@@ -205,50 +179,8 @@ function StackedBar({ segments, height = 24, labels, formatVal: fv, unitLabel: u
   );
 }
 
-function MiniSparkline({ data, color, width = 120, height = 32 }: { data: number[]; color: string; width?: number; height?: number }) {
-  const filtered = data.filter(v => v > 0);
-  if (filtered.length === 0) return null;
-  const max = Math.max(...filtered);
-  const min = Math.min(...filtered);
-  const range = max - min || 1;
-  const points = data.map((v, i) => {
-    const x = (i / (data.length - 1)) * width;
-    const y = height - ((v - min) / range) * (height - 4) - 2;
-    return `${x},${y}`;
-  }).join(" ");
-  return (
-    <svg width={width} height={height} className="inline-block">
-      <polyline fill="none" stroke={color} strokeWidth="2" points={points} />
-    </svg>
-  );
-}
 
-function BarChart({ items, maxValue }: { items: { label: string; value: number; color: string; sublabel?: string }[]; maxValue: number }) {
-  return (
-    <div className="space-y-2">
-      {items.map((item) => (
-        <div key={item.label} className="flex items-center gap-3">
-          <div className="min-w-[130px] text-xs font-medium truncate" title={item.label}>{item.label}</div>
-          <div className="flex-1 h-6 bg-muted rounded overflow-hidden relative">
-            <div
-              className="h-full rounded transition-all duration-500"
-              style={{
-                width: `${maxValue > 0 ? Math.min((item.value / maxValue) * 100, 100) : 0}%`,
-                backgroundColor: item.color,
-              }}
-            />
-            <span className="absolute right-2 top-0 h-full flex items-center text-[10px] font-semibold text-foreground">
-              {fmtFull(item.value)}
-            </span>
-          </div>
-          {item.sublabel && <span className="text-xs text-muted-foreground min-w-[45px] text-right">{item.sublabel}</span>}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function TwoAppleComparison({ flavorData, formatVal, unitLabel }: { flavorData: Record<string, Record<string, Record<number, number>>>; formatVal: (v: number, d?: number) => string; unitLabel: string }) {
+function TwoAppleComparison({ selectedYear, comparisonYear, flavorData, formatVal, unitLabel }: { selectedYear: number; comparisonYear: number; flavorData: Record<string, Record<string, Record<number, number>>>; formatVal: (v: number, d?: number) => string; unitLabel: string }) {
   const twoAppleData = useMemo(() => {
     const data: Record<string, Record<number, number>> = {};
     const allSources = { ...OTHER_BRANDS_FLAVOR, ...flavorData };
@@ -257,19 +189,20 @@ function TwoAppleComparison({ flavorData, formatVal, unitLabel }: { flavorData: 
     }
     return data;
   }, [flavorData]);
-  const taBrands = Object.keys(twoAppleData).sort((a, b) => {
-    const aVol = Math.max(...Object.values(twoAppleData[a] ?? {}));
-    const bVol = Math.max(...Object.values(twoAppleData[b] ?? {}));
-    return bVol - aVol;
-  });
-  const allYears = Array.from(new Set(taBrands.flatMap(b => Object.keys(twoAppleData[b] ?? {}).map(Number)))).sort();
+  const taBrands = Object.keys(twoAppleData)
+    .filter(b => (twoAppleData[b]?.[selectedYear] ?? 0) > 0)
+    .sort((a, b) => (twoAppleData[b]?.[selectedYear] ?? 0) - (twoAppleData[a]?.[selectedYear] ?? 0));
+  const totalTwoApple = taBrands.reduce((s, b) => s + (twoAppleData[b]?.[selectedYear] ?? 0), 0);
 
   return (
     <Card>
       <CardHeader className="pb-3">
         <CardTitle className="text-sm font-semibold flex items-center gap-2">
           <Crown className="w-4 h-4 text-amber-500" />
-          Two Apple Battle (#1 Flavor)
+          Two Apple Battle — {selectedYear}
+          <span className="ml-auto text-xs font-normal text-muted-foreground">
+            Total: {formatVal(totalTwoApple)} {unitLabel}
+          </span>
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -277,26 +210,41 @@ function TwoAppleComparison({ flavorData, formatVal, unitLabel }: { flavorData: 
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b">
+                <th className="text-left py-2 font-medium">#</th>
                 <th className="text-left py-2 font-medium">Brand</th>
-                {allYears.map(y => <th key={y} className="text-right py-2 font-medium px-2">{y}</th>)}
-                <th className="text-right py-2 font-medium px-2">Trend</th>
+                <th className="text-right py-2 font-medium px-2">Volume ({unitLabel})</th>
+                <th className="text-right py-2 font-medium px-2">Share</th>
+                <th className="text-right py-2 font-medium px-2">YoY vs {comparisonYear}</th>
+                <th className="py-2 font-medium px-2 w-[140px]">Share</th>
               </tr>
             </thead>
             <tbody>
-              {taBrands.map(b => (
-                <tr key={b} className="border-b last:border-0 hover:bg-muted/50">
-                  <td className="py-2 font-medium flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: BRAND_COLORS[b] ?? "#9ca3af" }} />
-                    {b}
-                  </td>
-                  {allYears.map(y => (
-                    <td key={y} className="text-right py-2 px-2 tabular-nums">{formatVal(twoAppleData[b]?.[y] ?? 0)}</td>
-                  ))}
-                  <td className="py-2 px-2">
-                    <MiniSparkline data={allYears.map(y => twoAppleData[b]?.[y] ?? 0)} color={BRAND_COLORS[b] ?? "#9ca3af"} />
-                  </td>
-                </tr>
-              ))}
+              {taBrands.map((b, idx) => {
+                const vol = twoAppleData[b]?.[selectedYear] ?? 0;
+                const prev = twoAppleData[b]?.[comparisonYear] ?? 0;
+                const share = totalTwoApple > 0 ? (vol / totalTwoApple) * 100 : 0;
+                return (
+                  <tr key={b} className="border-b last:border-0 hover:bg-muted/50">
+                    <td className="py-2 text-muted-foreground font-semibold">{idx + 1}</td>
+                    <td className="py-2 font-medium">
+                      <span className="flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: BRAND_COLORS[b] ?? "#9ca3af" }} />
+                        {b}
+                      </span>
+                    </td>
+                    <td className="text-right py-2 px-2 tabular-nums font-semibold">{formatVal(vol)}</td>
+                    <td className="text-right py-2 px-2 tabular-nums">{share.toFixed(1)}%</td>
+                    <td className="text-right py-2 px-2">
+                      <GrowthBadge current={vol} previous={prev} />
+                    </td>
+                    <td className="py-2 px-2">
+                      <div className="h-3.5 bg-muted rounded overflow-hidden">
+                        <div className="h-full rounded" style={{ width: `${Math.min(share, 100)}%`, backgroundColor: BRAND_COLORS[b] ?? "#9ca3af" }} />
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -308,7 +256,7 @@ function TwoAppleComparison({ flavorData, formatVal, unitLabel }: { flavorData: 
 export default function CompetitorAnalysisPage() {
   const { country } = useCountry();
   const { user } = useAppAuth();
-  const { formatVal, unitLabel, convertVal } = useUnit();
+  const { formatVal, unitLabel } = useUnit();
   const [selectedYear, setSelectedYear] = useState<number>(2025);
   const [comparisonYear, setComparisonYear] = useState<number>(2024);
   const [uploading, setUploading] = useState(false);
@@ -412,17 +360,6 @@ export default function CompetitorAnalysisPage() {
 
   const totalMarket = totals[selectedYear] ?? 0;
   const prevTotal = totals[comparisonYear] ?? 0;
-  const afVolume = activeBrandYearly["Al Fakher"]?.[selectedYear] ?? 0;
-  const afPrevVolume = activeBrandYearly["Al Fakher"]?.[comparisonYear] ?? 0;
-  const nakhlaVolume = activeBrandYearly["Nakhla"]?.[selectedYear] ?? 0;
-  const mazayaVolume = activeBrandYearly["Mazaya"]?.[selectedYear] ?? 0;
-
-  const marketLeader = useMemo(() => {
-    const brands = Object.entries(activeBrandYearly)
-      .map(([name, years]) => ({ name, vol: years[selectedYear] ?? 0 }))
-      .sort((a, b) => b.vol - a.vol);
-    return brands[0]?.name ?? "N/A";
-  }, [activeBrandYearly, selectedYear]);
 
   const maxYear = Math.max(...activeYears);
   const is2026 = selectedYear === maxYear && selectedYear >= 2026;
@@ -512,36 +449,80 @@ export default function CompetitorAnalysisPage() {
       )}
 
       {activeMainBrands.length > 0 && <>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <KpiCard
-          title="Total Market"
-          value={formatVal(totalMarket) + " " + unitLabel}
-          subtitle={`vs ${formatVal(prevTotal)} in ${comparisonYear}`}
-          color="#64748b"
-          icon={<BarChart3 className="w-4 h-4" />}
-        />
-        <KpiCard
-          title="Al Fakher Share"
-          value={pct(afVolume, totalMarket)}
-          subtitle={`${formatVal(afVolume)} ${unitLabel} — Rank #${afVolume >= nakhlaVolume && afVolume >= mazayaVolume ? 1 : afVolume >= Math.min(nakhlaVolume, mazayaVolume) ? 2 : 3}`}
-          color={BRAND_COLORS["Al Fakher"]}
-          icon={<Target className="w-4 h-4" />}
-        />
-        <KpiCard
-          title="Market Leader"
-          value={marketLeader}
-          subtitle={`${formatVal(activeBrandYearly[marketLeader]?.[selectedYear] ?? 0)} ${unitLabel}`}
-          color={BRAND_COLORS[marketLeader]}
-          icon={<Crown className="w-4 h-4" />}
-        />
-        <KpiCard
-          title="Al Fakher YoY"
-          value={yoyGrowth(afVolume, afPrevVolume).label}
-          subtitle={`${formatVal(afPrevVolume)} → ${formatVal(afVolume)}`}
-          color={yoyGrowth(afVolume, afPrevVolume).value >= 0 ? "#16a34a" : "#dc2626"}
-          icon={<PieChart className="w-4 h-4" />}
-        />
-      </div>
+      {(() => {
+        const top5 = Object.entries(activeBrandYearly)
+          .map(([name, yrs]) => ({
+            name,
+            vol: yrs[selectedYear] ?? 0,
+            prev: yrs[comparisonYear] ?? 0,
+          }))
+          .sort((a, b) => b.vol - a.vol)
+          .slice(0, 5);
+        return (
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-muted-foreground" />
+                Top 5 Brands — {selectedYear}{is2026 ? " (YTD)" : ""}
+                <span className="ml-auto text-xs font-normal text-muted-foreground">
+                  Total Market: <span className="font-semibold text-foreground">{formatVal(totalMarket)} {unitLabel}</span>
+                  {prevTotal > 0 && <> ({yoyGrowth(totalMarket, prevTotal).label} vs {comparisonYear})</>}
+                </span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b text-muted-foreground">
+                      <th className="text-left py-2 font-medium">#</th>
+                      <th className="text-left py-2 font-medium">Brand</th>
+                      <th className="text-right py-2 font-medium px-2">Volume ({unitLabel})</th>
+                      <th className="text-right py-2 font-medium px-2">Market Share</th>
+                      <th className="text-right py-2 font-medium px-2">YoY vs {comparisonYear}</th>
+                      <th className="py-2 font-medium px-2 w-[180px]">Share</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {top5.map((b, idx) => {
+                      const share = totalMarket > 0 ? (b.vol / totalMarket) * 100 : 0;
+                      const growth = yoyGrowth(b.vol, b.prev);
+                      return (
+                        <tr key={b.name} className={`border-b last:border-0 hover:bg-muted/50 ${b.name === "Al Fakher" ? "bg-blue-50/50 dark:bg-blue-950/20" : ""}`}>
+                          <td className="py-2.5 font-semibold text-muted-foreground">{idx + 1}</td>
+                          <td className="py-2.5 font-semibold">
+                            <span className="flex items-center gap-1.5">
+                              <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: BRAND_COLORS[b.name] ?? "#9ca3af" }} />
+                              {b.name}
+                              {idx === 0 && <Crown className="w-3 h-3 text-amber-500" />}
+                            </span>
+                          </td>
+                          <td className="text-right py-2.5 px-2 tabular-nums font-semibold">{formatVal(b.vol)}</td>
+                          <td className="text-right py-2.5 px-2 tabular-nums">{share.toFixed(1)}%</td>
+                          <td className="text-right py-2.5 px-2">
+                            <GrowthBadge current={b.vol} previous={b.prev} />
+                          </td>
+                          <td className="py-2.5 px-2">
+                            <div className="h-4 bg-muted rounded overflow-hidden">
+                              <div
+                                className="h-full rounded transition-all duration-500"
+                                style={{
+                                  width: `${Math.min(share, 100)}%`,
+                                  backgroundColor: BRAND_COLORS[b.name] ?? "#9ca3af",
+                                }}
+                              />
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       <Tabs defaultValue="market-share" className="space-y-4">
         <TabsList className="flex-wrap h-auto gap-1">
@@ -565,8 +546,8 @@ export default function CompetitorAnalysisPage() {
         </TabsContent>
 
         <TabsContent value="two-apple" className="space-y-4">
-          <TwoAppleComparison flavorData={activeFlavorData} formatVal={formatVal} unitLabel={unitLabel} />
-          <TwoAppleMarketShareTab flavorData={activeFlavorData} formatVal={formatVal} unitLabel={unitLabel} />
+          <TwoAppleComparison selectedYear={selectedYear} comparisonYear={comparisonYear} flavorData={activeFlavorData} formatVal={formatVal} unitLabel={unitLabel} />
+          <TwoAppleMarketShareTab selectedYear={selectedYear} comparisonYear={comparisonYear} flavorData={activeFlavorData} formatVal={formatVal} unitLabel={unitLabel} />
         </TabsContent>
 
         <TabsContent value="emerging" className="space-y-4">
@@ -905,7 +886,7 @@ function FlavorBreakdownTab({ selectedYear, flavorData, formatVal, unitLabel }: 
   );
 }
 
-function TwoAppleMarketShareTab({ flavorData, formatVal, unitLabel }: { flavorData: Record<string, Record<string, Record<number, number>>>; formatVal: (v: number, d?: number) => string; unitLabel: string }) {
+function TwoAppleMarketShareTab({ selectedYear, comparisonYear, flavorData, formatVal, unitLabel }: { selectedYear: number; comparisonYear: number; flavorData: Record<string, Record<string, Record<number, number>>>; formatVal: (v: number, d?: number) => string; unitLabel: string }) {
   const twoAppleBrands = useMemo(() => {
     const result: { name: string; data: Record<number, number> }[] = [];
     const allSources = { ...OTHER_BRANDS_FLAVOR, ...flavorData };
@@ -915,44 +896,50 @@ function TwoAppleMarketShareTab({ flavorData, formatVal, unitLabel }: { flavorDa
     return result;
   }, [flavorData]);
 
-  const years = useMemo(() => {
-    return Array.from(new Set(twoAppleBrands.flatMap(b => Object.keys(b.data).map(Number)))).sort();
-  }, [twoAppleBrands]);
+  const segments = twoAppleBrands
+    .map(b => ({ value: b.data[selectedYear] ?? 0, color: BRAND_COLORS[b.name] ?? "#9ca3af", label: b.name }))
+    .filter(s => s.value > 0)
+    .sort((a, b) => b.value - a.value);
+  const total = segments.reduce((s, x) => s + x.value, 0);
 
-  const maxYear = years.length > 0 ? Math.max(...years) : 2026;
+  const prevSegments = twoAppleBrands
+    .map(b => ({ name: b.name, value: b.data[comparisonYear] ?? 0 }));
+  const prevTotal = prevSegments.reduce((s, x) => s + x.value, 0);
 
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="text-sm font-semibold">Two Apple — Market Share by Brand</CardTitle>
+        <CardTitle className="text-sm font-semibold flex items-center gap-2">
+          Two Apple — Market Share — {selectedYear}
+          <span className="ml-auto text-xs font-normal text-muted-foreground">
+            Total: {formatVal(total)} {unitLabel}
+            {prevTotal > 0 && <> ({yoyGrowth(total, prevTotal).label} vs {comparisonYear})</>}
+          </span>
+        </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="space-y-3">
-          {years.map(y => {
-            const segments = twoAppleBrands
-              .map(b => ({ value: b.data[y] ?? 0, color: BRAND_COLORS[b.name] ?? "#9ca3af", label: b.name }))
-              .filter(s => s.value > 0);
-            const total = segments.reduce((s, x) => s + x.value, 0);
-            if (total === 0) return null;
-            return (
-              <div key={y}>
-                <div className="flex justify-between mb-1">
-                  <span className="text-xs font-semibold">{y}{y === maxYear && y >= 2026 ? " (YTD)" : ""}</span>
-                  <span className="text-xs text-muted-foreground">{formatVal(total)} {unitLabel}</span>
-                </div>
-                <StackedBar segments={segments} height={22} labels formatVal={formatVal} unitLabel={unitLabel} />
-              </div>
-            );
-          })}
-        </div>
-        <div className="flex flex-wrap gap-2 mt-3 pt-2 border-t">
-          {twoAppleBrands.map(b => (
-            <div key={b.name} className="flex items-center gap-1 text-[10px]">
-              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: BRAND_COLORS[b.name] ?? "#9ca3af" }} />
-              {b.name}
+        {total > 0 ? (
+          <>
+            <StackedBar segments={segments} height={28} labels formatVal={formatVal} unitLabel={unitLabel} />
+            <div className="mt-3 space-y-1.5">
+              {segments.map(seg => {
+                const share = total > 0 ? (seg.value / total) * 100 : 0;
+                const prev = prevSegments.find(p => p.name === seg.label)?.value ?? 0;
+                return (
+                  <div key={seg.label} className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: seg.color }} />
+                    <span className="text-xs flex-1">{seg.label}</span>
+                    <span className="text-xs tabular-nums font-medium">{formatVal(seg.value)}</span>
+                    <span className="text-xs tabular-nums text-muted-foreground min-w-[40px] text-right">{share.toFixed(1)}%</span>
+                    <GrowthBadge current={seg.value} previous={prev} />
+                  </div>
+                );
+              })}
             </div>
-          ))}
-        </div>
+          </>
+        ) : (
+          <p className="text-xs text-muted-foreground text-center py-4">No Two Apple data for {selectedYear}</p>
+        )}
       </CardContent>
     </Card>
   );
