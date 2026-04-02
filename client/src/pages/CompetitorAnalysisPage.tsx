@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -11,36 +11,71 @@ import { useCountry } from "@/contexts/CountryContext";
 import { useAppAuth } from "@/contexts/AuthContext";
 import { useUnit } from "@/contexts/UnitContext";
 
-const BRAND_MC_TO_KG: Record<string, number> = {
-  "Al Fakher": 6,
-  "Mazaya": 6,
-  "Nakhla": 11.12,
-  "Al Ostoura": 8.5,
-  "Al Fakhama": 6,
-  "Frisky": 6,
-  "Khalil Maamoun": 10,
-  "Al Basha": 10,
-  "Gold Dahab": 10,
-  "Mawal": 10,
-  "H Hooka": 6,
-  "True Passion": 6,
-  "Malke": 6,
-  "Others": 8.5,
+const BRAND_MONTHLY_KG: Record<string, Record<number, number[]>> = {
+  "Al Fakher": {
+    2025: [88704, 61308, 127410, 133176, 9324, 64602, 89610, 107082, 143118, 147672, 138606, 71328],
+    2026: [130506, 74862, 127122, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  },
+  "Mazaya": {
+    2025: [142338, 129270, 118590, 149442, 142170, 132006, 204480, 173850, 190692, 190692, 94464, 137814],
+    2026: [231312, 134280, 143028, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  },
+  "Nakhla": {
+    2025: [504498, 191763, 216395, 311143, 298105, 191690, 285523, 271845, 232245, 166425, 188725, 127790],
+    2026: [657065, 246418, 283450, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  },
+  "Others": {
+    2025: [8916, 22734, 17736, 24484, 13846, 32818, 19820, 19978, 22026, 30976, 6300, 84384],
+    2026: [34114, 27988, 45948, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  },
 };
-const DEFAULT_MC_TO_KG = 8.5;
 
-function convertBrandMc(mc: number, brand: string, unit: string): number {
-  if (unit === "MC") return mc;
-  const factor = BRAND_MC_TO_KG[brand] ?? DEFAULT_MC_TO_KG;
-  if (unit === "KG") return mc * factor;
-  return mc * factor / 1000;
-}
+const FLAVOR_DATA_KG: Record<string, Record<string, Record<number, number>>> = {
+  "Al Fakher": {
+    "Two Apple": { 2025: 955746, 2026: 295848 },
+    "Grapes": { 2025: 73842, 2026: 10920 },
+    "Lemon Mint": { 2025: 49386, 2026: 9606 },
+    "Mint": { 2025: 51246, 2026: 6042 },
+    "Grape Mint": { 2025: 38928, 2026: 7290 },
+    "Gum": { 2025: 5940, 2026: 1656 },
+    "Other Flavors": { 2025: 6852, 2026: 1128 },
+  },
+  "Mazaya": {
+    "Two Apple": { 2025: 505218, 2026: 150438 },
+    "Lemon Mint": { 2025: 1061904, 2026: 293124 },
+    "Gum": { 2025: 66162, 2026: 22248 },
+    "Mint": { 2025: 43104, 2026: 10080 },
+    "Grapes": { 2025: 33552, 2026: 5022 },
+    "Grape Mint": { 2025: 35652, 2026: 6312 },
+    "Other Flavors": { 2025: 60216, 2026: 21396 },
+  },
+  "Nakhla": {
+    "Two Apple": { 2025: 2952108, 2026: 1186933 },
+    "Lemon Mint": { 2025: 34038, 2026: 0 },
+  },
+};
 
-function fmtBrandVal(mc: number, brand: string, unit: string, decimals?: number): string {
-  const v = convertBrandMc(mc, brand, unit);
-  const d = decimals ?? (unit === "Tons" ? 2 : 0);
-  return v.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
-}
+const OTHER_BRANDS_FLAVOR_KG: Record<string, Record<string, Record<number, number>>> = {
+  "Al Ostoura": {
+    "Two Apple": { 2025: 21798, 2026: 0 },
+    "Lemon Mint": { 2025: 2060, 2026: 0 },
+    "Other Flavors": { 2025: 68484, 2026: 34004 },
+    "Gum": { 2025: 60, 2026: 0 },
+    "Grape Mint": { 2025: 50, 2026: 0 },
+    "Grapes": { 2025: 100, 2026: 0 },
+    "Mint": { 2025: 90, 2026: 0 },
+  },
+  "Al Fakhama": {
+    "Two Apple": { 2025: 14222, 2026: 0 },
+    "Lemon Mint": { 2025: 1054, 2026: 0 },
+  },
+  "Frisky": { "Two Apple": { 2025: 1050, 2026: 210 } },
+  "Khalil Maamoun": { "Two Apple": { 2025: 97650, 2026: 20760 } },
+  "Al Basha": { "Two Apple": { 2025: 47050, 2026: 24740 }, "Lemon Mint": { 2025: 11660, 2026: 0 } },
+  "Gold Dahab": { "Two Apple": { 2025: 35370, 2026: 17058 } },
+  "Mawal": { "Two Apple": { 2025: 33558, 2026: 11316 }, "Lemon Mint": { 2025: 4650, 2026: 0 }, "Other Flavors": { 2025: 4020, 2026: 0 }, "Gum": { 2025: 1338, 2026: 0 }, "Mint": { 2025: 2076, 2026: 0 } },
+  "Malke": { "Lemon Mint": { 2025: 150, 2026: 0 } },
+};
 
 const BRAND_COLORS: Record<string, string> = {
   "Al Fakher": "#2563eb",
@@ -211,20 +246,20 @@ function StackedBar({ segments, height = 24, labels, formatVal: fv, unitLabel: u
 }
 
 
-function TwoAppleComparison({ selectedYear, comparisonYear, flavorData, unit, unitLabel }: { selectedYear: number; comparisonYear: number; flavorData: Record<string, Record<string, Record<number, number>>>; unit: string; unitLabel: string }) {
+function TwoAppleComparison({ selectedYear, comparisonYear, flavorData, otherBrandsFlavorData, unit, unitLabel }: { selectedYear: number; comparisonYear: number; flavorData: Record<string, Record<string, Record<number, number>>>; otherBrandsFlavorData: Record<string, Record<string, Record<number, number>>>; unit: string; unitLabel: string }) {
   const twoAppleData = useMemo(() => {
     const data: Record<string, Record<number, number>> = {};
-    const allSources = { ...OTHER_BRANDS_FLAVOR, ...flavorData };
+    const allSources = { ...otherBrandsFlavorData, ...flavorData };
     for (const [brand, flavors] of Object.entries(allSources)) {
       if (flavors["Two Apple"]) data[brand] = flavors["Two Apple"];
     }
     return data;
-  }, [flavorData]);
+  }, [flavorData, otherBrandsFlavorData]);
   const taBrands = Object.keys(twoAppleData)
     .filter(b => (twoAppleData[b]?.[selectedYear] ?? 0) > 0)
-    .sort((a, b) => convertBrandMc(twoAppleData[b]?.[selectedYear] ?? 0, b, unit) - convertBrandMc(twoAppleData[a]?.[selectedYear] ?? 0, a, unit));
-  const totalTwoAppleConverted = taBrands.reduce((s, b) => s + convertBrandMc(twoAppleData[b]?.[selectedYear] ?? 0, b, unit), 0);
-  const prevTotalConverted = Object.keys(twoAppleData).reduce((s, b) => s + convertBrandMc(twoAppleData[b]?.[comparisonYear] ?? 0, b, unit), 0);
+    .sort((a, b) => (twoAppleData[b]?.[selectedYear] ?? 0) - (twoAppleData[a]?.[selectedYear] ?? 0));
+  const totalTwoAppleConverted = taBrands.reduce((s, b) => s + (twoAppleData[b]?.[selectedYear] ?? 0), 0);
+  const prevTotalConverted = Object.keys(twoAppleData).reduce((s, b) => s + (twoAppleData[b]?.[comparisonYear] ?? 0), 0);
   const fmtN = (v: number) => { const d = unit === "Tons" ? 2 : 0; return v.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d }); };
 
   return (
@@ -253,8 +288,8 @@ function TwoAppleComparison({ selectedYear, comparisonYear, flavorData, unit, un
             </thead>
             <tbody>
               {taBrands.map((b, idx) => {
-                const vol = convertBrandMc(twoAppleData[b]?.[selectedYear] ?? 0, b, unit);
-                const prev = convertBrandMc(twoAppleData[b]?.[comparisonYear] ?? 0, b, unit);
+                const vol = twoAppleData[b]?.[selectedYear] ?? 0;
+                const prev = twoAppleData[b]?.[comparisonYear] ?? 0;
                 const share = totalTwoAppleConverted > 0 ? (vol / totalTwoAppleConverted) * 100 : 0;
                 return (
                   <tr key={b} className="border-b last:border-0 hover:bg-muted/50">
@@ -294,8 +329,7 @@ export default function CompetitorAnalysisPage() {
     const d = decimals ?? (unit === "Tons" ? 2 : 0);
     return n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
   };
-  const cvt = (mc: number, brand: string) => convertBrandMc(mc, brand, unit);
-  const fmtBrand = (mc: number, brand: string) => fmtNum(cvt(mc, brand));
+  const tonDiv = unit === "Tons" ? 1000 : 1;
   const [selectedYear, setSelectedYear] = useState<number>(2025);
   const [compareYear1, setCompareYear1] = useState<number>(2024);
   const [compareYear2, setCompareYear2] = useState<number>(2023);
@@ -309,15 +343,47 @@ export default function CompetitorAnalysisPage() {
 
   const isLebanon = (country ?? "Lebanon") === "Lebanon";
 
-  const activeBrandMonthly = useMemo<Record<string, Record<number, number[]>>>(() => {
+  const mcBrandMonthly = useMemo<Record<string, Record<number, number[]>>>(() => {
     if (dbData?.brandMonthly) return dbData.brandMonthly as any;
     return isLebanon ? BRAND_MONTHLY : {};
   }, [dbData, isLebanon]);
 
+  const kgBrandMonthly = useMemo<Record<string, Record<number, number[]>>>(() => {
+    if (dbData?.brandMonthlyKg) return dbData.brandMonthlyKg as any;
+    return isLebanon ? BRAND_MONTHLY_KG : {};
+  }, [dbData, isLebanon]);
+
+  const mcFlavorData = useMemo<Record<string, Record<string, Record<number, number>>>>(() => {
+    if (dbData?.flavorYearly) return dbData.flavorYearly as any;
+    return isLebanon ? FLAVOR_DATA : {};
+  }, [dbData, isLebanon]);
+
+  const kgFlavorData = useMemo<Record<string, Record<string, Record<number, number>>>>(() => {
+    if (dbData?.flavorYearlyKg) return dbData.flavorYearlyKg as any;
+    return isLebanon ? FLAVOR_DATA_KG : {};
+  }, [dbData, isLebanon]);
+
+  const activeBrandMonthly = useMemo<Record<string, Record<number, number[]>>>(() => {
+    if (unit === "MC") return mcBrandMonthly;
+    const result: Record<string, Record<number, number[]>> = {};
+    for (const [brand, years] of Object.entries(mcBrandMonthly)) {
+      result[brand] = {};
+      for (const [y, months] of Object.entries(years)) {
+        const yr = Number(y);
+        const kgMonths = kgBrandMonthly[brand]?.[yr];
+        if (kgMonths) {
+          result[brand][yr] = kgMonths.map(v => v / tonDiv);
+        } else {
+          result[brand][yr] = (months as number[]).slice();
+        }
+      }
+    }
+    return result;
+  }, [mcBrandMonthly, kgBrandMonthly, unit, tonDiv]);
+
   const activeBrandYearly = useMemo<Record<string, Record<number, number>>>(() => {
-    const bm = activeBrandMonthly;
     const result: Record<string, Record<number, number>> = {};
-    for (const [brand, years] of Object.entries(bm)) {
+    for (const [brand, years] of Object.entries(activeBrandMonthly)) {
       result[brand] = {};
       for (const [y, months] of Object.entries(years)) {
         result[brand][Number(y)] = (months as number[]).reduce((s, v) => s + v, 0);
@@ -327,9 +393,47 @@ export default function CompetitorAnalysisPage() {
   }, [activeBrandMonthly]);
 
   const activeFlavorData = useMemo<Record<string, Record<string, Record<number, number>>>>(() => {
-    if (dbData?.flavorYearly) return dbData.flavorYearly as any;
-    return isLebanon ? FLAVOR_DATA : {};
-  }, [dbData, isLebanon]);
+    if (unit === "MC") return mcFlavorData;
+    const result: Record<string, Record<string, Record<number, number>>> = {};
+    for (const [brand, flavors] of Object.entries(mcFlavorData)) {
+      result[brand] = {};
+      for (const [flavor, years] of Object.entries(flavors)) {
+        result[brand][flavor] = {};
+        for (const [y, val] of Object.entries(years)) {
+          const yr = Number(y);
+          const kgVal = kgFlavorData[brand]?.[flavor]?.[yr];
+          result[brand][flavor][yr] = kgVal != null ? kgVal / tonDiv : (val as number);
+        }
+      }
+    }
+    return result;
+  }, [mcFlavorData, kgFlavorData, unit, tonDiv]);
+
+  const hasKgData = useCallback((year: number) => {
+    return Object.values(kgBrandMonthly).some(yrs => yrs[year] != null);
+  }, [kgBrandMonthly]);
+
+  const effectiveUnitLabel = useCallback((year: number) => {
+    if (unit === "MC") return unitLabel;
+    return hasKgData(year) ? unitLabel : "MC";
+  }, [unit, unitLabel, hasKgData]);
+
+  const activeOtherBrandsFlavorData = useMemo<Record<string, Record<string, Record<number, number>>>>(() => {
+    if (unit === "MC") return OTHER_BRANDS_FLAVOR;
+    const result: Record<string, Record<string, Record<number, number>>> = {};
+    for (const [brand, flavors] of Object.entries(OTHER_BRANDS_FLAVOR)) {
+      result[brand] = {};
+      for (const [flavor, years] of Object.entries(flavors)) {
+        result[brand][flavor] = {};
+        for (const [y, val] of Object.entries(years)) {
+          const yr = Number(y);
+          const kgVal = OTHER_BRANDS_FLAVOR_KG[brand]?.[flavor]?.[yr];
+          result[brand][flavor][yr] = kgVal != null ? kgVal / tonDiv : (val as number);
+        }
+      }
+    }
+    return result;
+  }, [unit, tonDiv]);
 
   const activeYears = useMemo(() => {
     const yearSet = new Set<number>();
@@ -397,14 +501,10 @@ export default function CompetitorAnalysisPage() {
   const totalMarketConverted = useMemo(() => {
     const result: Record<number, number> = {};
     for (const y of activeYears) {
-      let sum = 0;
-      for (const [brand, yrs] of Object.entries(activeBrandYearly)) {
-        sum += cvt(yrs[y] ?? 0, brand);
-      }
-      result[y] = sum;
+      result[y] = Object.values(activeBrandYearly).reduce((s, bv) => s + (bv[y] ?? 0), 0);
     }
     return result;
-  }, [activeBrandYearly, activeYears, unit]);
+  }, [activeBrandYearly, activeYears]);
 
   const totalMarket = totalMarketConverted[selectedYear] ?? 0;
   const prevTotal = totalMarketConverted[compareYear1] ?? 0;
@@ -513,7 +613,7 @@ export default function CompetitorAnalysisPage() {
         const displayYears = [selectedYear, compareYear1, compareYear2].sort((a, b) => b - a);
         const top5 = Object.entries(activeBrandYearly)
           .map(([name, yrs]) => ({ name, yrs }))
-          .sort((a, b) => cvt(b.yrs[selectedYear] ?? 0, b.name) - cvt(a.yrs[selectedYear] ?? 0, a.name))
+          .sort((a, b) => (b.yrs[selectedYear] ?? 0) - (a.yrs[selectedYear] ?? 0))
           .slice(0, 5);
         return (
           <Card>
@@ -547,9 +647,9 @@ export default function CompetitorAnalysisPage() {
                   </thead>
                   <tbody>
                     {top5.map((b, idx) => {
-                      const vol = cvt(b.yrs[selectedYear] ?? 0, b.name);
+                      const vol = b.yrs[selectedYear] ?? 0;
                       const share = totalMarket > 0 ? (vol / totalMarket) * 100 : 0;
-                      const prevVol = cvt(b.yrs[compareYear1] ?? 0, b.name);
+                      const prevVol = b.yrs[compareYear1] ?? 0;
                       return (
                         <tr key={b.name} className={`border-b last:border-0 hover:bg-muted/50 ${b.name === "Al Fakher" ? "bg-blue-50/50 dark:bg-blue-950/20" : ""}`}>
                           <td className="py-2.5 font-semibold text-muted-foreground">{idx + 1}</td>
@@ -562,7 +662,7 @@ export default function CompetitorAnalysisPage() {
                           </td>
                           {displayYears.map(y => (
                             <td key={y} className={`text-right py-2.5 px-2 tabular-nums ${y === selectedYear ? "font-bold" : "text-muted-foreground"}`}>
-                              {fmtBrand(b.yrs[y] ?? 0, b.name)}
+                              {fmtNum(b.yrs[y] ?? 0)}
                             </td>
                           ))}
                           <td className="text-right py-2.5 px-2 tabular-nums">{share.toFixed(1)}%</td>
@@ -621,12 +721,12 @@ export default function CompetitorAnalysisPage() {
         </TabsContent>
 
         <TabsContent value="two-apple" className="space-y-4">
-          <TwoAppleComparison selectedYear={selectedYear} comparisonYear={compareYear1} flavorData={activeFlavorData} unit={unit} unitLabel={unitLabel} />
-          <TwoAppleMarketShareTab selectedYear={selectedYear} comparisonYear={compareYear1} flavorData={activeFlavorData} unit={unit} unitLabel={unitLabel} />
+          <TwoAppleComparison selectedYear={selectedYear} comparisonYear={compareYear1} flavorData={activeFlavorData} otherBrandsFlavorData={activeOtherBrandsFlavorData} unit={unit} unitLabel={unitLabel} />
+          <TwoAppleMarketShareTab selectedYear={selectedYear} comparisonYear={compareYear1} flavorData={activeFlavorData} otherBrandsFlavorData={activeOtherBrandsFlavorData} unit={unit} unitLabel={unitLabel} />
         </TabsContent>
 
         <TabsContent value="emerging" className="space-y-4">
-          <EmergingBrandsTab selectedYear={selectedYear} flavorData={activeFlavorData} unit={unit} unitLabel={unitLabel} />
+          <EmergingBrandsTab selectedYear={selectedYear} flavorData={activeFlavorData} otherBrandsFlavorData={activeOtherBrandsFlavorData} unit={unit} unitLabel={unitLabel} />
         </TabsContent>
       </Tabs>
       </>}
@@ -635,10 +735,11 @@ export default function CompetitorAnalysisPage() {
 }
 
 function MarketShareTab({ selectedYear, comparisonYear, totals, brandYearly, brands, years, unit, unitLabel }: { selectedYear: number; comparisonYear: number; totals: Record<number, number>; brandYearly: Record<string, Record<number, number>>; brands: string[]; years: number[]; unit: string; unitLabel: string }) {
-  const fbv = (mc: number, brand: string) => fmtBrandVal(mc, brand, unit);
+  const fmtNum = (n: number, decimals?: number) => { const d = decimals ?? (unit === "Tons" ? 2 : 0); return n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d }); };
+  const fbv = (v: number) => fmtNum(v);
   const totalConverted = (year: number) => {
     let sum = 0;
-    for (const [b, yrs] of Object.entries(brandYearly)) sum += convertBrandMc(yrs[year] ?? 0, b, unit);
+    for (const [b, yrs] of Object.entries(brandYearly)) sum += yrs[year] ?? 0;
     return sum;
   };
   const fmtTotalConverted = (year: number) => {
@@ -650,14 +751,14 @@ function MarketShareTab({ selectedYear, comparisonYear, totals, brandYearly, bra
   const insights = useMemo(() => {
     const ranked = brands
       .filter(b => b !== "Others")
-      .map(b => ({ name: b, vol: convertBrandMc(brandYearly[b]?.[selectedYear] ?? 0, b, unit) }))
+      .map(b => ({ name: b, vol: brandYearly[b]?.[selectedYear] ?? 0 }))
       .sort((a, b) => b.vol - a.vol);
     const leader = ranked[0];
     if (!leader) return [];
     const growths = ranked.map(b => ({
       name: b.name,
       growth: (() => {
-        const prev = convertBrandMc(brandYearly[b.name]?.[comparisonYear] ?? 0, b.name, unit);
+        const prev = brandYearly[b.name]?.[comparisonYear] ?? 0;
         return prev ? ((b.vol - prev) / prev) * 100 : 0;
       })(),
     })).sort((a, b) => b.growth - a.growth);
@@ -688,7 +789,7 @@ function MarketShareTab({ selectedYear, comparisonYear, totals, brandYearly, bra
             {years.map(y => {
               const total = totals[y] ?? 1;
               const segments = brands.map(b => ({
-                value: convertBrandMc(brandYearly[b]?.[y] ?? 0, b, unit),
+                value: brandYearly[b]?.[y] ?? 0,
                 color: BRAND_COLORS[b] ?? "#9ca3af",
                 label: b,
               }));
@@ -723,8 +824,8 @@ function MarketShareTab({ selectedYear, comparisonYear, totals, brandYearly, bra
         <CardContent>
           <div className="space-y-4">
             {brands.map(b => {
-              const volC = convertBrandMc(brandYearly[b]?.[selectedYear] ?? 0, b, unit);
-              const prevVolC = convertBrandMc(brandYearly[b]?.[comparisonYear] ?? 0, b, unit);
+              const volC = brandYearly[b]?.[selectedYear] ?? 0;
+              const prevVolC = brandYearly[b]?.[comparisonYear] ?? 0;
               const tc = totalConverted(selectedYear);
               const share = tc > 0 ? (volC / tc * 100).toFixed(1) : "0";
               return (
@@ -747,7 +848,7 @@ function MarketShareTab({ selectedYear, comparisonYear, totals, brandYearly, bra
                         }}
                       />
                       <span className="absolute right-2 top-0 h-full flex items-center text-[10px] font-bold">
-                        {fbv(brandYearly[b]?.[selectedYear] ?? 0, b)} {unitLabel}
+                        {fbv(brandYearly[b]?.[selectedYear] ?? 0)} {unitLabel}
                       </span>
                     </div>
                   </div>
@@ -772,6 +873,7 @@ function MarketShareTab({ selectedYear, comparisonYear, totals, brandYearly, bra
 }
 
 function MonthlyTrendsTab({ selectedYear, monthlyActiveCount, brandMonthly, brands, unit, unitLabel }: { selectedYear: number; monthlyActiveCount: number; brandMonthly: Record<string, Record<number, number[]>>; brands: string[]; unit: string; unitLabel: string }) {
+  const fmtNum = (n: number, decimals?: number) => { const d = decimals ?? (unit === "Tons" ? 2 : 0); return n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d }); };
   const monthData = useMemo(() => {
     return MONTHS.map((m, i) => {
       const row: Record<string, any> = { month: m };
@@ -783,8 +885,8 @@ function MonthlyTrendsTab({ selectedYear, monthlyActiveCount, brandMonthly, bran
   }, [selectedYear, brandMonthly, brands]);
 
   const maxMonthly = useMemo(() => {
-    return Math.max(...monthData.map(d => Math.max(...brands.map(b => convertBrandMc((d[b] as number) ?? 0, b, unit)))));
-  }, [monthData, brands, unit]);
+    return Math.max(...monthData.map(d => Math.max(...brands.map(b => (d[b] as number) ?? 0))));
+  }, [monthData, brands]);
 
   return (
     <Card>
@@ -813,16 +915,16 @@ function MonthlyTrendsTab({ selectedYear, monthlyActiveCount, brandMonthly, bran
               {monthData.map((d, i) => {
                 const totalRaw = brands.reduce((s, b) => s + ((d[b] as number) ?? 0), 0);
                 if (totalRaw === 0) return null;
-                const totalConv = brands.reduce((s, b) => s + convertBrandMc((d[b] as number) ?? 0, b, unit), 0);
-                const afValConv = convertBrandMc((d["Al Fakher"] as number) ?? 0, "Al Fakher", unit);
+                const totalConv = brands.reduce((s, b) => s + ((d[b] as number) ?? 0), 0);
+                const afValConv = (d["Al Fakher"] as number) ?? 0;
                 const afShare = totalConv > 0 ? ((afValConv / totalConv) * 100).toFixed(1) : "0";
                 return (
                   <tr key={i} className="border-b last:border-0 hover:bg-muted/50">
                     <td className="py-2 font-medium">{d.month}</td>
                     {brands.map(b => (
-                      <td key={b} className="text-right py-2 px-2 tabular-nums">{fmtBrandVal((d[b] as number) ?? 0, b, unit)}</td>
+                      <td key={b} className="text-right py-2 px-2 tabular-nums">{fmtNum((d[b] as number) ?? 0)}</td>
                     ))}
-                    <td className="text-right py-2 px-2 tabular-nums font-semibold">{(() => { let s = 0; brands.forEach(b => s += convertBrandMc((d[b] as number) ?? 0, b, unit)); const dd = unit === "Tons" ? 2 : 0; return s.toLocaleString("en-US", { minimumFractionDigits: dd, maximumFractionDigits: dd }); })()}</td>
+                    <td className="text-right py-2 px-2 tabular-nums font-semibold">{fmtNum(totalConv)}</td>
                     <td className="text-right py-2 px-2 tabular-nums">{afShare}%</td>
                   </tr>
                 );
@@ -843,14 +945,13 @@ function MonthlyTrendsTab({ selectedYear, monthlyActiveCount, brandMonthly, bran
                 <div className="flex-1 flex items-end gap-[2px]" style={{ height: 40 }}>
                   {(brandMonthly[b]?.[selectedYear] ?? []).map((v, i) => {
                     if (v === 0 && i >= monthlyActiveCount) return <div key={i} className="flex-1" />;
-                    const vc = convertBrandMc(v, b, unit);
-                    const h = maxMonthly > 0 ? (vc / maxMonthly) * 36 + 2 : 2;
+                    const h = maxMonthly > 0 ? (v / maxMonthly) * 36 + 2 : 2;
                     return (
                       <div
                         key={i}
                         className="flex-1 rounded-t transition-all"
                         style={{ height: h, backgroundColor: BRAND_COLORS[b] ?? "#9ca3af", opacity: 0.8 }}
-                        title={`${MONTHS[i]}: ${fmtBrandVal(v, b, unit)} ${unitLabel}`}
+                        title={`${MONTHS[i]}: ${fmtNum(v)} ${unitLabel}`}
                       />
                     );
                   })}
@@ -865,6 +966,7 @@ function MonthlyTrendsTab({ selectedYear, monthlyActiveCount, brandMonthly, bran
 }
 
 function FlavorBreakdownTab({ selectedYear, flavorData, unit, unitLabel }: { selectedYear: number; flavorData: Record<string, Record<string, Record<number, number>>>; unit: string; unitLabel: string }) {
+  const fmtNum = (n: number, decimals?: number) => { const d = decimals ?? (unit === "Tons" ? 2 : 0); return n.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d }); };
   const FLAVOR_COLORS: Record<string, string> = {
     "Two Apple": "#dc2626",
     "Lemon Mint": "#16a34a",
@@ -897,7 +999,7 @@ function FlavorBreakdownTab({ selectedYear, flavorData, unit, unitLabel }: { sel
                   <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: BRAND_COLORS[brand] }} />
                   {brand}
                 </CardTitle>
-                <Badge variant="secondary" className="text-[10px]">{fmtBrandVal(brandTotal, brand, unit)} {unitLabel}</Badge>
+                <Badge variant="secondary" className="text-[10px]">{fmtNum(brandTotal)} {unitLabel}</Badge>
               </div>
             </CardHeader>
             <CardContent>
@@ -915,7 +1017,7 @@ function FlavorBreakdownTab({ selectedYear, flavorData, unit, unitLabel }: { sel
                   <div key={x.flavor} className="flex items-center gap-2">
                     <span className="w-2 h-2 rounded-full" style={{ backgroundColor: FLAVOR_COLORS[x.flavor] ?? "#9ca3af" }} />
                     <span className="text-xs flex-1">{x.flavor}</span>
-                    <span className="text-xs tabular-nums font-medium">{fmtBrandVal(x.volume, brand, unit)}</span>
+                    <span className="text-xs tabular-nums font-medium">{fmtNum(x.volume)}</span>
                     <span className="text-[10px] text-muted-foreground min-w-[35px] text-right">{pct(x.volume, brandTotal)}</span>
                   </div>
                 ))}
@@ -949,7 +1051,7 @@ function FlavorBreakdownTab({ selectedYear, flavorData, unit, unitLabel }: { sel
               <tbody>
                 {allFlavors.map(flavor => {
                   const vals = flavorBrands.map(b => flavorData[b]?.[flavor]?.[selectedYear] ?? 0);
-                  const valsConverted = flavorBrands.map((b, i) => convertBrandMc(vals[i], b, unit));
+                  const valsConverted = vals.slice();
                   const maxIdx = valsConverted.indexOf(Math.max(...valsConverted));
                   return (
                     <tr key={flavor} className="border-b last:border-0 hover:bg-muted/50">
@@ -959,7 +1061,7 @@ function FlavorBreakdownTab({ selectedYear, flavorData, unit, unitLabel }: { sel
                       </td>
                       {flavorBrands.map((b, i) => (
                         <td key={b} className={`text-right py-2 px-3 tabular-nums ${i === maxIdx ? "font-bold" : ""}`}>
-                          {fmtBrandVal(vals[i], b, unit)}
+                          {fmtNum(vals[i])}
                         </td>
                       ))}
                       <td className="text-right py-2 px-3">
@@ -979,10 +1081,10 @@ function FlavorBreakdownTab({ selectedYear, flavorData, unit, unitLabel }: { sel
   );
 }
 
-function TwoAppleMarketShareTab({ selectedYear, comparisonYear, flavorData, unit, unitLabel }: { selectedYear: number; comparisonYear: number; flavorData: Record<string, Record<string, Record<number, number>>>; unit: string; unitLabel: string }) {
+function TwoAppleMarketShareTab({ selectedYear, comparisonYear, flavorData, otherBrandsFlavorData, unit, unitLabel }: { selectedYear: number; comparisonYear: number; flavorData: Record<string, Record<string, Record<number, number>>>; otherBrandsFlavorData: Record<string, Record<string, Record<number, number>>>; unit: string; unitLabel: string }) {
   const twoAppleBrands = useMemo(() => {
     const result: { name: string; data: Record<number, number> }[] = [];
-    const allSources = { ...OTHER_BRANDS_FLAVOR, ...flavorData };
+    const allSources = { ...otherBrandsFlavorData, ...flavorData };
     for (const [brand, flavors] of Object.entries(allSources)) {
       if (flavors["Two Apple"]) result.push({ name: brand, data: flavors["Two Apple"] });
     }
@@ -990,13 +1092,13 @@ function TwoAppleMarketShareTab({ selectedYear, comparisonYear, flavorData, unit
   }, [flavorData]);
 
   const segments = twoAppleBrands
-    .map(b => ({ value: convertBrandMc(b.data[selectedYear] ?? 0, b.name, unit), color: BRAND_COLORS[b.name] ?? "#9ca3af", label: b.name }))
+    .map(b => ({ value: b.data[selectedYear] ?? 0, color: BRAND_COLORS[b.name] ?? "#9ca3af", label: b.name }))
     .filter(s => s.value > 0)
     .sort((a, b) => b.value - a.value);
   const total = segments.reduce((s, x) => s + x.value, 0);
 
   const prevSegments = twoAppleBrands
-    .map(b => ({ name: b.name, value: convertBrandMc(b.data[comparisonYear] ?? 0, b.name, unit) }));
+    .map(b => ({ name: b.name, value: b.data[comparisonYear] ?? 0 }));
   const prevTotal = prevSegments.reduce((s, x) => s + x.value, 0);
 
   const fmtN = (v: number) => { const d = unit === "Tons" ? 2 : 0; return v.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d }); };
@@ -1040,9 +1142,9 @@ function TwoAppleMarketShareTab({ selectedYear, comparisonYear, flavorData, unit
   );
 }
 
-function EmergingBrandsTab({ selectedYear, flavorData, unit, unitLabel }: { selectedYear: number; flavorData: Record<string, Record<string, Record<number, number>>>; unit: string; unitLabel: string }) {
+function EmergingBrandsTab({ selectedYear, flavorData, otherBrandsFlavorData, unit, unitLabel }: { selectedYear: number; flavorData: Record<string, Record<string, Record<number, number>>>; otherBrandsFlavorData: Record<string, Record<string, Record<number, number>>>; unit: string; unitLabel: string }) {
   const emerging = useMemo(() => {
-    const merged = { ...OTHER_BRANDS_FLAVOR, ...flavorData };
+    const merged = { ...otherBrandsFlavorData, ...flavorData };
     const mainBrandNames = new Set(["Al Fakher", "Mazaya", "Nakhla", "Others"]);
     const brands: { name: string; volume: number; prevVolume: number; flavors: string[] }[] = [];
 
@@ -1057,7 +1159,7 @@ function EmergingBrandsTab({ selectedYear, flavorData, unit, unitLabel }: { sele
         if ((years[selectedYear] ?? 0) > 0) flavorNames.push(flavor);
       }
       if (vol > 0 || prevVol > 0) {
-        brands.push({ name: brand, volume: convertBrandMc(vol, brand, unit), prevVolume: convertBrandMc(prevVol, brand, unit), flavors: flavorNames });
+        brands.push({ name: brand, volume: vol, prevVolume: prevVol, flavors: flavorNames });
       }
     }
 

@@ -382,8 +382,43 @@ async function startServer() {
         });
       }
 
+      const brandMonthlyKg: Record<string, Record<number, number[]>> = {};
+      const ws3 = wb.getWorksheet("Brand Monthly Sales KG");
+      if (ws3) {
+        ws3.eachRow((row, rowNum) => {
+          if (rowNum === 1) return;
+          const brand = String(row.getCell(1).value ?? "").trim();
+          const year = parseInt(String(row.getCell(2).value ?? "0"));
+          if (!brand || !year || isNaN(year)) return;
+          const vals: number[] = [];
+          for (let c = 3; c <= 14; c++) {
+            vals.push(parseFloat(String(row.getCell(c).value ?? "0")) || 0);
+          }
+          if (!brandMonthlyKg[brand]) brandMonthlyKg[brand] = {};
+          brandMonthlyKg[brand][year] = vals;
+        });
+      }
+
+      const flavorYearlyKg: Record<string, Record<string, Record<number, number>>> = {};
+      const ws4 = wb.getWorksheet("Brand Flavor Annual KG");
+      if (ws4) {
+        ws4.eachRow((row, rowNum) => {
+          if (rowNum === 1) return;
+          const brand = String(row.getCell(1).value ?? "").trim();
+          const flavor = String(row.getCell(2).value ?? "").trim();
+          if (!brand || !flavor) return;
+          if (!flavorYearlyKg[brand]) flavorYearlyKg[brand] = {};
+          if (!flavorYearlyKg[brand][flavor]) flavorYearlyKg[brand][flavor] = {};
+          for (let c = 0; c < flavorYears.length; c++) {
+            const v = parseFloat(String(row.getCell(c + 3).value ?? "0")) || 0;
+            flavorYearlyKg[brand][flavor][flavorYears[c]] = v;
+          }
+        });
+      }
+
       const { upsertCompetitorData } = await import("../db");
-      await upsertCompetitorData(country, brandMonthly, flavorYearly, username);
+      const hasKg = Object.keys(brandMonthlyKg).length > 0 || Object.keys(flavorYearlyKg).length > 0;
+      await upsertCompetitorData(country, brandMonthly, flavorYearly, username, hasKg ? brandMonthlyKg : undefined, hasKg ? flavorYearlyKg : undefined);
 
       const brandCount = Object.keys(brandMonthly).length;
       const flavorCount = Object.values(flavorYearly).reduce((s, f) => s + Object.keys(f).length, 0);

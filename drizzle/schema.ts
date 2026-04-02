@@ -240,7 +240,9 @@ export const competitorData = pgTable("competitor_data", {
   id: serial("id").primaryKey(),
   country: varchar("country", { length: 50 }).notNull().default("Lebanon"),
   brandMonthly: json("brand_monthly"),
+  brandMonthlyKg: json("brand_monthly_kg"),
   flavorYearly: json("flavor_yearly"),
+  flavorYearlyKg: json("flavor_yearly_kg"),
   uploadedBy: varchar("uploaded_by", { length: 100 }),
   uploadedAt: timestamp("uploaded_at").defaultNow().notNull(),
 });

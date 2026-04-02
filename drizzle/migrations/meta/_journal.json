@@ -36,6 +36,13 @@
       "when": 1775126120804,
       "tag": "0004_powerful_sprite",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1775133217741,
+      "tag": "0005_sticky_silver_fox",
+      "breakpoints": true
     }
   ]
 }

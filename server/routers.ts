@@ -1593,7 +1593,9 @@ export const appRouter = router({
         if (!data) return null;
         return {
           brandMonthly: data.brandMonthly,
+          brandMonthlyKg: data.brandMonthlyKg,
           flavorYearly: data.flavorYearly,
+          flavorYearlyKg: data.flavorYearlyKg,
           uploadedBy: data.uploadedBy,
           uploadedAt: data.uploadedAt?.toISOString() ?? null,
         };

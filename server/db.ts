@@ -3002,16 +3002,16 @@ export async function getCompetitorData(country: string) {
   return rows.length > 0 ? rows[0] : null;
 }
 
-export async function upsertCompetitorData(country: string, brandMonthly: any, flavorYearly: any, uploadedBy: string) {
+export async function upsertCompetitorData(country: string, brandMonthly: any, flavorYearly: any, uploadedBy: string, brandMonthlyKg?: any, flavorYearlyKg?: any) {
   const db = await getDb();
   if (!db) return;
   const existing = await db.select().from(competitorData).where(eq(competitorData.country, country));
   if (existing.length > 0) {
     await db.update(competitorData)
-      .set({ brandMonthly, flavorYearly, uploadedBy, uploadedAt: new Date() })
+      .set({ brandMonthly, brandMonthlyKg: brandMonthlyKg ?? null, flavorYearly, flavorYearlyKg: flavorYearlyKg ?? null, uploadedBy, uploadedAt: new Date() })
       .where(eq(competitorData.country, country));
   } else {
-    await db.insert(competitorData).values({ country, brandMonthly, flavorYearly, uploadedBy, uploadedAt: new Date() });
+    await db.insert(competitorData).values({ country, brandMonthly, brandMonthlyKg: brandMonthlyKg ?? null, flavorYearly, flavorYearlyKg: flavorYearlyKg ?? null, uploadedBy, uploadedAt: new Date() });
   }
 }
 

@@ -148,7 +148,8 @@ Schema was converted from MySQL to PostgreSQL during Replit import. Uses Drizzle
 - **Emerging Brands tab**: Minor/new entrants analysis (Al Ostoura, Khalil Maamoun, Al Basha, Gold Dahab, Mawal) with strategic insight cards
 - Top Brands head-to-head table with 3-year comparison (replaces KPI cards)
 - Year selector with comparison year; 2026 shows YTD warning
-- **Brand-specific unit conversion**: Each brand has its own MC-to-KG weight (Al Fakher=6, Mazaya=6, Nakhla=11.12, Others=8.5). The global `useUnit()` context is NOT used for competitor data; instead `convertBrandMc()` applies the correct brand-specific weight. This is defined in `BRAND_MC_TO_KG` at the top of `CompetitorAnalysisPage.tsx`.
+- **Unit conversion uses actual KG data**: For years with real KG data (2025, 2026), actual KG totals from the Regie Excel are used (stored in `BRAND_MONTHLY_KG`, `FLAVOR_DATA_KG`, `OTHER_BRANDS_FLAVOR_KG` constants). For older years (2017-2024) without KG data, values stay in MC when KG/Tons mode is selected. No ratio-based conversion is used because SKU weights vary (e.g., Nakhla 50g = 12.5 KG/MC vs 250g = 10 KG/MC). Data resolution happens at the page level via `activeBrandMonthly`, `activeFlavorData`, `activeOtherBrandsFlavorData` memos.
+- DB table `competitor_data` has `brand_monthly_kg` and `flavor_yearly_kg` JSON columns for uploaded KG data. Import supports "Brand Monthly Sales KG" and "Brand Flavor Annual KG" sheets.
 - File: `client/src/pages/CompetitorAnalysisPage.tsx` (static data from parsed Excel + uploaded competitor_data table)
 
 ## Deployment
