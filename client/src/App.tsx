@@ -26,6 +26,7 @@ import IntlImsPage from "@/pages/IntlImsPage";
 import IntlAnalysisPage from "@/pages/IntlAnalysisPage";
 import ForecastSplitPage from "@/pages/ForecastSplitPage";
 import ExpiryDashboardPage from "@/pages/ExpiryDashboardPage";
+import CompetitorAnalysisPage from "@/pages/CompetitorAnalysisPage";
 import AutoSaveReminder from "./components/AutoSaveReminder";
 import LandingPage from "./pages/LandingPage";
 import CountrySelectorPage from "./pages/CountrySelectorPage";
@@ -62,6 +63,7 @@ function Dashboard() {
         <Route path="/intl-analysis" component={IntlAnalysisPage} />
         <Route path="/forecast-split" component={ForecastSplitPage} />
         <Route path="/expiry-dashboard" component={ExpiryDashboardPage} />
+        <Route path="/competitor-analysis" component={CompetitorAnalysisPage} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
       </Switch>

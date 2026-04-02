@@ -138,6 +138,18 @@ Schema was converted from MySQL to PostgreSQL during Replit import. Uses Drizzle
 - Chart helper components (HorizontalBarChart, DonutChart, StackedBarChart, BatchLifecycleBar) accept optional `formatter` prop for unit-aware rendering
 - Toggle UI: 3-button group in `DashboardLayout.tsx` sidebar footer
 
+### 9. Competitor Analysis Page — Lebanon Market
+- New "Competitor Analysis" page accessible from all country sidebars at `/competitor-analysis`
+- Source data: Regie (Lebanese government tobacco authority) official sales data 2017–2026
+- **Market Share tab**: Stacked bar chart of brand shares (Al Fakher, Mazaya, Nakhla, Others) by year + volume comparison with YoY growth badges
+- **Monthly Trends tab**: Monthly breakdown table with mini bar charts; shows Al Fakher share per month
+- **Flavor Breakdown tab**: Per-brand flavor portfolio comparison + head-to-head flavor table showing which brand leads each flavor
+- **Two Apple Deep Dive tab**: Side-by-side comparison of all brands competing in Two Apple (Lebanon's #1 flavor) with sparkline trends
+- **Emerging Brands tab**: Minor/new entrants analysis (Al Ostoura, Khalil Maamoun, Al Basha, Gold Dahab, Mawal) with strategic insight cards
+- KPI cards: Total Market, Al Fakher Share, Market Leader, Al Fakher YoY
+- Year selector with comparison year; 2026 shows YTD warning
+- File: `client/src/pages/CompetitorAnalysisPage.tsx` (static data from parsed Excel)
+
 ## Deployment
 
 - Custom domain: `ssofplan.live`
