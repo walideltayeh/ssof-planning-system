@@ -1212,6 +1212,81 @@ export default function AnalysisPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Stock Level by Period — per SKU + Total */}
+        {stockLevelsData && (() => {
+          const sd = stockLevelsData as any;
+          const periodLabels: string[] = sd.periodLabels ?? [];
+          const shortPLabels = periodLabels.map((l: string) => l.length > 5 ? l.slice(0, 3) + "'" + l.slice(-2) : l);
+          const skus: any[] = sd.skuStocks ?? [];
+
+          const totalByPeriod: number[] = periodLabels.map((_: string, pIdx: number) =>
+            skus.reduce((sum: number, sk: any) => sum + (sk.closingStocks?.[pIdx] ?? 0), 0)
+          );
+
+          const wosColor = (w: number) => {
+            if (Math.abs(w) >= 99) return w > 0 ? "#ea580c" : "#111827";
+            if (w <= 0) return "#6b7280";
+            if (w < 4) return "#dc2626";
+            if (w <= 6) return "#16a34a";
+            return "#ea580c";
+          };
+
+          const fmtCS = (v: number) => v === 0 ? "—" : v.toLocaleString();
+
+          return (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Closing Stock by Period (per SKU)</CardTitle>
+                <p className="text-xs text-muted-foreground mt-0.5">Each cell shows closing stock. Color = weeks-of-stock zone (green 4-6w, red &lt;4w, orange &gt;6w)</p>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
+                  <table className="w-full text-xs border-collapse">
+                    <thead className="sticky top-0 z-10">
+                      <tr className="bg-muted">
+                        <th className="text-left p-2 font-semibold sticky left-0 bg-muted min-w-[160px] border-b border-r">SKU</th>
+                        <th className="text-center p-1.5 font-semibold border-b min-w-[50px]">Wt</th>
+                        {shortPLabels.map((l: string, i: number) => (
+                          <th key={i} className="text-right p-1.5 font-medium border-b min-w-[70px]">{l}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {skus.map((sku: any) => (
+                        <tr key={sku.id} className="border-b hover:bg-muted/30 transition-colors">
+                          <td className="p-2 font-medium sticky left-0 bg-white border-r whitespace-nowrap">{sku.name}</td>
+                          <td className="text-center p-1.5">
+                            <span className={`px-1 py-0.5 rounded text-[10px] font-semibold ${sku.weight === '50g' ? 'bg-blue-100 text-blue-700' : sku.weight === '250g' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'}`}>{sku.weight}</span>
+                          </td>
+                          {(sku.closingStocks as number[]).map((cs: number, pIdx: number) => {
+                            const wos = sku.weeksOfStock?.[pIdx] ?? 0;
+                            const bgColor = wosColor(wos);
+                            return (
+                              <td key={pIdx} className="text-right p-1.5 font-mono" style={{ backgroundColor: `${bgColor}12` }}>
+                                <div className="leading-tight">
+                                  <span style={{ color: bgColor }} className="font-semibold">{fmtCS(cs)}</span>
+                                  <div className="text-[9px] opacity-60">{Math.abs(wos) >= 99 ? (wos > 0 ? "∞w" : "-∞w") : `${wos}w`}</div>
+                                </div>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                      <tr className="bg-muted/70 font-bold border-t-2">
+                        <td className="p-2 sticky left-0 bg-muted/70 border-r">TOTAL</td>
+                        <td className="p-1.5"></td>
+                        {totalByPeriod.map((total: number, pIdx: number) => (
+                          <td key={pIdx} className="text-right p-1.5 font-mono font-bold">{total === 0 ? "—" : total.toLocaleString()}</td>
+                        ))}
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })()}
       </div>
     );
   };
