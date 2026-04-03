@@ -132,7 +132,7 @@ export default function DataVersionsPage() {
   const uploadArrival = trpc.upload.arrival.useMutation();
   const uploadPlanningFgBulk = trpc.upload.planningFgBulk.useMutation();
 
-  const [versionCountry, setVersionCountry] = useState<string>(uploadCountry);
+  const versionCountry = uploadCountry;
   const versionsQuery = trpc.versions.list.useQuery({ country: versionCountry as any });
   const editCountQuery = trpc.versions.editCount.useQuery({ country: versionCountry as any });
   const saveMutation = trpc.versions.save.useMutation();
@@ -889,19 +889,6 @@ export default function DataVersionsPage() {
               </p>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              {/* Country selector */}
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-medium text-muted-foreground">Country:</span>
-                <select
-                  value={versionCountry}
-                  onChange={e => setVersionCountry(e.target.value)}
-                  className="text-xs border border-border rounded px-2 py-1.5 bg-background focus:outline-none focus:ring-1 focus:ring-primary"
-                >
-                  <option value="Lebanon">Lebanon</option>
-                  <option value="Syria">Syria</option>
-                  <option value="Libya">Libya</option>
-                </select>
-              </div>
               {/* Compare button */}
               <VersionComparison versions={versions} />
 
