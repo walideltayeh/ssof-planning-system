@@ -90,7 +90,7 @@ export default function ArrivalPage() {
   const data = isLebanon
     ? lbData
     : intlData
-      ? { skus: intlData.skus, periods: intlData.periods, data: intlData.arrival, shipment: intlData.shipment }
+      ? { skus: intlData.skus, periods: intlData.periods, data: intlData.arrival, shipment: intlData.shipment, revisedForecast: intlData.revisedForecast, forecast: intlData.forecast }
       : undefined;
   const isLoading = isLebanon ? lbLoading : intlLoading;
   const isSyncing = isLebanon ? lbFetching : intlFetching;
@@ -240,6 +240,22 @@ export default function ArrivalPage() {
       }
     }
     return map;
+  }, [data]);
+
+  const revisedMap = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const d of (data as any)?.revisedForecast ?? []) {
+      const v = parseFloat(d.value ?? "0") || 0;
+      if (v > 0) m.set(`${d.skuId}-${d.periodId}`, v);
+    }
+    return m;
+  }, [data]);
+
+  const forecastMap = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const d of (data as any)?.forecast ?? [])
+      m.set(`${d.skuId}-${d.periodId}`, parseFloat(d.value ?? "0") || 0);
+    return m;
   }, [data]);
 
   const periodMap = useMemo(() => {
@@ -443,7 +459,10 @@ export default function ArrivalPage() {
       for (const period of periods) {
         const shipRow = shipmentMap.get(`${sku.id}-${period.id}`);
         if (!shipRow) continue;
-        const total = (parseFloat(shipRow.week1) || 0) + (parseFloat(shipRow.week2) || 0) + (parseFloat(shipRow.week3) || 0) + (parseFloat(shipRow.week4) || 0);
+        const shipTotal = (parseFloat(shipRow.week1) || 0) + (parseFloat(shipRow.week2) || 0) + (parseFloat(shipRow.week3) || 0) + (parseFloat(shipRow.week4) || 0);
+        const key = `${sku.id}-${period.id}`;
+        const revisedProd = revisedMap.get(key);
+        const total = revisedProd !== undefined ? revisedProd : (forecastMap.get(key) ?? shipTotal);
         if (total === 0 && (shipRow.arrivalOffsetValue ?? 0) === 0) continue;
         const offVal = shipRow.arrivalOffsetValue ?? 0;
         const offUnit = shipRow.arrivalOffsetUnit ?? "days";
