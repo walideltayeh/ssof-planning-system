@@ -1228,6 +1228,9 @@ export const appRouter = router({
           invoiceRef: input.invoiceRef,
           containerRef: input.containerRef,
         });
+        const total = (parseFloat(input.week1) || 0) + (parseFloat(input.week2) || 0)
+          + (parseFloat(input.week3) || 0) + (parseFloat(input.week4) || 0);
+        await db.upsertForecastData(input.skuId, input.periodId, total.toString());
         await db.logAudit({
           country: input.country, username: input.username || "System",
           action: "edit", sheet: "Production",

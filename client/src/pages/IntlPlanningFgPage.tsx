@@ -212,6 +212,13 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
     return m;
   }, [data]);
 
+  const forecastMap = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const d of data?.forecast ?? [])
+      m.set(`${d.skuId}-${d.periodId}`, parseFloat(d.value ?? "0") || 0);
+    return m;
+  }, [data]);
+
   const planningMap = useMemo(() => {
     const m = new Map<string, { openingStock: number; adjustments: number; invoiced: number; arrivals: number }>();
     for (const d of data?.planningFg ?? []) {
@@ -265,7 +272,9 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
         const p = periods[i];
         const key = `${skuId}-${p.id}`;
         const pg = planningMap.get(key) ?? { openingStock: 0, adjustments: 0, invoiced: 0, arrivals: 0 };
-        const production = shipmentMap.get(key) ?? 0;
+        const actualShipment = shipmentMap.get(key) ?? 0;
+        const forecastProd = forecastMap.get(key) ?? 0;
+        const production = isStrictlyFuture(p) ? forecastProd : (actualShipment || forecastProd);
         const ims = imsMap.get(key) ?? 0;
 
         // Arrivals: only Cleared batches (from production offset)
@@ -309,7 +318,7 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
       }
       return result;
     },
-    [planningMap, shipmentMap, imsMap, arrivalFromProductionMap]
+    [planningMap, shipmentMap, forecastMap, imsMap, arrivalFromProductionMap, isStrictlyFuture]
   );
 
   // ── Cell editing ──────────────────────────────────────────────────────────
@@ -464,7 +473,14 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
       let val = 0;
       if (label === "Adjustments") val = planData?.adjustments ?? 0;
       else if (label === "IMS") val = imsMap.get(`${skuId}-${periodId}`) ?? 0;
-      else if (label === "Production") val = shipmentMap.get(`${skuId}-${periodId}`) ?? 0;
+      else if (label === "Production") {
+        const period = (data?.periods ?? []).find((pp: any) => pp.id === periodId);
+        if (period && isStrictlyFuture(period)) {
+          val = forecastMap.get(`${skuId}-${periodId}`) ?? 0;
+        } else {
+          val = shipmentMap.get(`${skuId}-${periodId}`) ?? 0;
+        }
+      }
       setEditingCell({ skuId, periodId, label });
       setEditValue(val === 0 ? "" : val.toString());
     },
@@ -775,7 +791,7 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
                               <span className="text-[9px] text-blue-400">(editable: current+future)</span>
                             )}
                             {isStrictlyFutureEditable && (
-                              <span className="text-[9px] text-blue-400">(editable: future only)</span>
+                              <span className="text-[9px] text-blue-400">(actual · forecast for future)</span>
                             )}
                             {label === "Opening Stock" && (
                               <span className="text-[9px] text-gray-400">(auto)</span>
