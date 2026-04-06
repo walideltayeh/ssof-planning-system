@@ -562,7 +562,9 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
       const p = periods[i];
       const planData = planningMap.get(`${skuId}-${p.id}`);
       const ims = getEffectiveIms(skuId, p.id);
-      const invoiced = parseFloat(planData?.invoiced ?? "0") || 0;
+      const actualInvoiced = parseFloat(planData?.invoiced ?? "0") || 0;
+      const forecastProd = parseFloat(forecastMap.get(`${skuId}-${p.id}`) ?? "0") || 0;
+      const invoiced = isStrictlyFuture(p) ? forecastProd : actualInvoiced;
       const planningArrivals = parseFloat(planData?.arrivals ?? "0") || 0;
       const arrival = planningArrivals !== 0 ? planningArrivals : (arrivalMap.get(`${skuId}-${p.id}`) ?? 0);
 
@@ -595,7 +597,7 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
       prevClosingStock = closingStock;
     }
     return result;
-  }, [periods, planningMap, arrivalMap, getEffectiveIms, getRawIms]);
+  }, [periods, planningMap, forecastMap, arrivalMap, getEffectiveIms, getRawIms, isStrictlyFuture]);
 
   const isCellEditable = useCallback((label: RowLabel, p: { year: number; month: number }, periodIndex: number): boolean => {
     if (label === "Closing Stock" || label === "Closing Stock - Weeks") return false;
@@ -796,7 +798,7 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
     if (label === "Opening Stock") return <>{label}<span className="ml-1 text-[9px] text-muted-foreground">(1st month)</span></>;
     if (label === "Adjustments") return <>{label}<span className="ml-1 text-[9px] text-blue-500">✎ all months</span></>;
     if (label === "IMS") return <>{label}<span className="ml-1 text-[9px] text-blue-500">✎ current & future → syncs IMS source</span></>;
-    if (label === "Invoiced (SHP)") return <>{label}<span className="ml-1 text-[9px] text-blue-500">✎ future (weekly)</span></>;
+    if (label === "Invoiced (SHP)") return <>{label}<span className="ml-1 text-[9px] text-blue-500">✎ future (weekly) · past = actual, future = forecast</span></>;
     if (label === "Actual arrivals / Planned Orders") return <>{label}<span className="ml-1 text-[9px] text-blue-500">✎ current & future → syncs Production</span></>;
     if (label === "Closing Stock") return <>{label}<span className="ml-1 text-[9px] text-muted-foreground">auto</span></>;
     if (label === "Closing Stock - Weeks") return <>{label}<span className="ml-1 text-[9px] text-muted-foreground">auto</span></>;
