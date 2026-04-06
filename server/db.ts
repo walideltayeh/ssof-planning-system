@@ -890,14 +890,14 @@ export async function getAuditLogs(opts?: { limit?: number; offset?: number; use
 // ==================== COMPUTED DATA ====================
 export async function getFullPlanningData(weightFilter?: string) {
   const db = await getDb();
-  if (!db) return { skus: [], periods: [], forecast: [], ims: [], shipment: [], arrival: [], planningFg: [] };
+  if (!db) return { skus: [], periods: [], forecast: [], ims: [], shipment: [], arrival: [], planningFg: [], revisedForecast: [] };
   
   let skuList = await getSkusForCountry('Lebanon');
   if (weightFilter) {
     skuList = skuList.filter(s => s.weight === weightFilter);
   }
   const skuIds = skuList.map(s => s.id);
-  if (skuIds.length === 0) return { skus: skuList, periods: await getPeriodsForCountry('Lebanon'), forecast: [], ims: [], shipment: [], arrival: [], planningFg: [] };
+  if (skuIds.length === 0) return { skus: skuList, periods: await getPeriodsForCountry('Lebanon'), forecast: [], ims: [], shipment: [], arrival: [], planningFg: [], revisedForecast: [] };
   
   const periodList = await getPeriodsForCountry('Lebanon');
   const forecast = await db.select().from(forecastData).where(inArray(forecastData.skuId, skuIds));
@@ -905,8 +905,9 @@ export async function getFullPlanningData(weightFilter?: string) {
   const shipment = await db.select().from(shipmentData).where(inArray(shipmentData.skuId, skuIds));
   const arrival = await db.select().from(arrivalData).where(inArray(arrivalData.skuId, skuIds));
   const planning = await db.select().from(planningFgData).where(inArray(planningFgData.skuId, skuIds));
+  const revised = await db.select().from(revisedForecastData).where(inArray(revisedForecastData.skuId, skuIds));
   
-  return { skus: skuList, periods: periodList, forecast, ims, shipment, arrival, planningFg: planning };
+  return { skus: skuList, periods: periodList, forecast, ims, shipment, arrival, planningFg: planning, revisedForecast: revised };
 }
 
 // ==================== SSOF VERSIONS ====================
@@ -1885,12 +1886,12 @@ export async function getStockSnapshot() {
 // ==================== COUNTRY-SCOPED PLANNING FG ====================
 export async function getFullPlanningDataForCountry(country: Country) {
   const db = await getDb();
-  if (!db) return { skus: [], periods: [], forecast: [], ims: [], shipment: [], arrival: [], planningFg: [], clearanceEvents: [] };
+  if (!db) return { skus: [], periods: [], forecast: [], ims: [], shipment: [], arrival: [], planningFg: [], clearanceEvents: [], revisedForecast: [] };
   const skuList = await getSkusForCountry(country);
   const skuIds = skuList.map(s => s.id);
   if (skuIds.length === 0) {
     const periodList = await getPeriodsForCountry(country);
-    return { skus: skuList, periods: periodList, forecast: [], ims: [], shipment: [], arrival: [], planningFg: [], clearanceEvents: [] };
+    return { skus: skuList, periods: periodList, forecast: [], ims: [], shipment: [], arrival: [], planningFg: [], clearanceEvents: [], revisedForecast: [] };
   }
   const periodList = await getPeriodsForCountry(country);
   const forecast = await db.select().from(forecastData).where(inArray(forecastData.skuId, skuIds));
@@ -1899,7 +1900,8 @@ export async function getFullPlanningDataForCountry(country: Country) {
   const arrival = await db.select().from(arrivalData).where(inArray(arrivalData.skuId, skuIds));
   const planning = await db.select().from(planningFgData).where(inArray(planningFgData.skuId, skuIds));
   const clearEvts = await db.select().from(clearanceEvents).where(inArray(clearanceEvents.skuId, skuIds));
-  return { skus: skuList, periods: periodList, forecast, ims, shipment, arrival, planningFg: planning, clearanceEvents: clearEvts };
+  const revised = await db.select().from(revisedForecastData).where(inArray(revisedForecastData.skuId, skuIds));
+  return { skus: skuList, periods: periodList, forecast, ims, shipment, arrival, planningFg: planning, clearanceEvents: clearEvts, revisedForecast: revised };
 }
 
 export async function upsertCountryPlanningFgCell(skuId: number, periodId: number, data: { openingStock?: string; adjustments?: string; invoiced?: string; arrivals?: string }) {
