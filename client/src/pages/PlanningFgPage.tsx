@@ -562,9 +562,11 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
       const p = periods[i];
       const planData = planningMap.get(`${skuId}-${p.id}`);
       const ims = getEffectiveIms(skuId, p.id);
-      const actualInvoiced = parseFloat(planData?.invoiced ?? "0") || 0;
+      const shipWeeks = shipmentMap.get(`${skuId}-${p.id}`);
+      const actualShipment = shipWeeks ? (shipWeeks.week1 + shipWeeks.week2 + shipWeeks.week3 + shipWeeks.week4) : 0;
+      const legacyInvoiced = parseFloat(planData?.invoiced ?? "0") || 0;
       const forecastProd = parseFloat(forecastMap.get(`${skuId}-${p.id}`) ?? "0") || 0;
-      const invoiced = isStrictlyFuture(p) ? forecastProd : actualInvoiced;
+      const invoiced = isStrictlyFuture(p) ? forecastProd : (actualShipment || legacyInvoiced);
       const planningArrivals = parseFloat(planData?.arrivals ?? "0") || 0;
       const arrival = planningArrivals !== 0 ? planningArrivals : (arrivalMap.get(`${skuId}-${p.id}`) ?? 0);
 
@@ -597,7 +599,7 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
       prevClosingStock = closingStock;
     }
     return result;
-  }, [periods, planningMap, forecastMap, arrivalMap, getEffectiveIms, getRawIms, isStrictlyFuture]);
+  }, [periods, planningMap, shipmentMap, forecastMap, arrivalMap, getEffectiveIms, getRawIms, isStrictlyFuture]);
 
   const isCellEditable = useCallback((label: RowLabel, p: { year: number; month: number }, periodIndex: number): boolean => {
     if (label === "Closing Stock" || label === "Closing Stock - Weeks") return false;
