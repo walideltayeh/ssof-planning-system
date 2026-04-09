@@ -1864,3 +1864,230 @@ export async function generateAnalysisExcelBuffer(): Promise<Buffer> {
   const buf = await wb.xlsx.writeBuffer();
   return Buffer.from(buf);
 }
+
+export async function generateIntlAnalysisExcelBuffer(country: "Syria" | "Libya"): Promise<Buffer> {
+  const data = await db.getIntlAnalysis(country);
+  if (!data) throw new Error(`No analysis data available for ${country}`);
+
+  const runningRate = await db.getRunningRateAnalysis(country);
+  const stockLevels = await db.getStockLevelAnalysis(country);
+
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "SSOF Planning System";
+  wb.created = new Date();
+
+  const wsOverview = wb.addWorksheet("Overview");
+  wsOverview.columns = [
+    { header: "Metric", key: "metric", width: 30 },
+    { header: "Value", key: "value", width: 20 },
+  ];
+  wsOverview.addRow({ metric: "Country", value: country });
+  wsOverview.addRow({ metric: "Total SKUs", value: data.totalSkus });
+  wsOverview.addRow({ metric: "Total Production", value: data.totalProduction });
+  wsOverview.addRow({ metric: "Total Cleared", value: data.totalCleared });
+  wsOverview.addRow({ metric: "Total Pending", value: data.totalPending });
+  wsOverview.addRow({ metric: "Clearance Rate %", value: data.clearanceRate });
+  wsOverview.addRow({ metric: "Batches With Delay", value: data.batchesWithDelay });
+  wsOverview.addRow({ metric: "Overall Forecast Accuracy %", value: data.overallForecastAccuracy ?? "N/A" });
+  wsOverview.addRow({ metric: "IMS Growth Rate %", value: data.imsGrowthRate ?? "N/A" });
+  styleAnalysisHeader(wsOverview, 2);
+
+  const wsProd = wb.addWorksheet("Production by SKU");
+  wsProd.columns = [
+    { header: "SKU Name", key: "name", width: 35 },
+    { header: "Weight", key: "weight", width: 10 },
+    { header: "Category", key: "category", width: 12 },
+    { header: "Packaging", key: "packagingType", width: 12 },
+    { header: "Total Production", key: "totalProduction", width: 18 },
+    { header: "Total IMS", key: "totalIms", width: 14 },
+  ];
+  for (const s of (data.skuProductionBreakdown as any[]).sort((a: any, b: any) => b.totalProduction - a.totalProduction)) {
+    const r = wsProd.addRow({
+      name: s.name, weight: s.weight, category: s.category,
+      packagingType: s.packagingType,
+      totalProduction: s.totalProduction, totalIms: s.totalIms,
+    });
+    r.getCell(5).numFmt = "#,##0";
+    r.getCell(6).numFmt = "#,##0";
+  }
+  styleAnalysisHeader(wsProd, 6);
+
+  const wsMonthly = wb.addWorksheet("Monthly Trends");
+  const periodLabels = data.periodLabels as string[];
+  wsMonthly.columns = [
+    { header: "Period", key: "period", width: 18 },
+    { header: "Production", key: "production", width: 16 },
+    { header: "IMS", key: "ims", width: 14 },
+    { header: "Forecast", key: "forecast", width: 16 },
+    { header: "Revised Forecast", key: "revised", width: 18 },
+  ];
+  for (let i = 0; i < periodLabels.length; i++) {
+    const r = wsMonthly.addRow({
+      period: periodLabels[i],
+      production: (data.monthlyProductionSeries as number[])[i] ?? 0,
+      ims: (data.monthlyImsSeries as number[])[i] ?? 0,
+      forecast: (data.monthlyForecastSeries as number[])[i] ?? 0,
+      revised: (data.monthlyRevisedForecastSeries as number[])[i] ?? 0,
+    });
+    for (let c = 2; c <= 5; c++) r.getCell(c).numFmt = "#,##0";
+  }
+  styleAnalysisHeader(wsMonthly, 5);
+
+  const wsAccuracy = wb.addWorksheet("Forecast Accuracy");
+  wsAccuracy.columns = [
+    { header: "Period", key: "label", width: 18 },
+    { header: "Forecast", key: "forecast", width: 16 },
+    { header: "Actual", key: "actual", width: 16 },
+    { header: "Accuracy %", key: "accuracy", width: 14 },
+    { header: "Variance %", key: "variance", width: 14 },
+  ];
+  for (const p of data.forecastAccuracyByPeriod as any[]) {
+    const r = wsAccuracy.addRow({
+      label: p.label, forecast: p.forecast, actual: p.actual,
+      accuracy: p.accuracy, variance: p.variance,
+    });
+    r.getCell(2).numFmt = "#,##0";
+    r.getCell(3).numFmt = "#,##0";
+  }
+  styleAnalysisHeader(wsAccuracy, 5);
+
+  const wsClearance = wb.addWorksheet("Clearance Batches");
+  wsClearance.columns = [
+    { header: "SKU Name", key: "skuName", width: 35 },
+    { header: "Weight", key: "weight", width: 10 },
+    { header: "Period", key: "periodLabel", width: 18 },
+    { header: "Total Qty", key: "totalQty", width: 14 },
+    { header: "Cleared Qty", key: "clearedQty", width: 14 },
+    { header: "Pending Qty", key: "pendingQty", width: 14 },
+    { header: "Status", key: "status", width: 18 },
+    { header: "Arrival Date", key: "arrivalDate", width: 14 },
+    { header: "Days at Port", key: "daysAtPort", width: 14 },
+  ];
+  for (const b of data.clearanceBatches as any[]) {
+    const r = wsClearance.addRow({
+      skuName: b.skuName, weight: b.weight, periodLabel: b.periodLabel,
+      totalQty: b.totalQty, clearedQty: b.clearedQty, pendingQty: b.pendingQty,
+      status: b.status, arrivalDate: b.arrivalDate ?? "",
+      daysAtPort: b.daysAtPort ?? "",
+    });
+    r.getCell(4).numFmt = "#,##0";
+    r.getCell(5).numFmt = "#,##0";
+    r.getCell(6).numFmt = "#,##0";
+  }
+  styleAnalysisHeader(wsClearance, 9);
+
+  const wsFlavour = wb.addWorksheet("By Flavour");
+  wsFlavour.columns = [
+    { header: "Flavour", key: "name", width: 30 },
+    { header: "SKU Count", key: "skuCount", width: 12 },
+    { header: "Total Production", key: "totalProduction", width: 18 },
+    { header: "Total IMS", key: "totalIms", width: 14 },
+    { header: "Total Forecast", key: "totalForecast", width: 16 },
+    { header: "% Production", key: "pctProduction", width: 14 },
+    { header: "% IMS", key: "pctIms", width: 10 },
+  ];
+  for (const f of data.flavourBreakdown as any[]) {
+    const r = wsFlavour.addRow({
+      name: f.name, skuCount: f.skuCount,
+      totalProduction: f.totalProduction, totalIms: f.totalIms,
+      totalForecast: f.totalForecast,
+      pctProduction: f.pctProduction, pctIms: f.pctIms,
+    });
+    r.getCell(3).numFmt = "#,##0";
+    r.getCell(4).numFmt = "#,##0";
+    r.getCell(5).numFmt = "#,##0";
+    r.getCell(6).numFmt = "0.0";
+    r.getCell(7).numFmt = "0.0";
+  }
+  styleAnalysisHeader(wsFlavour, 7);
+
+  const wsWeight = wb.addWorksheet("By Weight");
+  wsWeight.columns = [
+    { header: "Weight", key: "weight", width: 12 },
+    { header: "SKU Count", key: "skuCount", width: 12 },
+    { header: "Total Production", key: "totalProduction", width: 18 },
+    { header: "Total IMS", key: "totalIms", width: 14 },
+  ];
+  for (const w of data.weightBreakdown as any[]) {
+    const r = wsWeight.addRow({
+      weight: w.weight, skuCount: w.skuCount,
+      totalProduction: w.totalProduction, totalIms: w.totalIms,
+    });
+    r.getCell(3).numFmt = "#,##0";
+    r.getCell(4).numFmt = "#,##0";
+  }
+  styleAnalysisHeader(wsWeight, 4);
+
+  if (runningRate) {
+    const wsRate = wb.addWorksheet("Running Rate");
+    const rateColCount = 10 + runningRate.periodLabels.length;
+    wsRate.columns = [
+      { header: "SKU Name", key: "name", width: 35 },
+      { header: "Weight", key: "weight", width: 10 },
+      { header: "Category", key: "category", width: 12 },
+      { header: "Avg 3M", key: "avg3m", width: 12 },
+      { header: "Avg 6M", key: "avg6m", width: 12 },
+      { header: "Avg All", key: "avgAll", width: 12 },
+      { header: "Trend %", key: "trend", width: 10 },
+      { header: "Direction", key: "trendDirection", width: 12 },
+      { header: "Peak Month", key: "peakMonth", width: 14 },
+      { header: "Peak Value", key: "peakValue", width: 12 },
+      ...runningRate.periodLabels.map(l => ({ header: l, key: l, width: 12 })),
+    ];
+    for (const sr of runningRate.skuRates) {
+      const r = wsRate.addRow({
+        name: sr.name, weight: sr.weight, category: sr.category,
+        avg3m: sr.avg3m, avg6m: sr.avg6m, avgAll: sr.avgAll,
+        trend: sr.trend, trendDirection: sr.trendDirection,
+        peakMonth: sr.peakMonth, peakValue: sr.peakValue,
+      });
+      for (let mi = 0; mi < sr.monthlyValues.length; mi++) {
+        r.getCell(11 + mi).value = sr.monthlyValues[mi];
+        r.getCell(11 + mi).numFmt = "#,##0";
+      }
+      r.getCell(4).numFmt = "#,##0";
+      r.getCell(5).numFmt = "#,##0";
+      r.getCell(6).numFmt = "#,##0";
+      r.getCell(10).numFmt = "#,##0";
+    }
+    styleAnalysisHeader(wsRate, rateColCount);
+  }
+
+  if (stockLevels) {
+    const wsLevels = wb.addWorksheet("Stock Levels");
+    const slColCount = 9 + stockLevels.periodLabels.length;
+    wsLevels.columns = [
+      { header: "SKU Name", key: "name", width: 35 },
+      { header: "Weight", key: "weight", width: 10 },
+      { header: "Category", key: "category", width: 12 },
+      { header: "Current Stock", key: "currentClosingStock", width: 16 },
+      { header: "Current Weeks", key: "currentWeeks", width: 14 },
+      { header: "Current Zone", key: "currentZone", width: 14 },
+      { header: "Avg Weeks", key: "avgWeeks", width: 12 },
+      { header: "Health Score %", key: "healthScore", width: 16 },
+      { header: "Coverage Months", key: "coverageMonths", width: 16 },
+      ...stockLevels.periodLabels.map(l => ({ header: l + " (weeks)", key: "p_" + l, width: 14 })),
+    ];
+    for (const ss of stockLevels.skuStocks) {
+      const r = wsLevels.addRow({
+        name: ss.name, weight: ss.weight, category: ss.category,
+        currentClosingStock: ss.currentClosingStock,
+        currentWeeks: ss.currentWeeks, currentZone: ss.currentZone,
+        avgWeeks: ss.avgWeeks, healthScore: ss.healthScore,
+        coverageMonths: ss.coverageMonths,
+      });
+      for (let pi = 0; pi < ss.weeksOfStock.length; pi++) {
+        r.getCell(10 + pi).value = ss.weeksOfStock[pi];
+        r.getCell(10 + pi).numFmt = "0.0";
+      }
+      r.getCell(4).numFmt = "#,##0";
+      r.getCell(5).numFmt = "0.0";
+      r.getCell(7).numFmt = "0.0";
+      r.getCell(9).numFmt = "0.0";
+    }
+    styleAnalysisHeader(wsLevels, slColCount);
+  }
+
+  const buf = await wb.xlsx.writeBuffer();
+  return Buffer.from(buf);
+}

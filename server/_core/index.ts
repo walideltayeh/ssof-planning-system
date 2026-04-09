@@ -136,6 +136,25 @@ async function startServer() {
     }
   });
 
+  app.get("/api/export-intl-analysis", async (req, res) => {
+    try {
+      const country = req.query.country as string;
+      if (country !== "Syria" && country !== "Libya") {
+        return res.status(400).json({ error: "Country must be Syria or Libya" });
+      }
+      const { generateIntlAnalysisExcelBuffer } = await import("../excelExport");
+      const buffer = await generateIntlAnalysisExcelBuffer(country);
+      const now = new Date();
+      const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename=SSOF_${country}_Analysis_${dateStr}.xlsx`);
+      res.send(buffer);
+    } catch (err: any) {
+      console.error("[Intl Analysis Export] Error:", err);
+      res.status(500).json({ error: err?.message || "Export failed" });
+    }
+  });
+
   app.get("/api/export-ims-template", async (req, res) => {
     try {
       const country = (req.query.country as string) || "Lebanon";

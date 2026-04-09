@@ -4,6 +4,9 @@ import { useCountry } from "@/contexts/CountryContext";
 import { useUnit } from "@/contexts/UnitContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
+import { Download, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { TableSkeleton } from "@/components/TableSkeleton";
 
 // ==================== SHARED HELPERS ====================
@@ -171,6 +174,34 @@ export default function IntlAnalysisPage() {
   const { formatVal, unitLabel } = useUnit();
   const fmt = (n: number) => formatVal(n);
   const [activeTab, setActiveTab] = useState("production");
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExport = async () => {
+    setIsExporting(true);
+    try {
+      const response = await fetch(`/api/export-intl-analysis?country=${country}`);
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ error: "Export failed" }));
+        throw new Error(err.error || "Export failed");
+      }
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const disposition = response.headers.get("Content-Disposition");
+      const filenameMatch = disposition?.match(/filename=(.+)/);
+      a.download = filenameMatch ? filenameMatch[1] : `SSOF_${country}_Analysis.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success("Analysis exported successfully");
+    } catch (err: any) {
+      toast.error("Export failed: " + (err?.message || "Unknown error"));
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   const { data, isLoading } = trpc.country.intlAnalysis.useQuery(
     { country: country as "Syria" | "Libya" },
@@ -1257,11 +1288,23 @@ export default function IntlAnalysisPage() {
 
     return (
     <div className="p-4 space-y-4">
-      <div>
-        <h1 className="text-xl font-bold">{country} — Analysis</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          Production, clearance, IMS, forecast accuracy, and stock health analysis for {country}
-        </p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h1 className="text-xl font-bold">{country} — Analysis</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Production, clearance, IMS, forecast accuracy, and stock health analysis for {country}
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-2 shrink-0 border-emerald-600 text-emerald-700 hover:bg-emerald-50"
+          onClick={handleExport}
+          disabled={isExporting}
+        >
+          {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+          <span>Export to Excel</span>
+        </Button>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
