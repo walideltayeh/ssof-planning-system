@@ -1604,16 +1604,22 @@ export default function AnalysisPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Analysis Dashboard</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Comprehensive analytics across all SSOF data dimensions
           </p>
         </div>
-        <Button variant="outline" size="sm" className="gap-2" onClick={handleExport} disabled={isExporting}>
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-2 shrink-0 border-emerald-600 text-emerald-700 hover:bg-emerald-50"
+          onClick={handleExport}
+          disabled={isExporting}
+        >
           {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-          Export to Excel
+          <span>Export to Excel</span>
         </Button>
       </div>
 
