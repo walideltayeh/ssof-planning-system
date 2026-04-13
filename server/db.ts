@@ -3138,3 +3138,263 @@ type ExpiryRow = {
   monthsUntilExpiry: number;
   alertTier: "Expired" | "2M" | "4M" | "6M" | "9M" | "12M" | "18M" | "24M" | "OK";
 };
+
+// ==================== FORECAST INTELLIGENCE ====================
+export async function getForecastIntelligence(country: "Lebanon" | "Syria" | "Libya") {
+  const db = await getDb();
+  if (!db) return null;
+
+  const skuList = await getSkusForCountry(country);
+  const skuIds = skuList.map(s => s.id);
+  if (skuIds.length === 0) return null;
+
+  const periodList = await getPeriodsForCountry(country);
+  const imsRows = await db.select().from(imsData).where(inArray(imsData.skuId, skuIds));
+  const fcRows = await db.select().from(forecastData).where(inArray(forecastData.skuId, skuIds));
+  const planRows = await db.select().from(planningFgData).where(inArray(planningFgData.skuId, skuIds));
+
+  const now = new Date();
+  const curYear = now.getFullYear();
+  const curMonth = now.getMonth() + 1;
+  const sortedPeriods = [...periodList].sort((a, b) => a.sortOrder - b.sortOrder);
+
+  const MONTH_NAMES = ["", "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"];
+
+  const imsMap = new Map<string, string>();
+  for (const r of imsRows) imsMap.set(`${r.skuId}-${r.periodId}`, r.value ?? "0");
+  const fcMap = new Map<string, string>();
+  for (const r of fcRows) fcMap.set(`${r.skuId}-${r.periodId}`, r.value ?? "0");
+  const planMap = new Map<string, typeof planRows[0]>();
+  for (const r of planRows) planMap.set(`${r.skuId}-${r.periodId}`, r);
+
+  const currentPeriodIdx = sortedPeriods.findIndex(p => p.year === curYear && p.month === curMonth);
+  const futurePeriods = sortedPeriods.filter(p =>
+    p.year > curYear || (p.year === curYear && p.month > curMonth)
+  ).slice(0, 6);
+
+  const extractFlavor = (name: string) =>
+    name.replace(/^Al Fakher\s*/i, "").replace(/\s*(50g|250g|1kg)\s*$/i, "").trim() || name;
+
+  const ramadanMonths: Record<number, number[]> = {
+    2025: [3], 2026: [2, 3], 2027: [1, 2], 2028: [1, 12],
+  };
+  type SkuForecastIntel = {
+    id: number;
+    name: string;
+    weight: string;
+    category: string;
+    flavor: string;
+    avg3m: number;
+    avg6m: number;
+    avgAll: number;
+    lastMonth: number;
+    trend: number;
+    trendDirection: "growing" | "stable" | "declining";
+    currentClosingStock: number;
+    currentWeeksOfStock: number;
+    stockZone: string;
+    seasonalityIndex: number;
+    currentForecast: number;
+    recommendedForecast: number;
+    gap: number;
+    gapPercent: number;
+    sharePercent: number;
+    factors: {
+      runningRate: number;
+      seasonality: number;
+      stockAdjustment: number;
+      trendAdjustment: number;
+    };
+    reasoning: string;
+  };
+
+  const skuResults: SkuForecastIntel[] = [];
+
+  const nextPeriod = futurePeriods[0];
+  const targetMonth = nextPeriod?.month ?? ((curMonth % 12) + 1);
+  const targetYear = nextPeriod?.year ?? (curMonth === 12 ? curYear + 1 : curYear);
+
+  for (const sku of skuList) {
+    const monthlyIms: number[] = [];
+    for (const p of sortedPeriods) {
+      const val = parseFloat(imsMap.get(`${sku.id}-${p.id}`) ?? "0") || 0;
+      monthlyIms.push(val);
+    }
+
+    const recent = currentPeriodIdx >= 0 ? monthlyIms.slice(0, currentPeriodIdx + 1) : monthlyIms;
+    const last3Window = recent.slice(-3);
+    const last6Window = recent.slice(-6);
+    const avg3m = last3Window.length > 0 ? last3Window.reduce((a, b) => a + b, 0) / last3Window.length : 0;
+    const avg6m = last6Window.length > 0 ? last6Window.reduce((a, b) => a + b, 0) / last6Window.length : 0;
+    const nonZero = recent.filter(v => v > 0);
+    const avgAll = nonZero.length > 0 ? nonZero.reduce((a, b) => a + b, 0) / nonZero.length : 0;
+    const lastMonth = recent.length > 0 ? recent[recent.length - 1] : 0;
+
+    const prior3Window = recent.slice(-6, -3);
+    const avgPrior3 = prior3Window.length > 0 ? prior3Window.reduce((a, b) => a + b, 0) / prior3Window.length : 0;
+    const trend = avgPrior3 > 0 ? Math.round(((avg3m - avgPrior3) / avgPrior3) * 100) : 0;
+    const trendDirection: "growing" | "stable" | "declining" =
+      trend > 5 ? "growing" : trend < -5 ? "declining" : "stable";
+
+    const sameMonthValues = sortedPeriods
+      .filter(p => p.month === targetMonth)
+      .map(p => parseFloat(imsMap.get(`${sku.id}-${p.id}`) ?? "0") || 0);
+    const sameMonthNonZero = sameMonthValues.filter(v => v > 0);
+    const sameMonthAvg = sameMonthNonZero.length > 0
+      ? sameMonthNonZero.reduce((a, b) => a + b, 0) / sameMonthNonZero.length : 0;
+    const seasonalityIndex = avgAll > 0 ? sameMonthAvg / avgAll : 1;
+
+    let currentClosingStock = 0;
+    let currentWeeksOfStock = 0;
+    if (currentPeriodIdx >= 0) {
+      let prevCS = 0;
+      for (let i = 0; i <= currentPeriodIdx; i++) {
+        const p = sortedPeriods[i];
+        const pf = planMap.get(`${sku.id}-${p.id}`);
+        const imsVal = monthlyIms[i];
+        const opening = i === 0 ? (parseFloat(pf?.openingStock ?? "0") || 0) : prevCS;
+        const adj = parseFloat(pf?.adjustments ?? "0") || 0;
+        const arr = parseFloat(pf?.arrivals ?? "0") || 0;
+        prevCS = opening + adj + arr - imsVal;
+      }
+      currentClosingStock = Math.round(prevCS);
+      const np1 = sortedPeriods[currentPeriodIdx + 1];
+      const np2 = sortedPeriods[currentPeriodIdx + 2];
+      const nextIms1 = currentPeriodIdx + 1 < sortedPeriods.length ? monthlyIms[currentPeriodIdx + 1] : 0;
+      const nextIms2 = currentPeriodIdx + 2 < sortedPeriods.length ? monthlyIms[currentPeriodIdx + 2] : 0;
+      const effNext1 = nextIms1 || (np1 ? (parseFloat(fcMap.get(`${sku.id}-${np1.id}`) ?? "0") || 0) : 0);
+      const effNext2 = nextIms2 || (np2 ? (parseFloat(fcMap.get(`${sku.id}-${np2.id}`) ?? "0") || 0) : 0);
+      const avgNext = (effNext1 + effNext2) / 2;
+      currentWeeksOfStock = avgNext > 0 ? Math.round((prevCS / avgNext) * 4.3) : (prevCS > 0 ? 99 : 0);
+    }
+
+    const stockZone = currentWeeksOfStock <= 0 ? (currentClosingStock < 0 ? "Negative" : "Out of Stock") :
+      currentWeeksOfStock < 4 ? "Critical" : currentWeeksOfStock <= 6 ? "Healthy" : "Overstock";
+
+    const currentForecast = nextPeriod
+      ? Math.round(parseFloat(fcRows.find(f => f.skuId === sku.id && f.periodId === nextPeriod.id)?.value ?? "0") || 0)
+      : 0;
+
+    let baseRate = avg3m > 0 ? avg3m : avg6m > 0 ? avg6m : avgAll;
+    const seasonalAdj = seasonalityIndex > 0 ? seasonalityIndex : 1;
+    let recommended = baseRate * seasonalAdj;
+
+    let stockAdj = 0;
+    if (stockZone === "Critical" || stockZone === "Negative" || stockZone === "Out of Stock") {
+      stockAdj = 0.15;
+      recommended *= (1 + stockAdj);
+    } else if (stockZone === "Overstock") {
+      stockAdj = -0.1;
+      recommended *= (1 + stockAdj);
+    }
+
+    let trendAdj = 0;
+    if (trendDirection === "growing") {
+      trendAdj = Math.min(trend / 100 * 0.5, 0.15);
+      recommended *= (1 + trendAdj);
+    } else if (trendDirection === "declining") {
+      trendAdj = Math.max(trend / 100 * 0.5, -0.15);
+      recommended *= (1 + trendAdj);
+    }
+
+    const isRamadan = ramadanMonths[targetYear]?.includes(targetMonth);
+    if (isRamadan) {
+      recommended *= 1.35;
+    }
+
+    recommended = Math.round(recommended);
+
+    const gap = recommended - currentForecast;
+    const gapPercent = currentForecast > 0 ? Math.round((gap / currentForecast) * 100) : (recommended > 0 ? 100 : 0);
+
+    const reasons: string[] = [];
+    if (trendDirection === "growing") reasons.push(`IMS trending up +${trend}%`);
+    if (trendDirection === "declining") reasons.push(`IMS declining ${trend}%`);
+    if (seasonalityIndex > 1.15) reasons.push(`High season (${seasonalityIndex.toFixed(2)}x)`);
+    if (seasonalityIndex < 0.85) reasons.push(`Low season (${seasonalityIndex.toFixed(2)}x)`);
+    if (stockZone === "Critical") reasons.push("Stock critical — boost needed");
+    if (stockZone === "Overstock") reasons.push("Overstocked — reduce allocation");
+    if (isRamadan) reasons.push("Ramadan uplift");
+    if (reasons.length === 0) reasons.push("Stable demand");
+
+    skuResults.push({
+      id: sku.id,
+      name: sku.name,
+      weight: sku.weight,
+      category: sku.category ?? "Core",
+      flavor: extractFlavor(sku.name),
+      avg3m: Math.round(avg3m),
+      avg6m: Math.round(avg6m),
+      avgAll: Math.round(avgAll),
+      lastMonth: Math.round(lastMonth),
+      trend,
+      trendDirection,
+      currentClosingStock,
+      currentWeeksOfStock,
+      stockZone,
+      seasonalityIndex: Math.round(seasonalityIndex * 100) / 100,
+      currentForecast,
+      recommendedForecast: recommended,
+      gap,
+      gapPercent,
+      sharePercent: 0,
+      factors: {
+        runningRate: Math.round(baseRate),
+        seasonality: Math.round(seasonalAdj * 100) / 100,
+        stockAdjustment: Math.round(stockAdj * 100),
+        trendAdjustment: Math.round(trendAdj * 100),
+      },
+      reasoning: reasons.join(" · "),
+    });
+  }
+
+  const totalRecommended = skuResults.reduce((s, r) => s + r.recommendedForecast, 0);
+  for (const r of skuResults) {
+    r.sharePercent = totalRecommended > 0 ? Math.round((r.recommendedForecast / totalRecommended) * 1000) / 10 : 0;
+  }
+
+  const totalCurrentForecast = skuResults.reduce((s, r) => s + r.currentForecast, 0);
+  const totalGap = totalRecommended - totalCurrentForecast;
+
+  const byWeight = new Map<string, { weight: string; currentForecast: number; recommended: number; avg3m: number; skuCount: number }>();
+  for (const r of skuResults) {
+    const e = byWeight.get(r.weight) || { weight: r.weight, currentForecast: 0, recommended: 0, avg3m: 0, skuCount: 0 };
+    e.currentForecast += r.currentForecast;
+    e.recommended += r.recommendedForecast;
+    e.avg3m += r.avg3m;
+    e.skuCount += 1;
+    byWeight.set(r.weight, e);
+  }
+
+  const byFlavor = new Map<string, { flavor: string; currentForecast: number; recommended: number; avg3m: number; sharePercent: number }>();
+  for (const r of skuResults) {
+    const e = byFlavor.get(r.flavor) || { flavor: r.flavor, currentForecast: 0, recommended: 0, avg3m: 0, sharePercent: 0 };
+    e.currentForecast += r.currentForecast;
+    e.recommended += r.recommendedForecast;
+    e.avg3m += r.avg3m;
+    byFlavor.set(r.flavor, e);
+  }
+  for (const [, f] of byFlavor) {
+    f.sharePercent = totalRecommended > 0 ? Math.round((f.recommended / totalRecommended) * 1000) / 10 : 0;
+  }
+
+  return {
+    targetMonth: MONTH_NAMES[targetMonth] || `Month ${targetMonth}`,
+    targetYear,
+    skuIntel: skuResults.sort((a, b) => b.recommendedForecast - a.recommendedForecast),
+    summary: {
+      totalCurrentForecast,
+      totalRecommended,
+      totalGap,
+      totalGapPercent: totalCurrentForecast > 0 ? Math.round((totalGap / totalCurrentForecast) * 100) : 0,
+      skuCount: skuResults.length,
+      criticalSkus: skuResults.filter(r => r.stockZone === "Critical" || r.stockZone === "Negative" || r.stockZone === "Out of Stock").length,
+      overstockedSkus: skuResults.filter(r => r.stockZone === "Overstock").length,
+      growingSkus: skuResults.filter(r => r.trendDirection === "growing").length,
+      decliningSkus: skuResults.filter(r => r.trendDirection === "declining").length,
+    },
+    weightBreakdown: Array.from(byWeight.values()),
+    flavorBreakdown: Array.from(byFlavor.values()).sort((a, b) => b.recommended - a.recommended),
+  };
+}

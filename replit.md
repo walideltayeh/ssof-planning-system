@@ -152,6 +152,19 @@ Schema was converted from MySQL to PostgreSQL during Replit import. Uses Drizzle
 - DB table `competitor_data` has `brand_monthly_kg` and `flavor_yearly_kg` JSON columns for uploaded KG data. Import supports "Brand Monthly Sales KG" and "Brand Flavor Annual KG" sheets.
 - File: `client/src/pages/CompetitorAnalysisPage.tsx` (static data from parsed Excel + uploaded competitor_data table)
 
+### 10. Forecast Intelligence Tab — All Countries
+- New "Forecast Intelligence" tab on Analysis pages (Lebanon, Syria, Libya)
+- Computes per-SKU recommended forecast for next month based on 4 factors:
+  - **Running Rate (base)**: 3-month IMS average as baseline demand signal
+  - **Seasonality Index**: Historical same-month performance vs overall average
+  - **Stock Health**: +15% boost for critical stock, -10% reduction for overstock
+  - **Trend Momentum**: ±15% adjustment based on 3M vs prior 3M growth rate
+- Three sub-views: Summary (KPIs, weight/flavor breakdowns, attention alerts), SKU Detail Table (sortable/filterable), Gap Analysis (under/over-forecasted visualization)
+- Gap = Recommended vs Current Forecast — highlights where planned forecast diverges from demand signals
+- Ramadan uplift (+35%) applied when target month falls in Ramadan period
+- API: `trpc.country.forecastIntelligence` endpoint
+- Files: `server/db.ts` (getForecastIntelligence), `client/src/components/ForecastIntelligenceTab.tsx`, both Analysis pages
+
 ## Deployment
 
 - Custom domain: `ssofplan.live`
