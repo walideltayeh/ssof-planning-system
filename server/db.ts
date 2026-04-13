@@ -3247,7 +3247,7 @@ export async function getCurrentMonthClosingStock(country: "Lebanon" | "Syria" |
       const period = sortedPeriods.find(p => p.month === clearedMonth && p.year === clearedYear);
       if (!period) continue;
       const key = `${ce.skuId}-${period.id}`;
-      intlArrMap.set(key, (intlArrMap.get(key) ?? 0) + (parseFloat(String(ce.mastercases ?? "0")) || 0));
+      intlArrMap.set(key, (intlArrMap.get(key) ?? 0) + (parseFloat(String(ce.clearedQty ?? "0")) || 0));
     }
   }
 
@@ -3394,6 +3394,37 @@ export async function getForecastIntelligence(country: "Lebanon" | "Syria" | "Li
   const planMap = new Map<string, typeof planRows[0]>();
   for (const r of planRows) planMap.set(`${r.skuId}-${r.periodId}`, r);
 
+  const isIntl = country === "Syria" || country === "Libya";
+  const lebArrRows = !isIntl ? await db.select().from(arrivalData).where(inArray(arrivalData.skuId, skuIds)) : [];
+  const lebArrMap = new Map<string, number>();
+  for (const r of lebArrRows) {
+    const total = (parseFloat(r.week1 ?? "0") || 0) + (parseFloat(r.week2 ?? "0") || 0)
+      + (parseFloat(r.week3 ?? "0") || 0) + (parseFloat(r.week4 ?? "0") || 0);
+    lebArrMap.set(`${r.skuId}-${r.periodId}`, total);
+  }
+  const intlClearMap = new Map<string, number>();
+  if (isIntl) {
+    const clearEvts = await db.select().from(clearanceEvents).where(
+      and(eq(clearanceEvents.country, country), inArray(clearanceEvents.skuId, skuIds))
+    );
+    for (const ev of clearEvts) {
+      if (!ev.clearedDate || !ev.clearedQty) continue;
+      const qty = parseFloat(ev.clearedQty as string) || 0;
+      if (qty <= 0) continue;
+      const dateStr = typeof ev.clearedDate === "string" ? ev.clearedDate : (ev.clearedDate as any).toISOString();
+      const cleared = new Date(dateStr);
+      const matchPeriod = sortedPeriods.find(p => p.year === cleared.getFullYear() && p.month === cleared.getMonth() + 1);
+      if (!matchPeriod) continue;
+      const key = `${ev.skuId}-${matchPeriod.id}`;
+      intlClearMap.set(key, (intlClearMap.get(key) ?? 0) + qty);
+    }
+  }
+  const getArrival = (skuId: number, periodId: number) => {
+    if (isIntl) return intlClearMap.get(`${skuId}-${periodId}`) ?? 0;
+    const planArr = parseFloat(planMap.get(`${skuId}-${periodId}`)?.arrivals ?? "0") || 0;
+    return planArr !== 0 ? planArr : (lebArrMap.get(`${skuId}-${periodId}`) ?? 0);
+  };
+
   const currentPeriodIdx = sortedPeriods.findIndex(p => p.year === curYear && p.month === curMonth);
   const futurePeriods = sortedPeriods.filter(p =>
     p.year > curYear || (p.year === curYear && p.month > curMonth)
@@ -3481,7 +3512,7 @@ export async function getForecastIntelligence(country: "Lebanon" | "Syria" | "Li
         const imsVal = monthlyIms[i];
         const opening = i === 0 ? (parseFloat(pf?.openingStock ?? "0") || 0) : prevCS;
         const adj = parseFloat(pf?.adjustments ?? "0") || 0;
-        const arr = parseFloat(pf?.arrivals ?? "0") || 0;
+        const arr = getArrival(sku.id, p.id);
         prevCS = opening + adj + arr - imsVal;
       }
       currentClosingStock = Math.round(prevCS);
