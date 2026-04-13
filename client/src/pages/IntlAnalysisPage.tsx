@@ -234,6 +234,7 @@ export default function IntlAnalysisPage() {
     statusCounts,
     monthlyProductionSeries,
     monthlyImsSeries,
+    monthlyClosingStockSeries,
     monthlyForecastSeries,
     monthlyRevisedForecastSeries,
     periodLabels,
@@ -275,10 +276,10 @@ export default function IntlAnalysisPage() {
         {/* Monthly trend */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Monthly Production vs IMS vs Forecast</CardTitle>
+            <CardTitle className="text-sm">Monthly Production vs IMS vs Forecast vs Closing Stock</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-3 gap-4 mb-4">
+            <div className="grid grid-cols-4 gap-4 mb-4">
               <div>
                 <p className="text-[10px] text-muted-foreground uppercase mb-1">Production Trend</p>
                 <SparkLine data={monthlyProductionSeries} color="#f59e0b" height={50} />
@@ -291,6 +292,10 @@ export default function IntlAnalysisPage() {
                 <p className="text-[10px] text-muted-foreground uppercase mb-1">Forecast Trend</p>
                 <SparkLine data={monthlyForecastSeries ?? []} color="#8b5cf6" height={50} />
               </div>
+              <div>
+                <p className="text-[10px] text-muted-foreground uppercase mb-1">Closing Stock Trend</p>
+                <SparkLine data={(monthlyClosingStockSeries as number[]) ?? []} color="#ef4444" height={50} />
+              </div>
             </div>
             <StackedBarChart
               data={shortLabels.map((lbl: string, i: number) => ({
@@ -299,11 +304,12 @@ export default function IntlAnalysisPage() {
                   production: (monthlyProductionSeries as number[])[i] ?? 0,
                   ims: (monthlyImsSeries as number[])[i] ?? 0,
                   forecast: ((monthlyForecastSeries as number[]) ?? [])[i] ?? 0,
+                  closingStock: ((monthlyClosingStockSeries as number[]) ?? [])[i] ?? 0,
                 },
               }))}
-              keys={["production", "ims", "forecast"]}
-              colors={{ production: "#f59e0b", ims: "#10b981", forecast: "#8b5cf6" }}
-              labels={{ production: "Production", ims: "IMS", forecast: "Forecast" }}
+              keys={["production", "ims", "forecast", "closingStock"]}
+              colors={{ production: "#f59e0b", ims: "#10b981", forecast: "#8b5cf6", closingStock: "#ef4444" }}
+              labels={{ production: "Production", ims: "IMS", forecast: "Forecast", closingStock: "Closing Stock" }}
               formatter={fmt}
             />
           </CardContent>

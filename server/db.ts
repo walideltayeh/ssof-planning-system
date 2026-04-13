@@ -1232,7 +1232,7 @@ export async function getAnalysisOverview() {
     const aVal = allArrival.filter(a => a.periodId === p.id).reduce((s, d) => {
       return s + (parseFloat(d.week1 ?? "0") || 0) + (parseFloat(d.week2 ?? "0") || 0) + (parseFloat(d.week3 ?? "0") || 0) + (parseFloat(d.week4 ?? "0") || 0);
     }, 0);
-    return { period: p.label, year: p.year, month: p.month, forecast: fVal, production: pVal, arrival: aVal };
+    return { period: p.label, year: p.year, month: p.month, forecast: fVal, production: pVal, arrival: aVal, closingStock: 0 };
   });
 
   // Compute closing stock weeks server-side (same formula as frontend)
@@ -1254,6 +1254,8 @@ export async function getAnalysisOverview() {
     return 0;
   };
   const weeksVals: number[] = [];
+  const closingStockByPeriod = new Map<number, number>();
+  const allArrivalDataForWeeks = await db.select().from(arrivalData);
   for (const sku of allSkusList) {
     let prevCS = 0;
     for (let i = 0; i < allPeriods.length; i++) {
@@ -1262,8 +1264,19 @@ export async function getAnalysisOverview() {
       const ims = getEffIms(sku.id, p.id);
       const opening = i === 0 ? (parseFloat(pf?.openingStock ?? "0") || 0) : prevCS;
       const adj = parseFloat(pf?.adjustments ?? "0") || 0;
-      const arr = parseFloat(pf?.arrivals ?? "0") || 0;
+      const planningArr = parseFloat(pf?.arrivals ?? "0") || 0;
+      let arr = planningArr;
+      if (arr === 0) {
+        const arrRow = allArrivalDataForWeeks.find(a => a.skuId === sku.id && a.periodId === p.id);
+        if (arrRow) {
+          arr = (parseFloat(arrRow.week1 ?? "0") || 0) +
+                (parseFloat(arrRow.week2 ?? "0") || 0) +
+                (parseFloat(arrRow.week3 ?? "0") || 0) +
+                (parseFloat(arrRow.week4 ?? "0") || 0);
+        }
+      }
       const cs = opening + adj + arr - ims;
+      closingStockByPeriod.set(p.id, (closingStockByPeriod.get(p.id) ?? 0) + Math.round(cs));
       if (cs !== 0) {
         const n1 = i + 1 < allPeriods.length ? getEffIms(sku.id, allPeriods[i + 1].id) : 0;
         const n2 = i + 2 < allPeriods.length ? getEffIms(sku.id, allPeriods[i + 2].id) : 0;
@@ -1274,6 +1287,9 @@ export async function getAnalysisOverview() {
     }
   }
   const avgWeeksOfStock = weeksVals.length > 0 ? weeksVals.reduce((a, b) => a + b, 0) / weeksVals.length : 0;
+  for (let i = 0; i < allPeriods.length; i++) {
+    monthlyTrend[i].closingStock = closingStockByPeriod.get(allPeriods[i].id) ?? 0;
+  }
 
   return {
     totalSkus: allSkusList.length,
@@ -2145,6 +2161,14 @@ export async function getIntlAnalysis(country: "Syria" | "Libya") {
     }
   }
 
+  const monthlyClosingStockSeries = sortedPeriods.map((_, pIdx) => {
+    let total = 0;
+    for (const stocks of Array.from(skuClosingStock.values())) {
+      total += stocks[pIdx] ?? 0;
+    }
+    return Math.round(total);
+  });
+
   // - Build sorted period labels -
   const periodLabels = sortedPeriods.map((p) => p.label);
 
@@ -2325,6 +2349,7 @@ export async function getIntlAnalysis(country: "Syria" | "Libya") {
     statusCounts,
     monthlyProductionSeries,
     monthlyImsSeries,
+    monthlyClosingStockSeries,
     monthlyForecastSeries,
     monthlyRevisedForecastSeries,
     periodLabels,

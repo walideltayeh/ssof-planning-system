@@ -267,10 +267,10 @@ export default function AnalysisPage() {
         {/* Monthly Trend */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Monthly Trend: Forecast vs Production vs Arrival</CardTitle>
+            <CardTitle className="text-sm">Monthly Trend: Forecast vs Production vs Arrival vs Closing Stock</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-3 gap-4 mb-4">
+            <div className="grid grid-cols-4 gap-4 mb-4">
               <div>
                 <p className="text-[10px] text-muted-foreground uppercase mb-1">Forecast Trend</p>
                 <SparkLine data={overview.monthlyTrend.map(m => m.forecast)} color="#10b981" height={50} />
@@ -283,15 +283,19 @@ export default function AnalysisPage() {
                 <p className="text-[10px] text-muted-foreground uppercase mb-1">Arrival Trend</p>
                 <SparkLine data={overview.monthlyTrend.map(m => m.arrival)} color="#8b5cf6" height={50} />
               </div>
+              <div>
+                <p className="text-[10px] text-muted-foreground uppercase mb-1">Closing Stock Trend</p>
+                <SparkLine data={overview.monthlyTrend.map((m: any) => m.closingStock ?? 0)} color="#ef4444" height={50} />
+              </div>
             </div>
             <StackedBarChart
               data={overview.monthlyTrend.map(m => ({
                 label: m.period.slice(0, 3) + "'" + m.period.slice(-2),
-                values: { forecast: m.forecast, production: m.production, arrival: m.arrival },
+                values: { forecast: m.forecast, production: m.production, arrival: m.arrival, closingStock: (m as any).closingStock ?? 0 },
               }))}
-              keys={["forecast", "production", "arrival"]}
-              colors={{ forecast: "#10b981", production: "#f59e0b", arrival: "#8b5cf6" }}
-              labels={{ forecast: "Forecast", production: "Production", arrival: "Arrival" }}
+              keys={["forecast", "production", "arrival", "closingStock"]}
+              colors={{ forecast: "#10b981", production: "#f59e0b", arrival: "#8b5cf6", closingStock: "#ef4444" }}
+              labels={{ forecast: "Forecast", production: "Production", arrival: "Arrival", closingStock: "Closing Stock" }}
               formatter={formatNum}
             />
           </CardContent>
