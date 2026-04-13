@@ -1448,6 +1448,7 @@ export async function generateAnalysisExcelBuffer(): Promise<Buffer> {
     { header: "SKU Name", key: "name", width: 35 },
     { header: "Weight", key: "weight", width: 10 },
     { header: "Category", key: "category", width: 12 },
+    { header: "Packaging", key: "packagingType", width: 12 },
     { header: "Total Forecast", key: "totalForecast", width: 16 },
     { header: "Total Production", key: "totalProduction", width: 18 },
     { header: "Total IMS", key: "totalIms", width: 14 },
@@ -1458,19 +1459,20 @@ export async function generateAnalysisExcelBuffer(): Promise<Buffer> {
   for (const s of bySku.sort((a, b) => b.totalForecast - a.totalForecast)) {
     const r = wsSku.addRow({
       name: s.name, weight: s.weight, category: s.category,
+      packagingType: (s as any).packagingType ?? "New",
       totalForecast: s.totalForecast, totalProduction: s.totalProduction,
       totalIms: s.totalIms, forecastAccuracy: s.forecastAccuracy,
       avgWeeksOfStock: s.avgWeeksOfStock,
       currentStockMC: (s as any).currentStockMC ?? 0,
     });
-    r.getCell(4).numFmt = "#,##0";
     r.getCell(5).numFmt = "#,##0";
     r.getCell(6).numFmt = "#,##0";
-    r.getCell(7).numFmt = "0";
-    r.getCell(8).numFmt = "0.0";
-    r.getCell(9).numFmt = "#,##0";
+    r.getCell(7).numFmt = "#,##0";
+    r.getCell(8).numFmt = "0";
+    r.getCell(9).numFmt = "0.0";
+    r.getCell(10).numFmt = "#,##0";
   }
-  styleAnalysisHeader(wsSku, 9);
+  styleAnalysisHeader(wsSku, 10);
 
   const wsWeight = wb.addWorksheet("By Weight");
   wsWeight.columns = [
@@ -1557,6 +1559,7 @@ export async function generateAnalysisExcelBuffer(): Promise<Buffer> {
     { header: "SKU Name", key: "name", width: 35 },
     { header: "Weight", key: "weight", width: 10 },
     { header: "Category", key: "category", width: 12 },
+    { header: "Packaging", key: "packagingType", width: 12 },
     { header: "Total Shipped", key: "totalShipped", width: 16 },
     { header: "Total Arrived", key: "totalArrived", width: 16 },
     { header: "Gap", key: "gap", width: 14 },
@@ -1565,15 +1568,16 @@ export async function generateAnalysisExcelBuffer(): Promise<Buffer> {
   for (const s of production.skuEfficiency) {
     const r = wsProdSku.addRow({
       name: s.name, weight: s.weight, category: s.category,
+      packagingType: (s as any).packagingType ?? "New",
       totalShipped: s.totalShipped, totalArrived: s.totalArrived,
       gap: s.gap, efficiency: s.efficiency,
     });
-    r.getCell(4).numFmt = "#,##0";
     r.getCell(5).numFmt = "#,##0";
     r.getCell(6).numFmt = "#,##0";
-    r.getCell(7).numFmt = "0";
+    r.getCell(7).numFmt = "#,##0";
+    r.getCell(8).numFmt = "0";
   }
-  styleAnalysisHeader(wsProdSku, 7);
+  styleAnalysisHeader(wsProdSku, 8);
 
   const wsHealth = wb.addWorksheet("Stock Health Zones");
   wsHealth.columns = [
@@ -1591,6 +1595,7 @@ export async function generateAnalysisExcelBuffer(): Promise<Buffer> {
     { header: "SKU Name", key: "name", width: 35 },
     { header: "Weight", key: "weight", width: 10 },
     { header: "Category", key: "category", width: 12 },
+    { header: "Packaging", key: "packagingType", width: 12 },
     { header: "Avg Weeks of Stock", key: "avgWeeksOfStock", width: 20 },
     { header: "Health Score %", key: "healthScore", width: 16 },
     { header: "Out of Stock", key: "oos", width: 14 },
@@ -1602,6 +1607,7 @@ export async function generateAnalysisExcelBuffer(): Promise<Buffer> {
   for (const s of stockHealth.skuHealth) {
     const r = wsHealthSku.addRow({
       name: s.name, weight: s.weight, category: s.category,
+      packagingType: (s as any).packagingType ?? "New",
       avgWeeksOfStock: s.avgWeeksOfStock, healthScore: s.healthScore,
       oos: s.zoneBreakdown["Out of Stock"] || 0,
       critical: s.zoneBreakdown["Critical"] || 0,
@@ -1609,19 +1615,20 @@ export async function generateAnalysisExcelBuffer(): Promise<Buffer> {
       overstock: s.zoneBreakdown["Overstock"] || 0,
       negative: s.zoneBreakdown["Negative"] || 0,
     });
-    r.getCell(4).numFmt = "0.0";
-    r.getCell(5).numFmt = "0";
+    r.getCell(5).numFmt = "0.0";
+    r.getCell(6).numFmt = "0";
   }
-  styleAnalysisHeader(wsHealthSku, 10);
+  styleAnalysisHeader(wsHealthSku, 11);
 
   // ---- Running Rate ----
   if (runningRate) {
     const wsRate = wb.addWorksheet("Running Rate");
-    const rateColCount = 10 + runningRate.periodLabels.length;
+    const rateColCount = 11 + runningRate.periodLabels.length;
     wsRate.columns = [
       { header: "SKU Name", key: "name", width: 35 },
       { header: "Weight", key: "weight", width: 10 },
       { header: "Category", key: "category", width: 12 },
+      { header: "Packaging", key: "packagingType", width: 12 },
       { header: "Avg 3M", key: "avg3m", width: 12 },
       { header: "Avg 6M", key: "avg6m", width: 12 },
       { header: "Avg All", key: "avgAll", width: 12 },
@@ -1634,18 +1641,19 @@ export async function generateAnalysisExcelBuffer(): Promise<Buffer> {
     for (const sr of runningRate.skuRates) {
       const r = wsRate.addRow({
         name: sr.name, weight: sr.weight, category: sr.category,
+        packagingType: (sr as any).packagingType ?? "New",
         avg3m: sr.avg3m, avg6m: sr.avg6m, avgAll: sr.avgAll,
         trend: sr.trend, trendDirection: sr.trendDirection,
         peakMonth: sr.peakMonth, peakValue: sr.peakValue,
       });
       for (let mi = 0; mi < sr.monthlyValues.length; mi++) {
-        r.getCell(11 + mi).value = sr.monthlyValues[mi];
-        r.getCell(11 + mi).numFmt = "#,##0";
+        r.getCell(12 + mi).value = sr.monthlyValues[mi];
+        r.getCell(12 + mi).numFmt = "#,##0";
       }
-      r.getCell(4).numFmt = "#,##0";
       r.getCell(5).numFmt = "#,##0";
       r.getCell(6).numFmt = "#,##0";
-      r.getCell(10).numFmt = "#,##0";
+      r.getCell(7).numFmt = "#,##0";
+      r.getCell(11).numFmt = "#,##0";
     }
     styleAnalysisHeader(wsRate, rateColCount);
 
@@ -1706,11 +1714,12 @@ export async function generateAnalysisExcelBuffer(): Promise<Buffer> {
   // ---- Stock Levels ----
   if (stockLevels) {
     const wsLevels = wb.addWorksheet("Stock Levels");
-    const slColCount = 9 + stockLevels.periodLabels.length;
+    const slColCount = 10 + stockLevels.periodLabels.length;
     wsLevels.columns = [
       { header: "SKU Name", key: "name", width: 35 },
       { header: "Weight", key: "weight", width: 10 },
       { header: "Category", key: "category", width: 12 },
+      { header: "Packaging", key: "packagingType", width: 12 },
       { header: "Current Stock", key: "currentClosingStock", width: 16 },
       { header: "Current Weeks", key: "currentWeeks", width: 14 },
       { header: "Current Zone", key: "currentZone", width: 14 },
@@ -1722,19 +1731,20 @@ export async function generateAnalysisExcelBuffer(): Promise<Buffer> {
     for (const ss of stockLevels.skuStocks) {
       const r = wsLevels.addRow({
         name: ss.name, weight: ss.weight, category: ss.category,
+        packagingType: (ss as any).packagingType ?? "New",
         currentClosingStock: ss.currentClosingStock,
         currentWeeks: ss.currentWeeks, currentZone: ss.currentZone,
         avgWeeks: ss.avgWeeks, healthScore: ss.healthScore,
         coverageMonths: ss.coverageMonths,
       });
       for (let pi = 0; pi < ss.weeksOfStock.length; pi++) {
-        r.getCell(10 + pi).value = ss.weeksOfStock[pi];
-        r.getCell(10 + pi).numFmt = "0.0";
+        r.getCell(11 + pi).value = ss.weeksOfStock[pi];
+        r.getCell(11 + pi).numFmt = "0.0";
       }
-      r.getCell(4).numFmt = "#,##0";
-      r.getCell(5).numFmt = "0.0";
-      r.getCell(7).numFmt = "0.0";
-      r.getCell(9).numFmt = "0.0";
+      r.getCell(5).numFmt = "#,##0";
+      r.getCell(6).numFmt = "0.0";
+      r.getCell(8).numFmt = "0.0";
+      r.getCell(10).numFmt = "0.0";
     }
     styleAnalysisHeader(wsLevels, slColCount);
 
@@ -1788,11 +1798,12 @@ export async function generateAnalysisExcelBuffer(): Promise<Buffer> {
   if (stockSnapshot) {
     const wsSnap = wb.addWorksheet("Stock Snapshot");
     const snapPeriodLabels = stockSnapshot.periodLabels || [];
-    const snapColCount = 11 + snapPeriodLabels.length;
+    const snapColCount = 12 + snapPeriodLabels.length;
     wsSnap.columns = [
       { header: "SKU Name", key: "name", width: 35 },
       { header: "Weight", key: "weight", width: 10 },
       { header: "Category", key: "category", width: 12 },
+      { header: "Packaging", key: "packagingType", width: 12 },
       { header: "Current Weeks", key: "currentWeeks", width: 14 },
       { header: "Current Zone", key: "currentZone", width: 14 },
       { header: "Trend", key: "trend", width: 12 },
@@ -1823,6 +1834,7 @@ export async function generateAnalysisExcelBuffer(): Promise<Buffer> {
         name: item.skuName || item.name,
         weight: item.weight,
         category: item.category,
+        packagingType: item.packagingType ?? "New",
         currentWeeks: item.currentWeeks ?? 0,
         currentZone: item.currentZone ?? "",
         trend: item.trend ?? "",
@@ -1834,12 +1846,12 @@ export async function generateAnalysisExcelBuffer(): Promise<Buffer> {
       });
       const periods = item.periods || [];
       for (let pi = 0; pi < periods.length; pi++) {
-        r.getCell(12 + pi).value = periods[pi].weeks;
-        r.getCell(12 + pi).numFmt = "0.0";
+        r.getCell(13 + pi).value = periods[pi].weeks;
+        r.getCell(13 + pi).numFmt = "0.0";
       }
-      r.getCell(4).numFmt = "0.0";
-      r.getCell(10).numFmt = "#,##0";
+      r.getCell(5).numFmt = "0.0";
       r.getCell(11).numFmt = "#,##0";
+      r.getCell(12).numFmt = "#,##0";
     }
     styleAnalysisHeader(wsSnap, snapColCount);
 
@@ -2026,11 +2038,12 @@ export async function generateIntlAnalysisExcelBuffer(country: "Syria" | "Libya"
 
   if (runningRate) {
     const wsRate = wb.addWorksheet("Running Rate");
-    const rateColCount = 10 + runningRate.periodLabels.length;
+    const rateColCount = 11 + runningRate.periodLabels.length;
     wsRate.columns = [
       { header: "SKU Name", key: "name", width: 35 },
       { header: "Weight", key: "weight", width: 10 },
       { header: "Category", key: "category", width: 12 },
+      { header: "Packaging", key: "packagingType", width: 12 },
       { header: "Avg 3M", key: "avg3m", width: 12 },
       { header: "Avg 6M", key: "avg6m", width: 12 },
       { header: "Avg All", key: "avgAll", width: 12 },
@@ -2043,29 +2056,31 @@ export async function generateIntlAnalysisExcelBuffer(country: "Syria" | "Libya"
     for (const sr of runningRate.skuRates) {
       const r = wsRate.addRow({
         name: sr.name, weight: sr.weight, category: sr.category,
+        packagingType: (sr as any).packagingType ?? "New",
         avg3m: sr.avg3m, avg6m: sr.avg6m, avgAll: sr.avgAll,
         trend: sr.trend, trendDirection: sr.trendDirection,
         peakMonth: sr.peakMonth, peakValue: sr.peakValue,
       });
       for (let mi = 0; mi < sr.monthlyValues.length; mi++) {
-        r.getCell(11 + mi).value = sr.monthlyValues[mi];
-        r.getCell(11 + mi).numFmt = "#,##0";
+        r.getCell(12 + mi).value = sr.monthlyValues[mi];
+        r.getCell(12 + mi).numFmt = "#,##0";
       }
-      r.getCell(4).numFmt = "#,##0";
       r.getCell(5).numFmt = "#,##0";
       r.getCell(6).numFmt = "#,##0";
-      r.getCell(10).numFmt = "#,##0";
+      r.getCell(7).numFmt = "#,##0";
+      r.getCell(11).numFmt = "#,##0";
     }
     styleAnalysisHeader(wsRate, rateColCount);
   }
 
   if (stockLevels) {
     const wsLevels = wb.addWorksheet("Stock Levels");
-    const slColCount = 9 + stockLevels.periodLabels.length;
+    const slColCount = 10 + stockLevels.periodLabels.length;
     wsLevels.columns = [
       { header: "SKU Name", key: "name", width: 35 },
       { header: "Weight", key: "weight", width: 10 },
       { header: "Category", key: "category", width: 12 },
+      { header: "Packaging", key: "packagingType", width: 12 },
       { header: "Current Stock", key: "currentClosingStock", width: 16 },
       { header: "Current Weeks", key: "currentWeeks", width: 14 },
       { header: "Current Zone", key: "currentZone", width: 14 },
@@ -2077,19 +2092,20 @@ export async function generateIntlAnalysisExcelBuffer(country: "Syria" | "Libya"
     for (const ss of stockLevels.skuStocks) {
       const r = wsLevels.addRow({
         name: ss.name, weight: ss.weight, category: ss.category,
+        packagingType: (ss as any).packagingType ?? "New",
         currentClosingStock: ss.currentClosingStock,
         currentWeeks: ss.currentWeeks, currentZone: ss.currentZone,
         avgWeeks: ss.avgWeeks, healthScore: ss.healthScore,
         coverageMonths: ss.coverageMonths,
       });
       for (let pi = 0; pi < ss.weeksOfStock.length; pi++) {
-        r.getCell(10 + pi).value = ss.weeksOfStock[pi];
-        r.getCell(10 + pi).numFmt = "0.0";
+        r.getCell(11 + pi).value = ss.weeksOfStock[pi];
+        r.getCell(11 + pi).numFmt = "0.0";
       }
-      r.getCell(4).numFmt = "#,##0";
-      r.getCell(5).numFmt = "0.0";
-      r.getCell(7).numFmt = "0.0";
-      r.getCell(9).numFmt = "0.0";
+      r.getCell(5).numFmt = "#,##0";
+      r.getCell(6).numFmt = "0.0";
+      r.getCell(8).numFmt = "0.0";
+      r.getCell(10).numFmt = "0.0";
     }
     styleAnalysisHeader(wsLevels, slColCount);
   }
