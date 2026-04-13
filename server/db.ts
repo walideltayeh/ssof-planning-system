@@ -1927,6 +1927,7 @@ export async function getStockSnapshot() {
     skuName: s.name,
     weight: s.weight,
     category: s.category,
+    packagingType: s.packagingType,
     healthScore: s.healthScore,
     periods: s.periodWeeks,
   })).sort((a, b) => a.healthScore - b.healthScore);
