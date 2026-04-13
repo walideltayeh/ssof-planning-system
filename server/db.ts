@@ -2957,6 +2957,29 @@ export async function getStockLevelAnalysis(country: "Lebanon" | "Syria" | "Liby
     monthlyArrivals: number[];
   };
 
+  const isIntl = country === "Syria" || country === "Libya";
+  const clearArrivalMap = new Map<string, number>();
+  if (isIntl) {
+    const clearEvts = await db.select().from(clearanceEvents).where(
+      and(eq(clearanceEvents.country, country), inArray(clearanceEvents.skuId, skuIds))
+    );
+    for (const ev of clearEvts) {
+      if (!ev.clearedDate || !ev.clearedQty) continue;
+      const qty = parseFloat(ev.clearedQty as string) || 0;
+      if (qty <= 0) continue;
+      const dateStr = typeof ev.clearedDate === "string" ? ev.clearedDate : (ev.clearedDate as any).toISOString();
+      const cleared = new Date(dateStr);
+      const clearedYear = cleared.getFullYear();
+      const clearedMonth = cleared.getMonth() + 1;
+      const matchPeriod = sortedPeriods.find(p => p.year === clearedYear && p.month === clearedMonth);
+      if (!matchPeriod) continue;
+      const key = `${ev.skuId}-${matchPeriod.id}`;
+      clearArrivalMap.set(key, (clearArrivalMap.get(key) ?? 0) + qty);
+    }
+  }
+
+  const arrivalRows = !isIntl ? await db.select().from(arrivalData).where(inArray(arrivalData.skuId, skuIds)) : [];
+
   const skuStocks: SkuStockData[] = [];
 
   for (const sku of skuList) {
@@ -2980,7 +3003,23 @@ export async function getStockLevelAnalysis(country: "Lebanon" | "Syria" | "Liby
 
       const opening = i === 0 ? (parseFloat(pf?.openingStock ?? "0") || 0) : prevCS;
       const adj = parseFloat(pf?.adjustments ?? "0") || 0;
-      const arr = parseFloat(pf?.arrivals ?? "0") || 0;
+      let arr = 0;
+      if (isIntl) {
+        arr = clearArrivalMap.get(`${sku.id}-${p.id}`) ?? 0;
+      } else {
+        const planningArrivals = parseFloat(pf?.arrivals ?? "0") || 0;
+        if (planningArrivals !== 0) {
+          arr = planningArrivals;
+        } else {
+          const arrRow = arrivalRows.find(a => a.skuId === sku.id && a.periodId === p.id);
+          if (arrRow) {
+            arr = (parseFloat(arrRow.week1 ?? "0") || 0) +
+                  (parseFloat(arrRow.week2 ?? "0") || 0) +
+                  (parseFloat(arrRow.week3 ?? "0") || 0) +
+                  (parseFloat(arrRow.week4 ?? "0") || 0);
+          }
+        }
+      }
       const cs = opening + adj + arr - effIms;
 
       let weeks = 0;
