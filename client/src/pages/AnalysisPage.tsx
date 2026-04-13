@@ -264,6 +264,56 @@ export default function AnalysisPage() {
           <KpiCard title="Avg Stock Weeks" value={`${overview.avgWeeksOfStock}w`} subtitle="Closing stock" color={overview.avgWeeksOfStock >= 4 && overview.avgWeeksOfStock <= 6 ? "#10b981" : "#ef4444"} />
         </div>
 
+        {/* Current Month Closing Stock by SKU */}
+        {bySkuData && (() => {
+          const skuList = [...(bySkuData as any[])].filter((s: any) => (s.currentStockMC ?? 0) !== 0).sort((a: any, b: any) => a.currentStockMC - b.currentStockMC);
+          const totalCS = (bySkuData as any[]).reduce((sum: number, s: any) => sum + (s.currentStockMC ?? 0), 0);
+          return (
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm">Current Month Closing Stock by SKU</CardTitle>
+                  <span className={`text-sm font-bold px-2 py-0.5 rounded ${totalCS >= 0 ? "bg-blue-50 text-blue-700" : "bg-red-50 text-red-600"}`}>
+                    Total: {formatNum(totalCS)} MC
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">Same values as shown in Planning FG &quot;Closing Stock&quot; row for the current month</p>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto max-h-[400px] overflow-y-auto">
+                  <table className="w-full text-xs border-collapse">
+                    <thead className="sticky top-0 z-10">
+                      <tr className="bg-muted">
+                        <th className="text-left p-2 font-semibold border-b">SKU</th>
+                        <th className="text-center p-2 font-semibold border-b">Weight</th>
+                        <th className="text-center p-2 font-semibold border-b">Category</th>
+                        <th className="text-right p-2 font-semibold border-b">Closing Stock (MC)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {skuList.map((sku: any) => (
+                        <tr key={sku.id} className="border-b hover:bg-muted/30">
+                          <td className="p-2 font-medium">{sku.name}</td>
+                          <td className="text-center p-2">
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${sku.weight === '50g' ? 'bg-blue-100 text-blue-700' : sku.weight === '250g' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'}`}>{sku.weight}</span>
+                          </td>
+                          <td className="text-center p-2 text-[10px]">{sku.category}</td>
+                          <td className={`text-right p-2 font-bold font-mono ${sku.currentStockMC > 0 ? "text-blue-700" : sku.currentStockMC < 0 ? "text-red-600" : "text-gray-500"}`}>
+                            {formatNum(sku.currentStockMC ?? 0)}
+                          </td>
+                        </tr>
+                      ))}
+                      {skuList.length === 0 && (
+                        <tr><td colSpan={4} className="p-3 text-center text-muted-foreground">No SKUs with non-zero closing stock</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })()}
+
         {/* Monthly Trend */}
         <Card>
           <CardHeader className="pb-2">
