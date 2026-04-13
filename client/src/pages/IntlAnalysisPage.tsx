@@ -380,9 +380,12 @@ export default function IntlAnalysisPage() {
                       <WeightBadge weight={sku.weight} />
                       <PackagingBadge type={sku.packagingType} />
                     </div>
-                    <div className="flex gap-4 text-xs text-muted-foreground">
+                    <div className="flex gap-4 text-xs text-muted-foreground items-center">
                       <span className="text-amber-600 font-semibold">{fmt(sku.totalProduction)}</span>
                       <span className="text-emerald-600 font-semibold">{fmt(sku.totalIms)}</span>
+                      <span className={`font-bold px-1.5 py-0.5 rounded text-[10px] ${sku.currentStockMC > 0 ? "bg-blue-50 text-blue-700" : sku.currentStockMC < 0 ? "bg-red-50 text-red-600" : "bg-gray-50 text-gray-500"}`}>
+                        Stock: {fmt(sku.currentStockMC ?? 0)} MC
+                      </span>
                     </div>
                   </div>
                   <MiniBar value={sku.totalProduction} max={maxProd} color={PALETTE[idx % PALETTE.length]} />

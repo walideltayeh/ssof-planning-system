@@ -1296,6 +1296,7 @@ export async function getAnalysisBySku() {
   const allShipment = await db.select().from(shipmentData);
   const allIms = await db.select().from(imsData);
   const allPlanningFg = await db.select().from(planningFgData);
+  const allArrivalData = await db.select().from(arrivalData);
   const nowB = new Date();
   const curYr = nowB.getFullYear();
   const curMo = nowB.getMonth() + 1;
@@ -1354,6 +1355,44 @@ export async function getAnalysisBySku() {
       avgWeeks = wkVals.length > 0 ? wkVals.reduce((a, b) => a + b, 0) / wkVals.length : 0;
     }
 
+    let currentMonthClosingStock = 0;
+    let foundCurrentMonth = false;
+    {
+      const skuArrival = allArrivalData.filter(a => a.skuId === sku.id);
+      let prevCSLocal = 0;
+      for (let i = 0; i < allPeriods.length; i++) {
+        const p = allPeriods[i];
+        const pf = allPlanningFg.find(d => d.skuId === sku.id && d.periodId === p.id);
+        const imsVal = parseFloat(allIms.find(d => d.skuId === sku.id && d.periodId === p.id)?.value ?? "0") || 0;
+        const effIms = imsVal !== 0 ? imsVal : (() => {
+          if (p.year > curYr || (p.year === curYr && p.month > curMo)) return parseFloat(allForecast.find(f => f.skuId === sku.id && f.periodId === p.id)?.value ?? "0") || 0;
+          return 0;
+        })();
+        const opening = i === 0 ? (parseFloat(pf?.openingStock ?? "0") || 0) : prevCSLocal;
+        const adj = parseFloat(pf?.adjustments ?? "0") || 0;
+        const planningArrivals = parseFloat(pf?.arrivals ?? "0") || 0;
+        let arr = planningArrivals;
+        if (arr === 0) {
+          const arrRow = skuArrival.find(a => a.periodId === p.id);
+          if (arrRow) {
+            arr = (parseFloat(arrRow.week1 ?? "0") || 0) +
+                  (parseFloat(arrRow.week2 ?? "0") || 0) +
+                  (parseFloat(arrRow.week3 ?? "0") || 0) +
+                  (parseFloat(arrRow.week4 ?? "0") || 0);
+          }
+        }
+        const cs = opening + adj + arr - effIms;
+        if (p.year === curYr && p.month === curMo) {
+          currentMonthClosingStock = cs;
+          foundCurrentMonth = true;
+        }
+        prevCSLocal = cs;
+      }
+      if (!foundCurrentMonth && allPeriods.length > 0) {
+        currentMonthClosingStock = prevCSLocal;
+      }
+    }
+
     // Forecast accuracy: how close IMS is to Forecast
     const accuracyPeriods = allPeriods.filter(p => {
       const f = allForecast.find(f => f.skuId === sku.id && f.periodId === p.id);
@@ -1378,6 +1417,7 @@ export async function getAnalysisBySku() {
       totalIms: Math.round(imsTotal),
       avgWeeksOfStock: Math.round(avgWeeks * 10) / 10,
       forecastAccuracy: Math.round(accuracy),
+      currentStockMC: Math.round(currentMonthClosingStock),
       monthly,
     };
   });
@@ -2055,22 +2095,57 @@ export async function getIntlAnalysis(country: "Syria" | "Libya") {
   }
 
   // - Planning FG analysis (closing stock health) -
+  const sortedPeriods = [...periodList].sort((a, b) => a.sortOrder - b.sortOrder);
+  const nowDate = new Date();
+  const curYear = nowDate.getFullYear();
+  const curMonth = nowDate.getMonth() + 1;
+
+  const clearEvtsForStock = await db.select().from(clearanceEvents).where(
+    and(eq(clearanceEvents.country, country), inArray(clearanceEvents.skuId, skuIds))
+  );
+  const arrivalByClearedMonth = new Map<string, number>();
+  for (const ev of clearEvtsForStock) {
+    if (!ev.clearedDate || !ev.clearedQty) continue;
+    const qty = parseFloat(ev.clearedQty) || 0;
+    if (qty <= 0) continue;
+    const dateStr = typeof ev.clearedDate === "string" ? ev.clearedDate : (ev.clearedDate as any).toISOString();
+    const cleared = new Date(dateStr);
+    const clearedYear = cleared.getFullYear();
+    const clearedMonth = cleared.getMonth() + 1;
+    const matchPeriod = sortedPeriods.find(p => p.year === clearedYear && p.month === clearedMonth);
+    if (!matchPeriod) continue;
+    const key = `${ev.skuId}-${matchPeriod.id}`;
+    arrivalByClearedMonth.set(key, (arrivalByClearedMonth.get(key) ?? 0) + qty);
+  }
+
   const skuClosingStock = new Map<number, number[]>();
-  for (const row of planningRows) {
-    const sku = skuMap.get(row.skuId);
-    if (!sku) continue;
-    const openingStock = parseFloat(row.openingStock ?? "0") || 0;
-    const adjustments = parseFloat(row.adjustments ?? "0") || 0;
-    const arrivals = parseFloat(row.arrivals ?? "0") || 0;
-    const imsVal = imsRows.find((i) => i.skuId === row.skuId && i.periodId === row.periodId);
-    const ims = imsVal ? parseFloat(imsVal.value ?? "0") || 0 : 0;
-    const closing = openingStock + adjustments + arrivals - ims;
-    if (!skuClosingStock.has(row.skuId)) skuClosingStock.set(row.skuId, []);
-    skuClosingStock.get(row.skuId)!.push(closing);
+  const skuCurrentStockMC = new Map<number, number>();
+
+  for (const sku of skuList) {
+    let prevCS = 0;
+    const closingStocks: number[] = [];
+    for (let i = 0; i < sortedPeriods.length; i++) {
+      const p = sortedPeriods[i];
+      const planRow = planningRows.find((r) => r.skuId === sku.id && r.periodId === p.id);
+      const imsRow = imsRows.find((r) => r.skuId === sku.id && r.periodId === p.id);
+      const imsVal = imsRow ? parseFloat(imsRow.value ?? "0") || 0 : 0;
+      const opening = i === 0 ? (parseFloat(planRow?.openingStock ?? "0") || 0) : prevCS;
+      const adj = parseFloat(planRow?.adjustments ?? "0") || 0;
+      const arr = arrivalByClearedMonth.get(`${sku.id}-${p.id}`) ?? 0;
+      const cs = opening + adj + arr - imsVal;
+      closingStocks.push(cs);
+      if (p.year === curYear && p.month === curMonth) {
+        skuCurrentStockMC.set(sku.id, cs);
+      }
+      prevCS = cs;
+    }
+    skuClosingStock.set(sku.id, closingStocks);
+    if (!skuCurrentStockMC.has(sku.id) && closingStocks.length > 0) {
+      skuCurrentStockMC.set(sku.id, closingStocks[closingStocks.length - 1]);
+    }
   }
 
   // - Build sorted period labels -
-  const sortedPeriods = [...periodList].sort((a, b) => a.sortOrder - b.sortOrder);
   const periodLabels = sortedPeriods.map((p) => p.label);
 
   // Monthly production array aligned to sorted periods
@@ -2158,6 +2233,7 @@ export async function getIntlAnalysis(country: "Syria" | "Libya") {
         category: sku.category ?? "Core",
         totalProduction: skuProd.get(sku.id) ?? 0,
         totalIms: skuIms.get(sku.id) ?? 0,
+        currentStockMC: Math.round(skuCurrentStockMC.get(sku.id) ?? 0),
         stockHealth: health ?? null,
         monthly: periodLabels.map((lbl) => {
           const p = sortedPeriods.find((pp) => pp.label === lbl);

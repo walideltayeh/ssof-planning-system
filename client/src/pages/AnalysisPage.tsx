@@ -378,7 +378,17 @@ export default function AnalysisPage() {
                   <MiniBar value={sku.totalIms} max={maxForecast} color="#3b82f6" />
                 </div>
 
-                <div className="flex items-center justify-between mt-3 pt-2 border-t">
+                <div className="flex items-center justify-between mt-3 pt-2 border-t border-b pb-2 mb-2">
+                  <div className="text-[10px]">
+                    <span className="text-muted-foreground">Stock (MC): </span>
+                    <span className={`font-bold ${(sku as any).currentStockMC > 0 ? "text-blue-700" : (sku as any).currentStockMC < 0 ? "text-red-600" : "text-gray-500"}`}>
+                      {formatNum((sku as any).currentStockMC ?? 0)}
+                    </span>
+                  </div>
+                  <span className="text-[9px] text-muted-foreground">Current Month</span>
+                </div>
+
+                <div className="flex items-center justify-between">
                   <div className="text-[10px]">
                     <span className="text-muted-foreground">Forecast Accuracy: </span>
                     <span className={`font-bold ${sku.forecastAccuracy >= 80 ? "text-emerald-600" : sku.forecastAccuracy >= 60 ? "text-amber-600" : "text-red-600"}`}>

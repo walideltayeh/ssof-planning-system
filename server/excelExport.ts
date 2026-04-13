@@ -1453,6 +1453,7 @@ export async function generateAnalysisExcelBuffer(): Promise<Buffer> {
     { header: "Total IMS", key: "totalIms", width: 14 },
     { header: "Forecast Accuracy %", key: "forecastAccuracy", width: 20 },
     { header: "Avg Weeks of Stock", key: "avgWeeksOfStock", width: 20 },
+    { header: "Current Stock (MC)", key: "currentStockMC", width: 20 },
   ];
   for (const s of bySku.sort((a, b) => b.totalForecast - a.totalForecast)) {
     const r = wsSku.addRow({
@@ -1460,14 +1461,16 @@ export async function generateAnalysisExcelBuffer(): Promise<Buffer> {
       totalForecast: s.totalForecast, totalProduction: s.totalProduction,
       totalIms: s.totalIms, forecastAccuracy: s.forecastAccuracy,
       avgWeeksOfStock: s.avgWeeksOfStock,
+      currentStockMC: (s as any).currentStockMC ?? 0,
     });
     r.getCell(4).numFmt = "#,##0";
     r.getCell(5).numFmt = "#,##0";
     r.getCell(6).numFmt = "#,##0";
     r.getCell(7).numFmt = "0";
     r.getCell(8).numFmt = "0.0";
+    r.getCell(9).numFmt = "#,##0";
   }
-  styleAnalysisHeader(wsSku, 8);
+  styleAnalysisHeader(wsSku, 9);
 
   const wsWeight = wb.addWorksheet("By Weight");
   wsWeight.columns = [
@@ -1900,17 +1903,20 @@ export async function generateIntlAnalysisExcelBuffer(country: "Syria" | "Libya"
     { header: "Packaging", key: "packagingType", width: 12 },
     { header: "Total Production", key: "totalProduction", width: 18 },
     { header: "Total IMS", key: "totalIms", width: 14 },
+    { header: "Current Stock (MC)", key: "currentStockMC", width: 20 },
   ];
   for (const s of (data.skuProductionBreakdown as any[]).sort((a: any, b: any) => b.totalProduction - a.totalProduction)) {
     const r = wsProd.addRow({
       name: s.name, weight: s.weight, category: s.category,
       packagingType: s.packagingType,
       totalProduction: s.totalProduction, totalIms: s.totalIms,
+      currentStockMC: s.currentStockMC ?? 0,
     });
     r.getCell(5).numFmt = "#,##0";
     r.getCell(6).numFmt = "#,##0";
+    r.getCell(7).numFmt = "#,##0";
   }
-  styleAnalysisHeader(wsProd, 6);
+  styleAnalysisHeader(wsProd, 7);
 
   const wsMonthly = wb.addWorksheet("Monthly Trends");
   const periodLabels = data.periodLabels as string[];
