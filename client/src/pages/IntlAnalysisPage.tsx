@@ -1347,13 +1347,67 @@ export default function IntlAnalysisPage() {
     );
   };
 
+  const StockPositionTab = () => {
+    const [spView, setSpView] = useState<"health" | "levels">("health");
+    return (
+      <div className="space-y-6">
+        <div className="flex gap-2 items-center border-b pb-2">
+          <span className="text-xs text-muted-foreground">View:</span>
+          {(["health", "levels"] as const).map(v => (
+            <button key={v} onClick={() => setSpView(v)} className={`px-3 py-1.5 text-xs rounded-md font-medium transition-colors ${spView === v ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}>
+              {v === "health" ? "IMS & Stock Health" : "Stock Levels"}
+            </button>
+          ))}
+        </div>
+        {spView === "health" && <StockHealthTab />}
+        {spView === "levels" && <StockLevelTab />}
+      </div>
+    );
+  };
+
+  const ForecastClearanceTab = () => {
+    const [fcView, setFcView] = useState<"forecast" | "clearance">("forecast");
+    return (
+      <div className="space-y-6">
+        <div className="flex gap-2 items-center border-b pb-2">
+          <span className="text-xs text-muted-foreground">View:</span>
+          {(["forecast", "clearance"] as const).map(v => (
+            <button key={v} onClick={() => setFcView(v)} className={`px-3 py-1.5 text-xs rounded-md font-medium transition-colors ${fcView === v ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}>
+              {v === "forecast" ? "Forecast Accuracy" : `Clearance${batchesWithDelay > 0 ? ` (${batchesWithDelay})` : ""}`}
+            </button>
+          ))}
+        </div>
+        {fcView === "forecast" && <ForecastAccuracyTab />}
+        {fcView === "clearance" && <ClearanceTab />}
+      </div>
+    );
+  };
+
+  const BreakdownsTab = () => {
+    const [bdView, setBdView] = useState<"flavour" | "weight">("flavour");
+    return (
+      <div className="space-y-6">
+        <div className="flex gap-2 items-center border-b pb-2">
+          <span className="text-xs text-muted-foreground">View:</span>
+          {(["flavour", "weight"] as const).map(v => (
+            <button key={v} onClick={() => setBdView(v)} className={`px-3 py-1.5 text-xs rounded-md font-medium transition-colors ${bdView === v ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}>
+              {v === "flavour" ? "By Flavour" : "By Weight"}
+            </button>
+          ))}
+        </div>
+        {bdView === "flavour" && <ByFlavourTab />}
+        {bdView === "weight" && <ByWeightTab />}
+      </div>
+    );
+  };
+
     return (
     <div className="p-4 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-xl font-bold">{country} — Analysis</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Production, clearance, IMS, forecast accuracy, and stock health analysis for {country}
+            Demand planning analytics — {country} market
           </p>
         </div>
         <Button
@@ -1371,28 +1425,22 @@ export default function IntlAnalysisPage() {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="flex flex-wrap h-auto gap-1 bg-muted p-1 rounded-lg mb-4">
           <TabsTrigger value="production" className="tab-dark-red">Production</TabsTrigger>
-          <TabsTrigger value="forecast" className="tab-dark-red">Forecast Accuracy</TabsTrigger>
-          <TabsTrigger value="ims" className="tab-dark-red">IMS & Stock Health</TabsTrigger>
-          <TabsTrigger value="clearance" className="tab-dark-red">
-            Clearance
+          <TabsTrigger value="stockposition" className="tab-dark-red">Stock Position</TabsTrigger>
+          <TabsTrigger value="forecastclearance" className="tab-dark-red">
+            Forecast & Clearance
             {batchesWithDelay > 0 && (
               <span className="ml-1.5 px-1.5 py-0.5 rounded bg-red-500 text-white text-[9px] font-bold">{batchesWithDelay}</span>
             )}
           </TabsTrigger>
-          <TabsTrigger value="byflavour" className="tab-dark-red">By Flavour</TabsTrigger>
-          <TabsTrigger value="byweight" className="tab-dark-red">By Weight</TabsTrigger>
+          <TabsTrigger value="breakdowns" className="tab-dark-red">Breakdowns</TabsTrigger>
           <TabsTrigger value="runrate" className="tab-dark-red">Running Rate</TabsTrigger>
-          <TabsTrigger value="stocklvl" className="tab-dark-red">Stock Levels</TabsTrigger>
         </TabsList>
 
         <TabsContent value="production"><ProductionTab /></TabsContent>
-        <TabsContent value="forecast"><ForecastAccuracyTab /></TabsContent>
-        <TabsContent value="ims"><StockHealthTab /></TabsContent>
-        <TabsContent value="clearance"><ClearanceTab /></TabsContent>
-        <TabsContent value="byflavour"><ByFlavourTab /></TabsContent>
-        <TabsContent value="byweight"><ByWeightTab /></TabsContent>
+        <TabsContent value="stockposition"><StockPositionTab /></TabsContent>
+        <TabsContent value="forecastclearance"><ForecastClearanceTab /></TabsContent>
+        <TabsContent value="breakdowns"><BreakdownsTab /></TabsContent>
         <TabsContent value="runrate"><RunningRateTab /></TabsContent>
-        <TabsContent value="stocklvl"><StockLevelTab /></TabsContent>
       </Tabs>
     </div>
   );

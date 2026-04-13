@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -164,43 +164,6 @@ function StackedBarChart({ data, keys, colors, labels, formatter }: {
   );
 }
 
-function HeatmapGrid({ rows, cols, getValue, getColor }: {
-  rows: { label: string; key: string }[];
-  cols: { label: string; key: string }[];
-  getValue: (rowKey: string, colKey: string) => number;
-  getColor: (value: number) => string;
-}) {
-  return (
-    <div className="overflow-x-auto">
-      <table className="text-[10px] border-collapse">
-        <thead>
-          <tr>
-            <th className="px-2 py-1 text-left font-medium text-muted-foreground sticky left-0 bg-background z-10"></th>
-            {cols.map(c => (
-              <th key={c.key} className="px-2 py-1 text-center font-medium text-muted-foreground min-w-[50px]">{c.label}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map(r => (
-            <tr key={r.key}>
-              <td className="px-2 py-1 font-medium text-muted-foreground whitespace-nowrap sticky left-0 bg-background z-10">{r.label}</td>
-              {cols.map(c => {
-                const val = getValue(r.key, c.key);
-                return (
-                  <td key={c.key} className="px-2 py-1 text-center font-semibold" style={{ backgroundColor: getColor(val), color: val > 6 || val < 2 ? "white" : "inherit" }}>
-                    {val > 0 ? val.toFixed(1) : "-"}
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 // ==================== MAIN ANALYSIS PAGE ====================
 
 const PALETTE = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316", "#6366f1", "#84cc16"];
@@ -208,7 +171,7 @@ const PALETTE = ["#10b981", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899
 export default function AnalysisPage() {
   const [activeTab, setActiveTab] = useState("overview");
   const [isExporting, setIsExporting] = useState(false);
-  const { formatVal, unitLabel } = useUnit();
+  const { formatVal } = useUnit();
 
   const handleExport = async () => {
     setIsExporting(true);
@@ -243,7 +206,6 @@ export default function AnalysisPage() {
   const { data: byCategoryData, isLoading: loadingCategory } = trpc.analysis.byCategory.useQuery();
   const { data: byFlavorData, isLoading: loadingFlavor } = trpc.analysis.byFlavor.useQuery();
   const { data: productionData, isLoading: loadingProduction } = trpc.analysis.production.useQuery();
-  const { data: stockHealthData, isLoading: loadingHealth } = trpc.analysis.stockHealth.useQuery();
   const { data: stockSnapshot, isLoading: loadingSnapshot } = trpc.analysis.stockSnapshot.useQuery();
   const { data: runningRateData, isLoading: loadingRunRate } = trpc.country.runningRate.useQuery({ country: "Lebanon" });
   const { data: stockLevelsData, isLoading: loadingStockLvl } = trpc.country.stockLevels.useQuery({ country: "Lebanon" });
@@ -823,471 +785,65 @@ export default function AnalysisPage() {
     );
   };
 
-  // ==================== STOCK SNAPSHOT TAB ====================
-  const StockSnapshotTab = () => {
+  // ==================== STOCK POSITION TAB (merged Stock Health + Stock Levels + Snapshot) ====================
+  const StockPositionTab = () => {
+    const [slSort, setSlSort] = useState<"weeks" | "stock" | "health" | "name">("weeks");
     const [expandedSku, setExpandedSku] = useState<number | null>(null);
     const [heatmapFilter, setHeatmapFilter] = useState<"all" | "critical" | "overstock">("all");
+    const [positionView, setPositionView] = useState<"grid" | "summary" | "alerts">("grid");
 
-    if (loadingSnapshot || !stockSnapshot) return <div className="p-4 text-sm text-muted-foreground">Loading stock snapshot...</div>;
-
-    const { summary, criticalSkus, overstockedSkus, heatmap, periodLabels, actionSummary } = stockSnapshot;
-
-    const zoneColor: Record<string, string> = {
-      "Healthy": "#10b981",
-      "Critical": "#ef4444",
-      "Overstock": "#f59e0b",
-      "Out of Stock": "#6b7280",
-      "Negative": "#1f2937",
-      "Warning": "#f97316",
-    };
-    const zoneBg: Record<string, string> = {
-      "Healthy": "#d1fae5",
-      "Critical": "#fee2e2",
-      "Overstock": "#fef3c7",
-      "Out of Stock": "#f3f4f6",
-      "Negative": "#e5e7eb",
-      "Warning": "#ffedd5",
-    };
-    const trendIcon = (t: string) => t === "improving" ? "↑" : t === "deteriorating" ? "↓" : "→";
-    const trendColor = (t: string) => t === "improving" ? "text-emerald-600" : t === "deteriorating" ? "text-red-600" : "text-muted-foreground";
-
-    const filteredHeatmap = heatmapFilter === "critical"
-      ? heatmap.filter(r => r.periods.some(p => p.zone === "Critical" || p.zone === "Negative" || p.zone === "Out of Stock"))
-      : heatmapFilter === "overstock"
-      ? heatmap.filter(r => r.periods.some(p => p.zone === "Overstock"))
-      : heatmap;
-
-    const healthPct = summary.total > 0 ? Math.round(summary.healthy / summary.total * 100) : 0;
-
-    return (
-      <div className="space-y-6">
-        {/* ---- RISK TIER SUMMARY CARDS ---- */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          <Card className="border-red-200 bg-red-50">
-            <CardContent className="p-4">
-              <p className="text-xs font-medium text-red-600 uppercase tracking-wider">Critical</p>
-              <p className="text-3xl font-bold text-red-600 mt-1">{summary.critical}</p>
-              <p className="text-xs text-red-500 mt-0.5">SKUs below 4w stock</p>
-            </CardContent>
-          </Card>
-          <Card className="border-amber-200 bg-amber-50">
-            <CardContent className="p-4">
-              <p className="text-xs font-medium text-amber-600 uppercase tracking-wider">Overstock</p>
-              <p className="text-3xl font-bold text-amber-600 mt-1">{summary.overstock}</p>
-              <p className="text-xs text-amber-500 mt-0.5">SKUs above 6w stock</p>
-            </CardContent>
-          </Card>
-          <Card className="border-orange-200 bg-orange-50">
-            <CardContent className="p-4">
-              <p className="text-xs font-medium text-orange-600 uppercase tracking-wider">At Risk</p>
-              <p className="text-3xl font-bold text-orange-600 mt-1">{summary.warning}</p>
-              <p className="text-xs text-orange-500 mt-0.5">Healthy now, critical ahead</p>
-            </CardContent>
-          </Card>
-          <Card className="border-emerald-200 bg-emerald-50">
-            <CardContent className="p-4">
-              <p className="text-xs font-medium text-emerald-600 uppercase tracking-wider">Healthy</p>
-              <p className="text-3xl font-bold text-emerald-600 mt-1">{summary.healthy}</p>
-              <p className="text-xs text-emerald-500 mt-0.5">4–6 weeks, no issues</p>
-            </CardContent>
-          </Card>
-          <Card className="border-blue-200 bg-blue-50">
-            <CardContent className="p-4">
-              <p className="text-xs font-medium text-blue-600 uppercase tracking-wider">Health Rate</p>
-              <p className="text-3xl font-bold text-blue-600 mt-1">{healthPct}%</p>
-              <p className="text-xs text-blue-500 mt-0.5">of {summary.total} total SKUs</p>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* ---- ACTION SUMMARY ---- */}
-        <Card className="border-slate-200">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Recommended Actions</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="flex items-start gap-3 p-3 bg-red-50 rounded-lg border border-red-100">
-                <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center text-red-600 font-bold text-sm flex-shrink-0">{actionSummary.needProductionIncrease}</div>
-                <div>
-                  <p className="text-xs font-semibold text-red-700">Increase Production</p>
-                  <p className="text-[11px] text-red-600 mt-0.5">SKUs with insufficient shipment vs forecast</p>
-                </div>
-              </div>
-              <div className="flex items-start gap-3 p-3 bg-amber-50 rounded-lg border border-amber-100">
-                <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-600 font-bold text-sm flex-shrink-0">{actionSummary.needForecastReduction}</div>
-                <div>
-                  <p className="text-xs font-semibold text-amber-700">Reduce Forecast</p>
-                  <p className="text-[11px] text-amber-600 mt-0.5">Overstocked SKUs with excess forecast</p>
-                </div>
-              </div>
-              <div className="flex items-start gap-3 p-3 bg-violet-50 rounded-lg border border-violet-100">
-                <div className="w-8 h-8 rounded-full bg-violet-100 flex items-center justify-center text-violet-600 font-bold text-sm flex-shrink-0">{actionSummary.needBoth}</div>
-                <div>
-                  <p className="text-xs font-semibold text-violet-700">Mixed Strategy</p>
-                  <p className="text-[11px] text-violet-600 mt-0.5">SKUs needing both adjustments</p>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* ---- CRITICAL SKUs ALERT PANEL ---- */}
-        {criticalSkus.length > 0 && (
-          <Card className="border-red-200">
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-sm text-red-700">Critical SKUs Alert Panel</CardTitle>
-                <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-semibold">{criticalSkus.length} SKU{criticalSkus.length > 1 ? "s" : ""}</span>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {criticalSkus.map(sku => (
-                  <div key={sku.id} className="border border-red-100 rounded-lg overflow-hidden">
-                    <button
-                      className="w-full flex items-center justify-between p-3 bg-red-50 hover:bg-red-100 transition-colors text-left"
-                      onClick={() => setExpandedSku(expandedSku === sku.id ? null : sku.id)}
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: zoneColor[sku.currentZone] }} />
-                        <div>
-                          <span className="text-xs font-semibold">{sku.name}</span>
-                          <span className={`ml-2 text-[10px] px-1 py-0.5 rounded font-medium ${
-                            sku.weight === '50g' ? 'bg-blue-100 text-blue-700' :
-                            sku.weight === '250g' ? 'bg-amber-100 text-amber-700' :
-                            'bg-rose-100 text-rose-700'
-                          }`}>{sku.weight}</span>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <div className="text-right">
-                          <span className="text-xs font-bold" style={{ color: zoneColor[sku.currentZone] }}>{sku.currentWeeks}w</span>
-                          <span className="text-[10px] text-muted-foreground ml-1">now</span>
-                        </div>
-                        <div className={`text-sm font-bold ${trendColor(sku.trend)}`}>{trendIcon(sku.trend)}</div>
-                        <div className="text-[10px] text-muted-foreground">
-                          {sku.criticalCount > 0 && <span className="text-red-600 font-medium">{sku.criticalCount} critical period{sku.criticalCount > 1 ? "s" : ""}</span>}
-                          {sku.firstCriticalPeriod && <span className="ml-1">from {sku.firstCriticalPeriod}</span>}
-                        </div>
-                        <span className="text-[10px] text-muted-foreground">{expandedSku === sku.id ? "▲" : "▼"}</span>
-                      </div>
-                    </button>
-                    {expandedSku === sku.id && (
-                      <div className="p-3 bg-white border-t border-red-100">
-                        <div className="flex gap-4 mb-3 text-xs">
-                          <div><span className="text-muted-foreground">Health Score: </span><span className={`font-bold ${sku.healthScore >= 60 ? "text-emerald-600" : sku.healthScore >= 30 ? "text-amber-600" : "text-red-600"}`}>{sku.healthScore}%</span></div>
-                          <div><span className="text-muted-foreground">Trend: </span><span className={`font-semibold ${trendColor(sku.trend)}`}>{sku.trend}</span></div>
-                          <div><span className="text-muted-foreground">Category: </span><span className="font-medium">{sku.category}</span></div>
-                        </div>
-                        <div className="overflow-x-auto">
-                          <div className="flex gap-1 min-w-max">
-                            {sku.periodWeeks.map(pw => (
-                              <div key={pw.label} className="text-center min-w-[52px]">
-                                <div className="text-[9px] text-muted-foreground mb-1">{pw.label}</div>
-                                <div
-                                  className="rounded py-1 px-1 text-[10px] font-bold"
-                                  style={{ backgroundColor: zoneBg[pw.zone], color: zoneColor[pw.zone] }}
-                                >
-                                  {pw.weeks > 0 ? `${pw.weeks}w` : "0w"}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* ---- OVERSTOCKED SKUs PANEL ---- */}
-        {overstockedSkus.length > 0 && (
-          <Card className="border-amber-200">
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-sm text-amber-700">Overstocked SKUs</CardTitle>
-                <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold">{overstockedSkus.length} SKU{overstockedSkus.length > 1 ? "s" : ""}</span>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                {overstockedSkus.map(sku => (
-                  <div key={sku.id} className="flex items-center justify-between p-2.5 bg-amber-50 rounded-lg border border-amber-100">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />
-                      <span className="text-xs font-medium">{sku.name}</span>
-                      <span className={`text-[10px] px-1 py-0.5 rounded font-medium ${
-                        sku.weight === '50g' ? 'bg-blue-100 text-blue-700' :
-                        sku.weight === '250g' ? 'bg-amber-100 text-amber-700' :
-                        'bg-rose-100 text-rose-700'
-                      }`}>{sku.weight}</span>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <span className="text-xs font-bold text-amber-600">{sku.currentWeeks}w</span>
-                      <span className={`text-xs ${trendColor(sku.trend)}`}>{trendIcon(sku.trend)}</span>
-                      <span className="text-[10px] text-muted-foreground">{sku.overstockCount} overstock period{sku.overstockCount > 1 ? "s" : ""}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* ---- FULL HEATMAP ---- */}
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <CardTitle className="text-sm">Stock Health Heatmap (All SKUs × All Periods)</CardTitle>
-              <div className="flex gap-1">
-                {(["all", "critical", "overstock"] as const).map(f => (
-                  <button
-                    key={f}
-                    onClick={() => setHeatmapFilter(f)}
-                    className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${
-                      heatmapFilter === f
-                        ? f === "critical" ? "bg-red-500 text-white border-red-500"
-                          : f === "overstock" ? "bg-amber-500 text-white border-amber-500"
-                          : "bg-slate-700 text-white border-slate-700"
-                        : "bg-background border-border text-muted-foreground hover:bg-muted"
-                    }`}
-                  >
-                    {f === "all" ? "All SKUs" : f === "critical" ? "Critical Only" : "Overstock Only"}
-                  </button>
-                ))}
-              </div>
-            </div>
-            {/* Legend */}
-            <div className="flex gap-3 mt-2 flex-wrap">
-              {Object.entries(zoneBg).map(([zone, bg]) => (
-                <div key={zone} className="flex items-center gap-1">
-                  <div className="w-3 h-3 rounded-sm border" style={{ backgroundColor: bg, borderColor: zoneColor[zone] }} />
-                  <span className="text-[10px] text-muted-foreground">{zone}</span>
-                </div>
-              ))}
-            </div>
-          </CardHeader>
-          <CardContent>
-            {filteredHeatmap.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-4 text-center">No SKUs match the selected filter.</p>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="text-[10px] border-collapse w-full">
-                  <thead>
-                    <tr>
-                      <th className="px-2 py-1.5 text-left font-medium text-muted-foreground sticky left-0 bg-background z-10 min-w-[140px] border-b">SKU</th>
-                      <th className="px-1 py-1.5 text-center font-medium text-muted-foreground min-w-[28px] border-b">Wt</th>
-                      <th className="px-1 py-1.5 text-center font-medium text-muted-foreground min-w-[32px] border-b">Score</th>
-                      {periodLabels.map(label => (
-                        <th key={label} className="px-1 py-1.5 text-center font-medium text-muted-foreground min-w-[44px] border-b">{label}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredHeatmap.map((row, rowIdx) => (
-                      <tr key={row.skuId} className={rowIdx % 2 === 0 ? "bg-white" : "bg-slate-50"}>
-                        <td className="px-2 py-1 font-medium sticky left-0 z-10 border-b" style={{ backgroundColor: rowIdx % 2 === 0 ? "white" : "#f8fafc" }}>
-                          {row.skuName}
-                        </td>
-                        <td className="px-1 py-1 text-center border-b">
-                          <span className={`text-[9px] px-1 rounded font-medium ${
-                            row.weight === '50g' ? 'bg-blue-100 text-blue-700' :
-                            row.weight === '250g' ? 'bg-amber-100 text-amber-700' :
-                            'bg-rose-100 text-rose-700'
-                          }`}>{row.weight}</span>
-                        </td>
-                        <td className="px-1 py-1 text-center border-b">
-                          <span className={`font-bold text-[10px] ${
-                            row.healthScore >= 60 ? "text-emerald-600" :
-                            row.healthScore >= 30 ? "text-amber-600" : "text-red-600"
-                          }`}>{row.healthScore}%</span>
-                        </td>
-                        {row.periods.map(pw => (
-                          <td
-                            key={pw.label}
-                            className="px-1 py-1 text-center border-b font-semibold"
-                            style={{ backgroundColor: zoneBg[pw.zone] || "#f9fafb", color: zoneColor[pw.zone] || "#374151" }}
-                            title={`${row.skuName} - ${pw.label}: ${pw.weeks}w (${pw.zone})`}
-                          >
-                            {pw.weeks > 0 ? pw.weeks : "-"}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-    );
-  };
-
-  // ==================== STOCK HEALTH TAB ====================
-  const StockHealthTab = () => {
-    if (loadingHealth || !stockHealthData) return <div className="p-4 text-sm text-muted-foreground">Loading stock health...</div>;
+    const sd = stockLevelsData as any;
+    const snap = stockSnapshot as any;
 
     const zoneColorMap: Record<string, string> = {
-      "Healthy": "#10b981",
-      "Critical": "#ef4444",
-      "Overstock": "#f59e0b",
-      "Out of Stock": "#6b7280",
-      "Negative": "#111827",
+      "Healthy": "#16a34a", "Critical": "#dc2626", "Overstock": "#ea580c",
+      "Out of Stock": "#6b7280", "Negative": "#111827",
+    };
+    const zoneBgMap: Record<string, string> = {
+      "Healthy": "#d1fae5", "Critical": "#fee2e2", "Overstock": "#fef3c7",
+      "Out of Stock": "#f3f4f6", "Negative": "#e5e7eb",
     };
 
-    // Heatmap data
-    const heatmapRows = stockHealthData.skuHealth.map(s => ({ label: s.name, key: String(s.id) }));
-    const heatmapCols = stockHealthData.periodHealth.map(p => ({ label: p.period.slice(0, 3) + "'" + p.period.slice(-2), key: p.period }));
-
-    // Build lookup for heatmap
-    const pfLookup = useMemo(() => {
-      const map = new Map<string, number>();
-      // We need the raw planning FG data - approximate from skuHealth
-      return map;
-    }, []);
+    const zoneBadge = (zone: string) => {
+      const cls: Record<string, string> = {
+        "Healthy": "bg-green-100 text-green-700", "Critical": "bg-red-100 text-red-700",
+        "Overstock": "bg-orange-100 text-orange-700", "Negative": "bg-gray-900 text-white",
+        "Out of Stock": "bg-gray-100 text-gray-600",
+      };
+      return <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${cls[zone] || "bg-gray-100 text-gray-600"}`}>{zone}</span>;
+    };
 
     return (
       <div className="space-y-6">
-        {/* Zone Distribution */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Stock Zone Distribution</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <DonutChart
-                segments={stockHealthData.zones.map(z => ({
-                  label: z.zone,
-                  value: z.count,
-                  color: zoneColorMap[z.zone] || "#6b7280",
-                }))}
-              />
-            </CardContent>
-          </Card>
+        {/* KPIs */}
+        {sd && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <KpiCard title="Total Closing Stock" value={formatNum(sd.totalClosingStock)} subtitle="Current period" color="#3b82f6" />
+            <KpiCard title="Avg Weeks of Stock" value={`${sd.avgWeeksAll}w`} subtitle="Target: 4–6 weeks" color={sd.avgWeeksAll >= 4 && sd.avgWeeksAll <= 6 ? "#10b981" : "#ef4444"} />
+            <KpiCard title="Health Score" value={`${sd.avgHealthScore}%`} subtitle="% periods in Healthy zone" color={sd.avgHealthScore >= 50 ? "#10b981" : "#ef4444"} />
+            <KpiCard title="Total SKUs" value={String(sd.totalSkus)} color="#8b5cf6" />
+          </div>
+        )}
 
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Zone Breakdown</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {stockHealthData.zones.map(z => (
-                  <div key={z.zone}>
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className="font-medium" style={{ color: zoneColorMap[z.zone] }}>{z.zone}</span>
-                      <span className="text-muted-foreground">{z.count} periods ({z.percentage}%)</span>
-                    </div>
-                    <div className="h-3 bg-muted rounded-full overflow-hidden">
-                      <div className="h-full rounded-full" style={{ width: `${z.percentage}%`, backgroundColor: zoneColorMap[z.zone] }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+        {/* Sub-navigation */}
+        <div className="flex gap-2 items-center border-b pb-2">
+          <span className="text-xs text-muted-foreground">View:</span>
+          {(["grid", "summary", "alerts"] as const).map(v => (
+            <button key={v} onClick={() => setPositionView(v)} className={`px-3 py-1.5 text-xs rounded-md font-medium transition-colors ${positionView === v ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}>
+              {v === "grid" ? "Closing Stock Grid" : v === "summary" ? "SKU Summary" : "Alerts & Heatmap"}
+            </button>
+          ))}
         </div>
 
-        {/* Period Health Timeline */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Monthly Stock Health Timeline</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <StackedBarChart
-              data={stockHealthData.periodHealth.filter(p => p.totalSkus > 0).map(p => ({
-                label: p.period.slice(0, 3) + "'" + p.period.slice(-2),
-                values: p.zoneBreakdown,
-              }))}
-              keys={["Healthy", "Critical", "Overstock", "Out of Stock", "Negative"]}
-              colors={zoneColorMap}
-              labels={{ "Healthy": "Healthy (4-6w)", "Critical": "Critical (<4w)", "Overstock": "Overstock (>6w)", "Out of Stock": "Out of Stock", "Negative": "Negative" }}
-            />
-          </CardContent>
-        </Card>
-
-        {/* SKU Health Scoreboard */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">SKU Health Scoreboard</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b bg-muted">
-                    <th className="px-2 py-1.5 text-left font-medium">SKU</th>
-                    <th className="px-2 py-1.5 text-left font-medium">Weight</th>
-                    <th className="px-2 py-1.5 text-left font-medium">Category</th>
-                    <th className="px-2 py-1.5 text-right font-medium">Avg Weeks</th>
-                    <th className="px-2 py-1.5 text-right font-medium">Health Score</th>
-                    <th className="px-2 py-1.5 text-center font-medium">Zone Distribution</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {stockHealthData.skuHealth.map(s => (
-                    <tr key={s.id} className="border-b hover:bg-muted/50">
-                      <td className="px-2 py-1.5 font-medium">{s.name}</td>
-                      <td className="px-2 py-1.5">
-                        <span className={`px-1 py-0.5 rounded text-[10px] font-semibold ${
-                          s.weight === '50g' ? 'bg-blue-100 text-blue-700' :
-                          s.weight === '250g' ? 'bg-amber-100 text-amber-700' :
-                          'bg-rose-100 text-rose-700'
-                        }`}>{s.weight}</span>
-                      </td>
-                      <td className="px-2 py-1.5">
-                        <span className={`text-[10px] px-1 py-0.5 rounded font-medium ${s.category === "Core" ? "bg-emerald-100 text-emerald-700" : "bg-violet-100 text-violet-700"}`}>{s.category}</span>
-                      </td>
-                      <td className="px-2 py-1.5 text-right">
-                        <span className={`font-semibold ${s.avgWeeksOfStock >= 4 && s.avgWeeksOfStock <= 6 ? "text-emerald-600" : s.avgWeeksOfStock < 4 ? "text-red-600" : "text-amber-600"}`}>
-                          {s.avgWeeksOfStock}w
-                        </span>
-                      </td>
-                      <td className="px-2 py-1.5 text-right">
-                        <span className={`font-bold ${s.healthScore >= 60 ? "text-emerald-600" : s.healthScore >= 30 ? "text-amber-600" : "text-red-600"}`}>
-                          {s.healthScore}%
-                        </span>
-                      </td>
-                      <td className="px-2 py-1.5">
-                        {s.totalPeriods > 0 && (
-                          <div className="flex h-3 rounded-full overflow-hidden">
-                            {Object.entries(s.zoneBreakdown).map(([zone, count]) => (
-                              <div
-                                key={zone}
-                                className="h-full"
-                                style={{
-                                  width: `${(count / s.totalPeriods) * 100}%`,
-                                  backgroundColor: zoneColorMap[zone] || "#6b7280",
-                                }}
-                                title={`${zone}: ${count}/${s.totalPeriods}`}
-                              />
-                            ))}
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Stock Level by Period — per SKU + Total */}
-        {stockLevelsData && (() => {
-          const sd = stockLevelsData as any;
+        {/* VIEW: Closing Stock Grid */}
+        {positionView === "grid" && loadingStockLvl && <div className="p-4 text-sm text-muted-foreground">Loading closing stock grid...</div>}
+        {positionView === "grid" && !loadingStockLvl && sd && (() => {
           const periodLabels: string[] = sd.periodLabels ?? [];
           const shortPLabels = periodLabels.map((l: string) => l.length > 5 ? l.slice(0, 3) + "'" + l.slice(-2) : l);
           const skus: any[] = sd.skuStocks ?? [];
-
           const totalByPeriod: number[] = periodLabels.map((_: string, pIdx: number) =>
             skus.reduce((sum: number, sk: any) => sum + (sk.closingStocks?.[pIdx] ?? 0), 0)
           );
-
           const wosColor = (w: number) => {
             if (Math.abs(w) >= 99) return w > 0 ? "#ea580c" : "#111827";
             if (w <= 0) return "#6b7280";
@@ -1295,60 +851,400 @@ export default function AnalysisPage() {
             if (w <= 6) return "#16a34a";
             return "#ea580c";
           };
-
           const fmtCS = (v: number) => v === 0 ? "—" : v.toLocaleString();
 
           return (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Closing Stock by Period (per SKU)</CardTitle>
-                <p className="text-xs text-muted-foreground mt-0.5">Each cell shows closing stock. Color = weeks-of-stock zone (green 4-6w, red &lt;4w, orange &gt;6w)</p>
-              </CardHeader>
-              <CardContent className="p-0">
-                <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
-                  <table className="w-full text-xs border-collapse">
-                    <thead className="sticky top-0 z-10">
-                      <tr className="bg-muted">
-                        <th className="text-left p-2 font-semibold sticky left-0 bg-muted min-w-[160px] border-b border-r">SKU</th>
-                        <th className="text-center p-1.5 font-semibold border-b min-w-[50px]">Wt</th>
-                        {shortPLabels.map((l: string, i: number) => (
-                          <th key={i} className="text-right p-1.5 font-medium border-b min-w-[70px]">{l}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {skus.map((sku: any) => (
-                        <tr key={sku.id} className="border-b hover:bg-muted/30 transition-colors">
-                          <td className="p-2 font-medium sticky left-0 bg-white border-r whitespace-nowrap">{sku.name}</td>
-                          <td className="text-center p-1.5">
-                            <span className={`px-1 py-0.5 rounded text-[10px] font-semibold ${sku.weight === '50g' ? 'bg-blue-100 text-blue-700' : sku.weight === '250g' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'}`}>{sku.weight}</span>
-                          </td>
-                          {(sku.closingStocks as number[]).map((cs: number, pIdx: number) => {
-                            const wos = sku.weeksOfStock?.[pIdx] ?? 0;
-                            const bgColor = wosColor(wos);
-                            return (
-                              <td key={pIdx} className="text-right p-1.5 font-mono" style={{ backgroundColor: `${bgColor}12` }}>
-                                <div className="leading-tight">
-                                  <span style={{ color: bgColor }} className="font-semibold">{fmtCS(cs)}</span>
-                                  <div className="text-[9px] opacity-60">{Math.abs(wos) >= 99 ? (wos > 0 ? "∞w" : "-∞w") : `${wos}w`}</div>
-                                </div>
-                              </td>
-                            );
-                          })}
+            <>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">Closing Stock by Period (per SKU)</CardTitle>
+                  <p className="text-xs text-muted-foreground mt-0.5">Same data as Planning FG &quot;Closing Stock&quot; row. Color = weeks-of-stock zone (green 4-6w, red &lt;4w, orange &gt;6w)</p>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
+                    <table className="w-full text-xs border-collapse">
+                      <thead className="sticky top-0 z-10">
+                        <tr className="bg-muted">
+                          <th className="text-left p-2 font-semibold sticky left-0 bg-muted min-w-[160px] border-b border-r">SKU</th>
+                          <th className="text-center p-1.5 font-semibold border-b min-w-[50px]">Wt</th>
+                          {shortPLabels.map((l: string, i: number) => (
+                            <th key={i} className="text-right p-1.5 font-medium border-b min-w-[70px]">{l}</th>
+                          ))}
                         </tr>
-                      ))}
-                      <tr className="bg-muted/70 font-bold border-t-2">
-                        <td className="p-2 sticky left-0 bg-muted/70 border-r">TOTAL</td>
-                        <td className="p-1.5"></td>
-                        {totalByPeriod.map((total: number, pIdx: number) => (
-                          <td key={pIdx} className="text-right p-1.5 font-mono font-bold">{total === 0 ? "—" : total.toLocaleString()}</td>
+                      </thead>
+                      <tbody>
+                        {skus.map((sku: any) => (
+                          <tr key={sku.id} className="border-b hover:bg-muted/30 transition-colors">
+                            <td className="p-2 font-medium sticky left-0 bg-white border-r whitespace-nowrap">{sku.name}</td>
+                            <td className="text-center p-1.5">
+                              <span className={`px-1 py-0.5 rounded text-[10px] font-semibold ${sku.weight === '50g' ? 'bg-blue-100 text-blue-700' : sku.weight === '250g' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'}`}>{sku.weight}</span>
+                            </td>
+                            {(sku.closingStocks as number[]).map((cs: number, pIdx: number) => {
+                              const wos = sku.weeksOfStock?.[pIdx] ?? 0;
+                              const bgColor = wosColor(wos);
+                              return (
+                                <td key={pIdx} className="text-right p-1.5 font-mono" style={{ backgroundColor: `${bgColor}12` }}>
+                                  <div className="leading-tight">
+                                    <span style={{ color: bgColor }} className="font-semibold">{fmtCS(cs)}</span>
+                                    <div className="text-[9px] opacity-60">{Math.abs(wos) >= 99 ? (wos > 0 ? "∞w" : "-∞w") : `${wos}w`}</div>
+                                  </div>
+                                </td>
+                              );
+                            })}
+                          </tr>
                         ))}
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
+                        <tr className="bg-muted/70 font-bold border-t-2">
+                          <td className="p-2 sticky left-0 bg-muted/70 border-r">TOTAL</td>
+                          <td className="p-1.5"></td>
+                          {totalByPeriod.map((total: number, pIdx: number) => (
+                            <td key={pIdx} className="text-right p-1.5 font-mono font-bold">{total === 0 ? "—" : total.toLocaleString()}</td>
+                          ))}
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Zone Distribution + Zone Trend */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <Card>
+                  <CardHeader className="pb-2"><CardTitle className="text-sm">Current Zone Distribution</CardTitle></CardHeader>
+                  <CardContent>
+                    <DonutChart segments={(sd.zoneDistribution as any[]).map((z: any) => ({ label: `${z.zone} (${z.count})`, value: z.count, color: z.color }))} size={140} />
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="pb-2"><CardTitle className="text-sm">Zone Trend Over Time</CardTitle></CardHeader>
+                  <CardContent>
+                    <StackedBarChart
+                      data={(sd.periodZones as any[]).map((pz: any, i: number) => ({
+                        label: shortPLabels[i] || pz.period,
+                        values: pz.zones,
+                      }))}
+                      keys={["Healthy", "Critical", "Overstock", "Out of Stock", "Negative"]}
+                      colors={zoneColorMap}
+                      labels={{ "Healthy": "Healthy", "Critical": "Critical", "Overstock": "Overstock", "Out of Stock": "Out of Stock", "Negative": "Negative" }}
+                    />
+                  </CardContent>
+                </Card>
+              </div>
+            </>
+          );
+        })()}
+
+        {/* VIEW: SKU Summary */}
+        {positionView === "summary" && loadingStockLvl && <div className="p-4 text-sm text-muted-foreground">Loading SKU summary...</div>}
+        {positionView === "summary" && !loadingStockLvl && sd && (() => {
+          const sortedSkus = [...(sd.skuStocks as any[])].sort((a: any, b: any) => {
+            if (slSort === "weeks") return a.currentWeeks - b.currentWeeks;
+            if (slSort === "stock") return b.currentClosingStock - a.currentClosingStock;
+            if (slSort === "health") return a.healthScore - b.healthScore;
+            return a.name.localeCompare(b.name);
+          });
+          return (
+            <>
+              <div className="flex gap-2 items-center">
+                <span className="text-xs text-muted-foreground">Sort by:</span>
+                {(["weeks", "stock", "health", "name"] as const).map(s => (
+                  <button key={s} onClick={() => setSlSort(s)} className={`px-2 py-1 text-xs rounded transition-colors ${slSort === s ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}>
+                    {s === "weeks" ? "Weeks of Stock" : s === "stock" ? "Closing Stock" : s === "health" ? "Health Score" : "Name"}
+                  </button>
+                ))}
+              </div>
+              <Card>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b bg-muted/50">
+                          <th className="text-left p-2 font-semibold sticky left-0 bg-muted/50">SKU</th>
+                          <th className="text-center p-2 font-semibold">Weight</th>
+                          <th className="text-center p-2 font-semibold">Zone</th>
+                          <th className="text-right p-2 font-semibold">Closing Stock</th>
+                          <th className="text-right p-2 font-semibold">Weeks</th>
+                          <th className="text-right p-2 font-semibold">Coverage</th>
+                          <th className="text-center p-2 font-semibold">Health</th>
+                          <th className="p-2 font-semibold min-w-[120px]">Stock Trend</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sortedSkus.map((sku: any, idx: number) => (
+                          <tr key={sku.id} className="border-b hover:bg-muted/30 transition-colors">
+                            <td className="p-2 font-medium sticky left-0 bg-white">
+                              <div>{sku.name}</div>
+                              <div className="text-[10px] text-muted-foreground">{sku.category} · {sku.packagingType} Pkg</div>
+                            </td>
+                            <td className="text-center p-2">
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${sku.weight === "50g" ? "bg-blue-100 text-blue-700" : sku.weight === "250g" ? "bg-amber-100 text-amber-700" : "bg-rose-100 text-rose-700"}`}>{sku.weight}</span>
+                            </td>
+                            <td className="text-center p-2">{zoneBadge(sku.currentZone)}</td>
+                            <td className="text-right p-2 font-semibold">{formatNum(sku.currentClosingStock)}</td>
+                            <td className="text-right p-2">
+                              <span className={`font-semibold ${sku.currentWeeks >= 4 && sku.currentWeeks <= 6 ? "text-green-600" : sku.currentWeeks < 4 ? "text-red-600" : "text-orange-600"}`}>
+                                {Math.abs(sku.currentWeeks) >= 99 ? (sku.currentWeeks > 0 ? "∞" : "-∞") : `${sku.currentWeeks}w`}
+                              </span>
+                            </td>
+                            <td className="text-right p-2">{sku.coverageMonths > 0 ? `${sku.coverageMonths}mo` : "—"}</td>
+                            <td className="text-center p-2">
+                              <div className="flex items-center gap-1 justify-center">
+                                <div className="w-8 h-2 bg-muted rounded-full overflow-hidden">
+                                  <div className="h-full rounded-full" style={{ width: `${Math.min(sku.healthScore, 100)}%`, backgroundColor: sku.healthScore >= 50 ? "#16a34a" : sku.healthScore >= 25 ? "#ea580c" : "#dc2626" }} />
+                                </div>
+                                <span className="text-[10px]">{sku.healthScore}%</span>
+                              </div>
+                            </td>
+                            <td className="p-2">
+                              <SparkLine data={sku.closingStocks} color={PALETTE[idx % PALETTE.length]} height={28} />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Stock by Weight */}
+              <Card>
+                <CardHeader className="pb-2"><CardTitle className="text-sm">Stock by Weight</CardTitle></CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {(sd.weightStockSummary as any[]).map((ws: any) => (
+                      <div key={ws.weight} className="border rounded-lg p-3">
+                        <span className={`px-2 py-1 rounded text-sm font-bold ${ws.weight === "50g" ? "bg-blue-100 text-blue-700" : ws.weight === "250g" ? "bg-amber-100 text-amber-700" : "bg-rose-100 text-rose-700"}`}>{ws.weight}</span>
+                        <div className="mt-2 space-y-1 text-xs">
+                          <div className="flex justify-between"><span className="text-muted-foreground">Total Stock</span><span className="font-semibold">{formatNum(ws.totalStock)}</span></div>
+                          <div className="flex justify-between"><span className="text-muted-foreground">Avg Weeks</span><span className="font-semibold">{ws.avgWeeks}w</span></div>
+                          <div className="flex justify-between"><span className="text-muted-foreground">SKUs</span><span className="font-semibold">{ws.skuCount}</span></div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          );
+        })()}
+
+        {/* VIEW: Alerts & Heatmap */}
+        {positionView === "alerts" && loadingSnapshot && <div className="p-4 text-sm text-muted-foreground">Loading alerts...</div>}
+        {positionView === "alerts" && !loadingSnapshot && snap && (() => {
+          const { summary, criticalSkus, overstockedSkus, heatmap, periodLabels, actionSummary } = snap;
+          const trendIcon = (t: string) => t === "improving" ? "↑" : t === "deteriorating" ? "↓" : "→";
+          const trendColor = (t: string) => t === "improving" ? "text-emerald-600" : t === "deteriorating" ? "text-red-600" : "text-muted-foreground";
+          const filteredHeatmap = heatmapFilter === "critical"
+            ? heatmap.filter((r: any) => r.periods.some((p: any) => p.zone === "Critical" || p.zone === "Negative" || p.zone === "Out of Stock"))
+            : heatmapFilter === "overstock"
+            ? heatmap.filter((r: any) => r.periods.some((p: any) => p.zone === "Overstock"))
+            : heatmap;
+          const healthPct = summary.total > 0 ? Math.round(summary.healthy / summary.total * 100) : 0;
+
+          return (
+            <>
+              {/* Risk tier cards */}
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                <Card className="border-red-200 bg-red-50">
+                  <CardContent className="p-4">
+                    <p className="text-xs font-medium text-red-600 uppercase tracking-wider">Critical</p>
+                    <p className="text-3xl font-bold text-red-600 mt-1">{summary.critical}</p>
+                    <p className="text-xs text-red-500 mt-0.5">SKUs below 4w stock</p>
+                  </CardContent>
+                </Card>
+                <Card className="border-amber-200 bg-amber-50">
+                  <CardContent className="p-4">
+                    <p className="text-xs font-medium text-amber-600 uppercase tracking-wider">Overstock</p>
+                    <p className="text-3xl font-bold text-amber-600 mt-1">{summary.overstock}</p>
+                    <p className="text-xs text-amber-500 mt-0.5">SKUs above 6w stock</p>
+                  </CardContent>
+                </Card>
+                <Card className="border-orange-200 bg-orange-50">
+                  <CardContent className="p-4">
+                    <p className="text-xs font-medium text-orange-600 uppercase tracking-wider">At Risk</p>
+                    <p className="text-3xl font-bold text-orange-600 mt-1">{summary.warning}</p>
+                    <p className="text-xs text-orange-500 mt-0.5">Healthy now, critical ahead</p>
+                  </CardContent>
+                </Card>
+                <Card className="border-emerald-200 bg-emerald-50">
+                  <CardContent className="p-4">
+                    <p className="text-xs font-medium text-emerald-600 uppercase tracking-wider">Healthy</p>
+                    <p className="text-3xl font-bold text-emerald-600 mt-1">{summary.healthy}</p>
+                    <p className="text-xs text-emerald-500 mt-0.5">4–6 weeks, no issues</p>
+                  </CardContent>
+                </Card>
+                <Card className="border-blue-200 bg-blue-50">
+                  <CardContent className="p-4">
+                    <p className="text-xs font-medium text-blue-600 uppercase tracking-wider">Health Rate</p>
+                    <p className="text-3xl font-bold text-blue-600 mt-1">{healthPct}%</p>
+                    <p className="text-xs text-blue-500 mt-0.5">of {summary.total} total SKUs</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Recommended Actions */}
+              <Card className="border-slate-200">
+                <CardHeader className="pb-2"><CardTitle className="text-sm">Recommended Actions</CardTitle></CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="flex items-start gap-3 p-3 bg-red-50 rounded-lg border border-red-100">
+                      <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center text-red-600 font-bold text-sm flex-shrink-0">{actionSummary.needProductionIncrease}</div>
+                      <div>
+                        <p className="text-xs font-semibold text-red-700">Increase Production</p>
+                        <p className="text-[11px] text-red-600 mt-0.5">SKUs with insufficient shipment vs forecast</p>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-3 p-3 bg-amber-50 rounded-lg border border-amber-100">
+                      <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-600 font-bold text-sm flex-shrink-0">{actionSummary.needForecastReduction}</div>
+                      <div>
+                        <p className="text-xs font-semibold text-amber-700">Reduce Forecast</p>
+                        <p className="text-[11px] text-amber-600 mt-0.5">Overstocked SKUs with excess forecast</p>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-3 p-3 bg-violet-50 rounded-lg border border-violet-100">
+                      <div className="w-8 h-8 rounded-full bg-violet-100 flex items-center justify-center text-violet-600 font-bold text-sm flex-shrink-0">{actionSummary.needBoth}</div>
+                      <div>
+                        <p className="text-xs font-semibold text-violet-700">Mixed Strategy</p>
+                        <p className="text-[11px] text-violet-600 mt-0.5">SKUs needing both adjustments</p>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Critical SKUs */}
+              {criticalSkus.length > 0 && (
+                <Card className="border-red-200">
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-sm text-red-700">Critical SKUs</CardTitle>
+                      <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-semibold">{criticalSkus.length}</span>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {criticalSkus.map((sku: any) => (
+                        <div key={sku.id} className="border border-red-100 rounded-lg overflow-hidden">
+                          <button className="w-full flex items-center justify-between p-3 bg-red-50 hover:bg-red-100 transition-colors text-left" onClick={() => setExpandedSku(expandedSku === sku.id ? null : sku.id)}>
+                            <div className="flex items-center gap-3">
+                              <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: zoneColorMap[sku.currentZone] }} />
+                              <span className="text-xs font-semibold">{sku.name}</span>
+                              <span className={`text-[10px] px-1 py-0.5 rounded font-medium ${sku.weight === '50g' ? 'bg-blue-100 text-blue-700' : sku.weight === '250g' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'}`}>{sku.weight}</span>
+                            </div>
+                            <div className="flex items-center gap-4">
+                              <span className="text-xs font-bold" style={{ color: zoneColorMap[sku.currentZone] }}>{sku.currentWeeks}w</span>
+                              <span className={`text-sm font-bold ${trendColor(sku.trend)}`}>{trendIcon(sku.trend)}</span>
+                              <span className="text-[10px] text-muted-foreground">{expandedSku === sku.id ? "▲" : "▼"}</span>
+                            </div>
+                          </button>
+                          {expandedSku === sku.id && (
+                            <div className="p-3 bg-white border-t border-red-100">
+                              <div className="overflow-x-auto">
+                                <div className="flex gap-1 min-w-max">
+                                  {sku.periodWeeks.map((pw: any) => (
+                                    <div key={pw.label} className="text-center min-w-[52px]">
+                                      <div className="text-[9px] text-muted-foreground mb-1">{pw.label}</div>
+                                      <div className="rounded py-1 px-1 text-[10px] font-bold" style={{ backgroundColor: zoneBgMap[pw.zone], color: zoneColorMap[pw.zone] }}>
+                                        {pw.weeks > 0 ? `${pw.weeks}w` : "0w"}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Overstocked SKUs */}
+              {overstockedSkus.length > 0 && (
+                <Card className="border-amber-200">
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-sm text-amber-700">Overstocked SKUs</CardTitle>
+                      <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full font-semibold">{overstockedSkus.length}</span>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {overstockedSkus.map((sku: any) => (
+                        <div key={sku.id} className="flex items-center justify-between p-2.5 bg-amber-50 rounded-lg border border-amber-100">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-medium">{sku.name}</span>
+                            <span className={`text-[10px] px-1 py-0.5 rounded font-medium ${sku.weight === '50g' ? 'bg-blue-100 text-blue-700' : sku.weight === '250g' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'}`}>{sku.weight}</span>
+                          </div>
+                          <div className="flex items-center gap-4">
+                            <span className="text-xs font-bold text-amber-600">{sku.currentWeeks}w</span>
+                            <span className={`text-xs ${trendColor(sku.trend)}`}>{trendIcon(sku.trend)}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Health Heatmap */}
+              <Card>
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <CardTitle className="text-sm">Stock Health Heatmap</CardTitle>
+                    <div className="flex gap-1">
+                      {(["all", "critical", "overstock"] as const).map(f => (
+                        <button key={f} onClick={() => setHeatmapFilter(f)} className={`text-[10px] px-2 py-0.5 rounded-full border transition-colors ${heatmapFilter === f ? f === "critical" ? "bg-red-500 text-white border-red-500" : f === "overstock" ? "bg-amber-500 text-white border-amber-500" : "bg-slate-700 text-white border-slate-700" : "bg-background border-border text-muted-foreground hover:bg-muted"}`}>
+                          {f === "all" ? "All" : f === "critical" ? "Critical" : "Overstock"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex gap-3 mt-2 flex-wrap">
+                    {Object.entries(zoneBgMap).map(([zone, bg]) => (
+                      <div key={zone} className="flex items-center gap-1">
+                        <div className="w-3 h-3 rounded-sm border" style={{ backgroundColor: bg, borderColor: zoneColorMap[zone] }} />
+                        <span className="text-[10px] text-muted-foreground">{zone}</span>
+                      </div>
+                    ))}
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {filteredHeatmap.length === 0 ? (
+                    <p className="text-sm text-muted-foreground py-4 text-center">No SKUs match the selected filter.</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="text-[10px] border-collapse w-full">
+                        <thead>
+                          <tr>
+                            <th className="px-2 py-1.5 text-left font-medium text-muted-foreground sticky left-0 bg-background z-10 min-w-[140px] border-b">SKU</th>
+                            <th className="px-1 py-1.5 text-center font-medium text-muted-foreground min-w-[28px] border-b">Wt</th>
+                            {periodLabels.map((label: string) => (
+                              <th key={label} className="px-1 py-1.5 text-center font-medium text-muted-foreground min-w-[44px] border-b">{label}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredHeatmap.map((row: any, rowIdx: number) => (
+                            <tr key={row.skuId} className={rowIdx % 2 === 0 ? "bg-white" : "bg-slate-50"}>
+                              <td className="px-2 py-1 font-medium sticky left-0 z-10 border-b" style={{ backgroundColor: rowIdx % 2 === 0 ? "white" : "#f8fafc" }}>{row.skuName}</td>
+                              <td className="px-1 py-1 text-center border-b">
+                                <span className={`text-[9px] px-1 rounded font-medium ${row.weight === '50g' ? 'bg-blue-100 text-blue-700' : row.weight === '250g' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'}`}>{row.weight}</span>
+                              </td>
+                              {row.periods.map((pw: any) => (
+                                <td key={pw.label} className="px-1 py-1 text-center border-b font-semibold" style={{ backgroundColor: zoneBgMap[pw.zone] || "#f9fafb", color: zoneColorMap[pw.zone] || "#374151" }} title={`${row.skuName} - ${pw.label}: ${pw.weeks}w (${pw.zone})`}>
+                                  {pw.weeks > 0 ? pw.weeks : "-"}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </>
           );
         })()}
       </div>
@@ -1519,149 +1415,45 @@ export default function AnalysisPage() {
     );
   };
 
-  const StockLevelTab = () => {
-    const [slSort, setSlSort] = useState<"weeks" | "stock" | "health" | "name">("weeks");
-    if (loadingStockLvl) return <div className="p-4 text-sm text-muted-foreground">Loading stock levels...</div>;
-    if (!stockLevelsData) return <div className="p-4 text-sm text-muted-foreground">No planning data available for stock level analysis.</div>;
-    const sd = stockLevelsData as any;
-    const shortLabels = (sd.periodLabels as string[]).map((l: string) => l.length > 5 ? l.slice(0, 3) + "'" + l.slice(-2) : l);
-
-    const sortedSkus = [...(sd.skuStocks as any[])].sort((a, b) => {
-      if (slSort === "weeks") return a.currentWeeks - b.currentWeeks;
-      if (slSort === "stock") return b.currentClosingStock - a.currentClosingStock;
-      if (slSort === "health") return a.healthScore - b.healthScore;
-      return a.name.localeCompare(b.name);
-    });
-
-    const zoneBadge = (zone: string) => {
-      const cls: Record<string, string> = {
-        "Healthy": "bg-green-100 text-green-700",
-        "Critical": "bg-red-100 text-red-700",
-        "Overstock": "bg-orange-100 text-orange-700",
-        "Negative": "bg-gray-900 text-white",
-        "Out of Stock": "bg-gray-100 text-gray-600",
-      };
-      return <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${cls[zone] || "bg-gray-100 text-gray-600"}`}>{zone}</span>;
-    };
+  // ==================== BREAKDOWNS TAB (merged Weight + Category + Flavor) ====================
+  const BreakdownsTab = () => {
+    const [breakdownView, setBreakdownView] = useState<"weight" | "category" | "flavor">("weight");
 
     return (
       <div className="space-y-6">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <KpiCard title="Total Closing Stock" value={formatNum(sd.totalClosingStock)} subtitle="Current period" color="#3b82f6" />
-          <KpiCard title="Avg Weeks of Stock" value={`${sd.avgWeeksAll}w`} subtitle="Target: 4–6 weeks" color={sd.avgWeeksAll >= 4 && sd.avgWeeksAll <= 6 ? "#10b981" : "#ef4444"} />
-          <KpiCard title="Health Score" value={`${sd.avgHealthScore}%`} subtitle="% periods in Healthy zone" color={sd.avgHealthScore >= 50 ? "#10b981" : "#ef4444"} />
-          <KpiCard title="Total SKUs" value={String(sd.totalSkus)} color="#8b5cf6" />
-        </div>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Current Zone Distribution</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-4 flex-wrap">
-              <DonutChart segments={(sd.zoneDistribution as any[]).map((z: any) => ({ label: `${z.zone} (${z.count})`, value: z.count, color: z.color }))} size={140} />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Zone Trend Over Time</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <StackedBarChart
-              data={(sd.periodZones as any[]).map((pz: any, i: number) => ({
-                label: shortLabels[i] || pz.period,
-                values: pz.zones,
-              }))}
-              keys={["Healthy", "Critical", "Overstock", "Out of Stock", "Negative"]}
-              colors={{ "Healthy": "#16a34a", "Critical": "#dc2626", "Overstock": "#ea580c", "Out of Stock": "#6b7280", "Negative": "#111827" }}
-              labels={{ "Healthy": "Healthy", "Critical": "Critical", "Overstock": "Overstock", "Out of Stock": "Out of Stock", "Negative": "Negative" }}
-            />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Stock by Weight</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {(sd.weightStockSummary as any[]).map((ws: any) => (
-                <div key={ws.weight} className="border rounded-lg p-3">
-                  <span className={`px-2 py-1 rounded text-sm font-bold ${ws.weight === "50g" ? "bg-blue-100 text-blue-700" : ws.weight === "250g" ? "bg-amber-100 text-amber-700" : "bg-rose-100 text-rose-700"}`}>{ws.weight}</span>
-                  <div className="mt-2 space-y-1 text-xs">
-                    <div className="flex justify-between"><span className="text-muted-foreground">Total Stock</span><span className="font-semibold">{formatNum(ws.totalStock)}</span></div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">Avg Weeks</span><span className="font-semibold">{ws.avgWeeks}w</span></div>
-                    <div className="flex justify-between"><span className="text-muted-foreground">SKUs</span><span className="font-semibold">{ws.skuCount}</span></div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-
-        <div className="flex gap-2 items-center">
-          <span className="text-xs text-muted-foreground">Sort by:</span>
-          {(["weeks", "stock", "health", "name"] as const).map(s => (
-            <button key={s} onClick={() => setSlSort(s)} className={`px-2 py-1 text-xs rounded transition-colors ${slSort === s ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}>
-              {s === "weeks" ? "Weeks of Stock" : s === "stock" ? "Closing Stock" : s === "health" ? "Health Score" : "Name"}
+        <div className="flex gap-2 items-center border-b pb-2">
+          <span className="text-xs text-muted-foreground">View:</span>
+          {(["weight", "category", "flavor"] as const).map(v => (
+            <button key={v} onClick={() => setBreakdownView(v)} className={`px-3 py-1.5 text-xs rounded-md font-medium transition-colors ${breakdownView === v ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}>
+              {v === "weight" ? "By Weight" : v === "category" ? "By Category" : "By Flavor"}
             </button>
           ))}
         </div>
 
-        <Card>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b bg-muted/50">
-                    <th className="text-left p-2 font-semibold sticky left-0 bg-muted/50">SKU</th>
-                    <th className="text-center p-2 font-semibold">Weight</th>
-                    <th className="text-center p-2 font-semibold">Zone</th>
-                    <th className="text-right p-2 font-semibold">Closing Stock</th>
-                    <th className="text-right p-2 font-semibold">Weeks</th>
-                    <th className="text-right p-2 font-semibold">Coverage</th>
-                    <th className="text-center p-2 font-semibold">Health</th>
-                    <th className="p-2 font-semibold min-w-[120px]">Stock Trend</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedSkus.map((sku: any, idx: number) => (
-                    <tr key={sku.id} className="border-b hover:bg-muted/30 transition-colors">
-                      <td className="p-2 font-medium sticky left-0 bg-white">
-                        <div>{sku.name}</div>
-                        <div className="text-[10px] text-muted-foreground">{sku.category} · {sku.packagingType} Pkg</div>
-                      </td>
-                      <td className="text-center p-2">
-                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${sku.weight === "50g" ? "bg-blue-100 text-blue-700" : sku.weight === "250g" ? "bg-amber-100 text-amber-700" : "bg-rose-100 text-rose-700"}`}>{sku.weight}</span>
-                      </td>
-                      <td className="text-center p-2">{zoneBadge(sku.currentZone)}</td>
-                      <td className="text-right p-2 font-semibold">{formatNum(sku.currentClosingStock)}</td>
-                      <td className="text-right p-2">
-                        <span className={`font-semibold ${sku.currentWeeks >= 4 && sku.currentWeeks <= 6 ? "text-green-600" : sku.currentWeeks < 4 ? "text-red-600" : "text-orange-600"}`}>
-                          {Math.abs(sku.currentWeeks) >= 99 ? (sku.currentWeeks > 0 ? "∞" : "-∞") : `${sku.currentWeeks}w`}
-                        </span>
-                      </td>
-                      <td className="text-right p-2">{sku.coverageMonths > 0 ? `${sku.coverageMonths}mo` : "—"}</td>
-                      <td className="text-center p-2">
-                        <div className="flex items-center gap-1 justify-center">
-                          <div className="w-8 h-2 bg-muted rounded-full overflow-hidden">
-                            <div className="h-full rounded-full" style={{ width: `${Math.min(sku.healthScore, 100)}%`, backgroundColor: sku.healthScore >= 50 ? "#16a34a" : sku.healthScore >= 25 ? "#ea580c" : "#dc2626" }} />
-                          </div>
-                          <span className="text-[10px]">{sku.healthScore}%</span>
-                        </div>
-                      </td>
-                      <td className="p-2">
-                        <SparkLine data={sku.closingStocks} color={PALETTE[idx % PALETTE.length]} height={28} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
+        {breakdownView === "weight" && <ByWeightTab />}
+        {breakdownView === "category" && <ByCategoryTab />}
+        {breakdownView === "flavor" && <ByFlavorTab />}
+      </div>
+    );
+  };
+
+  // ==================== PRODUCTION & IMS TAB (merged Production + Running Rate) ====================
+  const ProductionImsTab = () => {
+    const [prodView, setProdView] = useState<"production" | "runningrate">("production");
+
+    return (
+      <div className="space-y-6">
+        <div className="flex gap-2 items-center border-b pb-2">
+          <span className="text-xs text-muted-foreground">View:</span>
+          {(["production", "runningrate"] as const).map(v => (
+            <button key={v} onClick={() => setProdView(v)} className={`px-3 py-1.5 text-xs rounded-md font-medium transition-colors ${prodView === v ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"}`}>
+              {v === "production" ? "Shipped & Arrived" : "IMS Running Rate"}
+            </button>
+          ))}
+        </div>
+
+        {prodView === "production" && <ProductionTab />}
+        {prodView === "runningrate" && <RunningRateTab />}
       </div>
     );
   };
@@ -1672,7 +1464,7 @@ export default function AnalysisPage() {
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Analysis Dashboard</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Comprehensive analytics across all SSOF data dimensions
+            Demand planning analytics — Lebanon market
           </p>
         </div>
         <Button
@@ -1690,27 +1482,17 @@ export default function AnalysisPage() {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="flex flex-wrap h-auto gap-1 bg-muted p-1 rounded-lg">
           <TabsTrigger value="overview" className="text-xs tab-dark-red">Overview</TabsTrigger>
+          <TabsTrigger value="stockposition" className="text-xs tab-dark-red">Stock Position</TabsTrigger>
           <TabsTrigger value="sku" className="text-xs tab-dark-red">By SKU</TabsTrigger>
-          <TabsTrigger value="weight" className="text-xs tab-dark-red">By Weight</TabsTrigger>
-          <TabsTrigger value="category" className="text-xs tab-dark-red">By Category</TabsTrigger>
-          <TabsTrigger value="flavor" className="text-xs tab-dark-red">By Flavor</TabsTrigger>
-          <TabsTrigger value="production" className="text-xs tab-dark-red">Production</TabsTrigger>
-          <TabsTrigger value="health" className="text-xs tab-dark-red">Stock Health</TabsTrigger>
-          <TabsTrigger value="runrate" className="text-xs tab-dark-red">Running Rate</TabsTrigger>
-          <TabsTrigger value="stocklvl" className="text-xs tab-dark-red">Stock Levels</TabsTrigger>
-          <TabsTrigger value="snapshot" className="text-xs tab-dark-red">Snapshot</TabsTrigger>
+          <TabsTrigger value="breakdowns" className="text-xs tab-dark-red">Breakdowns</TabsTrigger>
+          <TabsTrigger value="production" className="text-xs tab-dark-red">Production & IMS</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview"><OverviewTab /></TabsContent>
+        <TabsContent value="stockposition"><StockPositionTab /></TabsContent>
         <TabsContent value="sku"><BySkuTab /></TabsContent>
-        <TabsContent value="weight"><ByWeightTab /></TabsContent>
-        <TabsContent value="category"><ByCategoryTab /></TabsContent>
-        <TabsContent value="flavor"><ByFlavorTab /></TabsContent>
-        <TabsContent value="production"><ProductionTab /></TabsContent>
-        <TabsContent value="health"><StockHealthTab /></TabsContent>
-        <TabsContent value="runrate"><RunningRateTab /></TabsContent>
-        <TabsContent value="stocklvl"><StockLevelTab /></TabsContent>
-        <TabsContent value="snapshot"><StockSnapshotTab /></TabsContent>
+        <TabsContent value="breakdowns"><BreakdownsTab /></TabsContent>
+        <TabsContent value="production"><ProductionImsTab /></TabsContent>
       </Tabs>
     </div>
   );
