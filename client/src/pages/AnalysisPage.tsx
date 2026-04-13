@@ -1486,7 +1486,8 @@ export default function AnalysisPage() {
           <TabsTrigger value="stockposition" className="text-xs tab-dark-red">Stock Position</TabsTrigger>
           <TabsTrigger value="sku" className="text-xs tab-dark-red">By SKU</TabsTrigger>
           <TabsTrigger value="breakdowns" className="text-xs tab-dark-red">Breakdowns</TabsTrigger>
-          <TabsTrigger value="production" className="text-xs tab-dark-red">Production & IMS</TabsTrigger>
+          <TabsTrigger value="production" className="text-xs tab-dark-red">Production</TabsTrigger>
+          <TabsTrigger value="runrate" className="text-xs tab-dark-red">Running Rate</TabsTrigger>
           <TabsTrigger value="forecastintel" className="text-xs tab-dark-red">Forecast Intelligence</TabsTrigger>
         </TabsList>
 
@@ -1494,7 +1495,8 @@ export default function AnalysisPage() {
         <TabsContent value="stockposition"><StockPositionTab /></TabsContent>
         <TabsContent value="sku"><BySkuTab /></TabsContent>
         <TabsContent value="breakdowns"><BreakdownsTab /></TabsContent>
-        <TabsContent value="production"><ProductionImsTab /></TabsContent>
+        <TabsContent value="production"><ProductionTab /></TabsContent>
+        <TabsContent value="runrate"><RunningRateTab /></TabsContent>
         <TabsContent value="forecastintel"><ForecastIntelligenceTab country="Lebanon" /></TabsContent>
       </Tabs>
     </div>
