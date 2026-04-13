@@ -9,6 +9,7 @@ import { Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import ForecastIntelligenceTab from "@/components/ForecastIntelligenceTab";
+import ClosingStockTab from "@/components/ClosingStockTab";
 
 // ==================== SHARED HELPERS ====================
 
@@ -1435,6 +1436,7 @@ export default function IntlAnalysisPage() {
           </TabsTrigger>
           <TabsTrigger value="breakdowns" className="tab-dark-red">Breakdowns</TabsTrigger>
           <TabsTrigger value="runrate" className="tab-dark-red">Running Rate</TabsTrigger>
+          <TabsTrigger value="closingstock" className="tab-dark-red">Closing Stock</TabsTrigger>
           <TabsTrigger value="forecastintel" className="tab-dark-red">Forecast Intelligence</TabsTrigger>
         </TabsList>
 
@@ -1443,6 +1445,7 @@ export default function IntlAnalysisPage() {
         <TabsContent value="forecastclearance"><ForecastClearanceTab /></TabsContent>
         <TabsContent value="breakdowns"><BreakdownsTab /></TabsContent>
         <TabsContent value="runrate"><RunningRateTab /></TabsContent>
+        <TabsContent value="closingstock"><ClosingStockTab country={country as "Syria" | "Libya"} /></TabsContent>
         <TabsContent value="forecastintel"><ForecastIntelligenceTab country={country as "Syria" | "Libya"} /></TabsContent>
       </Tabs>
     </div>

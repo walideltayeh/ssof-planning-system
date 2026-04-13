@@ -3139,6 +3139,188 @@ type ExpiryRow = {
   alertTier: "Expired" | "2M" | "4M" | "6M" | "9M" | "12M" | "18M" | "24M" | "OK";
 };
 
+// ==================== CURRENT MONTH CLOSING STOCK ====================
+export async function getCurrentMonthClosingStock(country: "Lebanon" | "Syria" | "Libya") {
+  const db = await getDb();
+  if (!db) return null;
+
+  const skuList = await getSkusForCountry(country);
+  const skuIds = skuList.map(s => s.id);
+  if (skuIds.length === 0) return null;
+
+  const periodList = await getPeriodsForCountry(country);
+  const imsRows = await db.select().from(imsData).where(inArray(imsData.skuId, skuIds));
+  const fcRows = await db.select().from(forecastData).where(inArray(forecastData.skuId, skuIds));
+  const revRows = await db.select().from(revisedForecastData).where(inArray(revisedForecastData.skuId, skuIds));
+  const planRows = await db.select().from(planningFgData).where(inArray(planningFgData.skuId, skuIds));
+  const arrRows = country === "Lebanon"
+    ? await db.select().from(arrivalData).where(inArray(arrivalData.skuId, skuIds))
+    : [];
+  const clearRows = country !== "Lebanon"
+    ? await db.select().from(clearanceEvents).where(inArray(clearanceEvents.skuId, skuIds))
+    : [];
+
+  const now = new Date();
+  const curYear = now.getFullYear();
+  const curMonth = now.getMonth() + 1;
+  const sortedPeriods = [...periodList].sort((a, b) => a.sortOrder - b.sortOrder);
+  const MONTH_NAMES = ["", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+  const imsMap = new Map<string, number>();
+  for (const r of imsRows) imsMap.set(`${r.skuId}-${r.periodId}`, parseFloat(r.value ?? "0") || 0);
+  const fcMap = new Map<string, number>();
+  for (const r of fcRows) fcMap.set(`${r.skuId}-${r.periodId}`, parseFloat(r.value ?? "0") || 0);
+  const revMap = new Map<string, number>();
+  for (const r of revRows) {
+    const v = parseFloat(r.value ?? "0") || 0;
+    if (v > 0) revMap.set(`${r.skuId}-${r.periodId}`, v);
+  }
+  const planMap = new Map<string, { openingStock: number; adjustments: number; arrivals: number }>();
+  for (const r of planRows) {
+    planMap.set(`${r.skuId}-${r.periodId}`, {
+      openingStock: parseFloat(r.openingStock ?? "0") || 0,
+      adjustments: parseFloat(r.adjustments ?? "0") || 0,
+      arrivals: parseFloat(r.arrivals ?? "0") || 0,
+    });
+  }
+
+  const lebArrMap = new Map<string, number>();
+  if (country === "Lebanon") {
+    for (const r of arrRows) {
+      const total = (parseFloat(r.week1 ?? "0") || 0) + (parseFloat(r.week2 ?? "0") || 0)
+        + (parseFloat(r.week3 ?? "0") || 0) + (parseFloat(r.week4 ?? "0") || 0);
+      lebArrMap.set(`${r.skuId}-${r.periodId}`, total);
+    }
+  }
+
+  const intlArrMap = new Map<string, number>();
+  if (country !== "Lebanon") {
+    for (const ce of clearRows) {
+      if (!ce.clearedDate) continue;
+      const cd = new Date(ce.clearedDate);
+      const clearedMonth = cd.getMonth() + 1;
+      const clearedYear = cd.getFullYear();
+      const period = sortedPeriods.find(p => p.month === clearedMonth && p.year === clearedYear);
+      if (!period) continue;
+      const key = `${ce.skuId}-${period.id}`;
+      intlArrMap.set(key, (intlArrMap.get(key) ?? 0) + (parseFloat(String(ce.mastercases ?? "0")) || 0));
+    }
+  }
+
+  const getEffIms = (skuId: number, periodId: number, period: { year: number; month: number }) => {
+    const ims = imsMap.get(`${skuId}-${periodId}`) ?? 0;
+    if (ims !== 0) return ims;
+    if (period.year > curYear || (period.year === curYear && period.month > curMonth)) {
+      return fcMap.get(`${skuId}-${periodId}`) ?? 0;
+    }
+    return 0;
+  };
+
+  const getArrivals = (skuId: number, periodId: number) => {
+    const planArr = planMap.get(`${skuId}-${periodId}`)?.arrivals ?? 0;
+    if (country === "Lebanon") {
+      return planArr !== 0 ? planArr : (lebArrMap.get(`${skuId}-${periodId}`) ?? 0);
+    }
+    return intlArrMap.get(`${skuId}-${periodId}`) ?? 0;
+  };
+
+  const currentPeriodIdx = sortedPeriods.findIndex(p => p.year === curYear && p.month === curMonth);
+  if (currentPeriodIdx < 0) return { periodLabel: `${MONTH_NAMES[curMonth]} ${curYear}`, skuData: [], summary: { totalClosingStock: 0, totalOpeningStock: 0, totalArrivals: 0, totalIms: 0, totalAdjustments: 0, healthyCt: 0, criticalCt: 0, overstockCt: 0, outOfStockCt: 0, skuCount: 0 } };
+
+  const curPeriod = sortedPeriods[currentPeriodIdx];
+  const periodLabel = `${MONTH_NAMES[curPeriod.month]} ${curPeriod.year}`;
+
+  type SkuClosingData = {
+    id: number;
+    name: string;
+    weight: string;
+    category: string;
+    openingStock: number;
+    adjustments: number;
+    arrivals: number;
+    ims: number;
+    closingStock: number;
+    weeksOfStock: number;
+    zone: string;
+    invoiced: number;
+  };
+
+  const skuData: SkuClosingData[] = [];
+
+  for (const sku of skuList) {
+    let prevCS = 0;
+    for (let i = 0; i <= currentPeriodIdx; i++) {
+      const p = sortedPeriods[i];
+      const plan = planMap.get(`${sku.id}-${p.id}`);
+      const opening = i === 0 ? (plan?.openingStock ?? 0) : prevCS;
+      const adj = plan?.adjustments ?? 0;
+      const arr = getArrivals(sku.id, p.id);
+      const ims = getEffIms(sku.id, p.id, p);
+      const cs = opening + adj + arr - ims;
+      prevCS = cs;
+
+      if (i === currentPeriodIdx) {
+        let weeks = 0;
+        if (cs !== 0) {
+          if (country === "Lebanon") {
+            const n1 = i + 1 < sortedPeriods.length ? getEffIms(sku.id, sortedPeriods[i + 1].id, sortedPeriods[i + 1]) : 0;
+            const n2 = i + 2 < sortedPeriods.length ? getEffIms(sku.id, sortedPeriods[i + 2].id, sortedPeriods[i + 2]) : 0;
+            const avg = (n1 !== 0 || n2 !== 0) ? (n1 + n2) / 2 : 0;
+            weeks = avg !== 0 ? (cs / avg) * 4.3 : (cs > 0 ? 99 : -99);
+          } else {
+            weeks = ims > 0 ? (cs / ims) * 4 : (cs > 0 ? 99 : 0);
+          }
+        }
+
+        const zone = weeks <= 0 ? (cs < 0 ? "Negative" : "Out of Stock") :
+          weeks < 4 ? "Critical" : weeks <= 6 ? "Healthy" : (weeks >= 99 ? (cs > 0 ? "Overstock" : "Out of Stock") : "Overstock");
+
+        const revFc = revMap.get(`${sku.id}-${p.id}`);
+        const fc = fcMap.get(`${sku.id}-${p.id}`) ?? 0;
+        const invoiced = revFc !== undefined ? revFc : fc;
+
+        skuData.push({
+          id: sku.id,
+          name: sku.name,
+          weight: sku.weight,
+          category: sku.category ?? "Core",
+          openingStock: Math.round(opening),
+          adjustments: Math.round(adj),
+          arrivals: Math.round(arr),
+          ims: Math.round(ims),
+          closingStock: Math.round(cs),
+          weeksOfStock: Math.round(weeks * 10) / 10,
+          zone,
+          invoiced: Math.round(invoiced),
+        });
+      }
+    }
+  }
+
+  const totalCS = skuData.reduce((s, d) => s + d.closingStock, 0);
+  const totalOS = skuData.reduce((s, d) => s + d.openingStock, 0);
+  const totalArr = skuData.reduce((s, d) => s + d.arrivals, 0);
+  const totalIms = skuData.reduce((s, d) => s + d.ims, 0);
+  const totalAdj = skuData.reduce((s, d) => s + d.adjustments, 0);
+
+  return {
+    periodLabel,
+    skuData: skuData.sort((a, b) => a.name.localeCompare(b.name)),
+    summary: {
+      totalClosingStock: totalCS,
+      totalOpeningStock: totalOS,
+      totalArrivals: totalArr,
+      totalIms: totalIms,
+      totalAdjustments: totalAdj,
+      healthyCt: skuData.filter(d => d.zone === "Healthy").length,
+      criticalCt: skuData.filter(d => d.zone === "Critical" || d.zone === "Negative").length,
+      overstockCt: skuData.filter(d => d.zone === "Overstock").length,
+      outOfStockCt: skuData.filter(d => d.zone === "Out of Stock").length,
+      skuCount: skuData.length,
+    },
+  };
+}
+
 // ==================== FORECAST INTELLIGENCE ====================
 export async function getForecastIntelligence(country: "Lebanon" | "Syria" | "Libya") {
   const db = await getDb();

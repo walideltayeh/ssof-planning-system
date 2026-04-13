@@ -1592,6 +1592,12 @@ export const appRouter = router({
         return db.getForecastIntelligence(input.country);
       }),
 
+    currentMonthClosingStock: publicProcedure
+      .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya"]) }))
+      .query(async ({ input }) => {
+        return db.getCurrentMonthClosingStock(input.country);
+      }),
+
     competitorData: publicProcedure
       .input(z.object({ country: z.string() }))
       .query(async ({ input }) => {

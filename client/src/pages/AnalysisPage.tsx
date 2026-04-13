@@ -7,6 +7,7 @@ import { Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useUnit } from "@/contexts/UnitContext";
 import ForecastIntelligenceTab from "@/components/ForecastIntelligenceTab";
+import ClosingStockTab from "@/components/ClosingStockTab";
 
 // ==================== HELPER COMPONENTS ====================
 
@@ -1488,6 +1489,7 @@ export default function AnalysisPage() {
           <TabsTrigger value="breakdowns" className="text-xs tab-dark-red">Breakdowns</TabsTrigger>
           <TabsTrigger value="production" className="text-xs tab-dark-red">Production</TabsTrigger>
           <TabsTrigger value="runrate" className="text-xs tab-dark-red">Running Rate</TabsTrigger>
+          <TabsTrigger value="closingstock" className="text-xs tab-dark-red">Closing Stock</TabsTrigger>
           <TabsTrigger value="forecastintel" className="text-xs tab-dark-red">Forecast Intelligence</TabsTrigger>
         </TabsList>
 
@@ -1497,6 +1499,7 @@ export default function AnalysisPage() {
         <TabsContent value="breakdowns"><BreakdownsTab /></TabsContent>
         <TabsContent value="production"><ProductionTab /></TabsContent>
         <TabsContent value="runrate"><RunningRateTab /></TabsContent>
+        <TabsContent value="closingstock"><ClosingStockTab country="Lebanon" /></TabsContent>
         <TabsContent value="forecastintel"><ForecastIntelligenceTab country="Lebanon" /></TabsContent>
       </Tabs>
     </div>
