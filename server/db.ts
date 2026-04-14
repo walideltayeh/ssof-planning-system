@@ -1208,12 +1208,13 @@ export async function getAnalysisOverview() {
   const db = await getDb();
   if (!db) return { totalSkus: 0, totalForecast: 0, totalProduction: 0, totalArrival: 0, avgWeeksOfStock: 0, monthlyTrend: [] };
 
-  const allSkusList = await db.select().from(skus);
+  const allSkusList = await getSkusForCountry('Lebanon');
+  const activeSkuIds = new Set(allSkusList.map(s => s.id));
   const allPeriods = await db.select().from(periods).orderBy(periods.sortOrder);
-  const allForecast = await db.select().from(forecastData);
-  const allShipment = await db.select().from(shipmentData);
-  const allArrival = await db.select().from(arrivalData);
-  const allPlanningFg = await db.select().from(planningFgData);
+  const allForecast = (await db.select().from(forecastData)).filter(d => activeSkuIds.has(d.skuId));
+  const allShipment = (await db.select().from(shipmentData)).filter(d => activeSkuIds.has(d.skuId));
+  const allArrival = (await db.select().from(arrivalData)).filter(d => activeSkuIds.has(d.skuId));
+  const allPlanningFg = (await db.select().from(planningFgData)).filter(d => activeSkuIds.has(d.skuId));
 
   const totalForecast = allForecast.reduce((s, d) => s + (parseFloat(d.value ?? "0") || 0), 0);
   const totalProduction = allShipment.reduce((s, d) => {
@@ -1236,7 +1237,7 @@ export async function getAnalysisOverview() {
   });
 
   // Compute closing stock weeks server-side (same formula as frontend)
-  const allImsForWeeks = await db.select().from(imsData);
+  const allImsForWeeks = (await db.select().from(imsData)).filter(d => activeSkuIds.has(d.skuId));
   const imsLookup = new Map<string, number>();
   for (const d of allImsForWeeks) imsLookup.set(`${d.skuId}-${d.periodId}`, parseFloat(d.value ?? "0") || 0);
   const forecastLookup = new Map<string, number>();
@@ -1255,7 +1256,7 @@ export async function getAnalysisOverview() {
   };
   const weeksVals: number[] = [];
   const closingStockByPeriod = new Map<number, number>();
-  const allArrivalDataForWeeks = await db.select().from(arrivalData);
+  const allArrivalDataForWeeks = allArrival;
   for (const sku of allSkusList) {
     let prevCS = 0;
     for (let i = 0; i < allPeriods.length; i++) {
@@ -1306,13 +1307,14 @@ export async function getAnalysisBySku() {
   const db = await getDb();
   if (!db) return [];
 
-  const allSkusList = await db.select().from(skus);
+  const allSkusList = await getSkusForCountry('Lebanon');
+  const activeSkuIds = new Set(allSkusList.map(s => s.id));
   const allPeriods = await db.select().from(periods).orderBy(periods.sortOrder);
-  const allForecast = await db.select().from(forecastData);
-  const allShipment = await db.select().from(shipmentData);
-  const allIms = await db.select().from(imsData);
-  const allPlanningFg = await db.select().from(planningFgData);
-  const allArrivalData = await db.select().from(arrivalData);
+  const allForecast = (await db.select().from(forecastData)).filter(d => activeSkuIds.has(d.skuId));
+  const allShipment = (await db.select().from(shipmentData)).filter(d => activeSkuIds.has(d.skuId));
+  const allIms = (await db.select().from(imsData)).filter(d => activeSkuIds.has(d.skuId));
+  const allPlanningFg = (await db.select().from(planningFgData)).filter(d => activeSkuIds.has(d.skuId));
+  const allArrivalData = (await db.select().from(arrivalData)).filter(d => activeSkuIds.has(d.skuId));
   const nowB = new Date();
   const curYr = nowB.getFullYear();
   const curMo = nowB.getMonth() + 1;
@@ -1445,11 +1447,12 @@ export async function getAnalysisByWeight() {
   const db = await getDb();
   if (!db) return [];
 
-  const allSkusList = await db.select().from(skus);
+  const allSkusList = await getSkusForCountry('Lebanon');
+  const activeSkuIds = new Set(allSkusList.map(s => s.id));
   const allPeriods = await db.select().from(periods).orderBy(periods.sortOrder);
-  const allForecast = await db.select().from(forecastData);
-  const allShipment = await db.select().from(shipmentData);
-  const allIms = await db.select().from(imsData);
+  const allForecast = (await db.select().from(forecastData)).filter(d => activeSkuIds.has(d.skuId));
+  const allShipment = (await db.select().from(shipmentData)).filter(d => activeSkuIds.has(d.skuId));
+  const allIms = (await db.select().from(imsData)).filter(d => activeSkuIds.has(d.skuId));
 
   const weights = Array.from(new Set(allSkusList.map(s => s.weight))).sort();
 
@@ -1488,11 +1491,12 @@ export async function getAnalysisByCategory() {
   const db = await getDb();
   if (!db) return [];
 
-  const allSkusList = await db.select().from(skus);
+  const allSkusList = await getSkusForCountry('Lebanon');
+  const activeSkuIds = new Set(allSkusList.map(s => s.id));
   const allPeriods = await db.select().from(periods).orderBy(periods.sortOrder);
-  const allForecast = await db.select().from(forecastData);
-  const allShipment = await db.select().from(shipmentData);
-  const allIms = await db.select().from(imsData);
+  const allForecast = (await db.select().from(forecastData)).filter(d => activeSkuIds.has(d.skuId));
+  const allShipment = (await db.select().from(shipmentData)).filter(d => activeSkuIds.has(d.skuId));
+  const allIms = (await db.select().from(imsData)).filter(d => activeSkuIds.has(d.skuId));
 
   const categories = Array.from(new Set(allSkusList.map(s => s.category))).sort();
 
@@ -1538,10 +1542,11 @@ export async function getAnalysisByFlavor() {
   const db = await getDb();
   if (!db) return [];
 
-  const allSkusList = await db.select().from(skus);
-  const allForecast = await db.select().from(forecastData);
-  const allIms = await db.select().from(imsData);
-  const allShipment = await db.select().from(shipmentData);
+  const allSkusList = await getSkusForCountry('Lebanon');
+  const activeSkuIds = new Set(allSkusList.map(s => s.id));
+  const allForecast = (await db.select().from(forecastData)).filter(d => activeSkuIds.has(d.skuId));
+  const allIms = (await db.select().from(imsData)).filter(d => activeSkuIds.has(d.skuId));
+  const allShipment = (await db.select().from(shipmentData)).filter(d => activeSkuIds.has(d.skuId));
 
   // Extract flavor from SKU name: "Al Fakher <Flavor> <Weight>" pattern
   const extractFlavor = (name: string): string => {
@@ -1581,10 +1586,11 @@ export async function getAnalysisProduction() {
   const db = await getDb();
   if (!db) return { monthly: [], skuEfficiency: [] };
 
-  const allSkusList = await db.select().from(skus);
+  const allSkusList = await getSkusForCountry('Lebanon');
+  const activeSkuIds = new Set(allSkusList.map(s => s.id));
   const allPeriods = await db.select().from(periods).orderBy(periods.sortOrder);
-  const allShipment = await db.select().from(shipmentData);
-  const allArrival = await db.select().from(arrivalData);
+  const allShipment = (await db.select().from(shipmentData)).filter(d => activeSkuIds.has(d.skuId));
+  const allArrival = (await db.select().from(arrivalData)).filter(d => activeSkuIds.has(d.skuId));
 
   const sumWeeks = (d: { week1: string | null; week2: string | null; week3: string | null; week4: string | null }) => {
     return (parseFloat(d.week1 ?? "0") || 0) + (parseFloat(d.week2 ?? "0") || 0) + (parseFloat(d.week3 ?? "0") || 0) + (parseFloat(d.week4 ?? "0") || 0);
@@ -1630,11 +1636,12 @@ export async function getAnalysisStockHealth() {
   const db = await getDb();
   if (!db) return { zones: [], skuHealth: [], periodHealth: [] };
 
-  const allSkusList = await db.select().from(skus);
+  const allSkusList = await getSkusForCountry('Lebanon');
+  const activeSkuIds = new Set(allSkusList.map(s => s.id));
   const allPeriods = await db.select().from(periods).orderBy(periods.sortOrder);
-  const allPlanningFg = await db.select().from(planningFgData);
-  const allImsH = await db.select().from(imsData);
-  const allForecastH = await db.select().from(forecastData);
+  const allPlanningFg = (await db.select().from(planningFgData)).filter(d => activeSkuIds.has(d.skuId));
+  const allImsH = (await db.select().from(imsData)).filter(d => activeSkuIds.has(d.skuId));
+  const allForecastH = (await db.select().from(forecastData)).filter(d => activeSkuIds.has(d.skuId));
   const nowH = new Date();
   const curYrH = nowH.getFullYear();
   const curMoH = nowH.getMonth() + 1;
@@ -1769,12 +1776,13 @@ export async function getStockSnapshot() {
   const db = await getDb();
   if (!db) return { summary: { critical: 0, warning: 0, healthy: 0, overstock: 0, outOfStock: 0, total: 0 }, criticalSkus: [], overstockedSkus: [], heatmap: [], periodLabels: [], actionSummary: { needForecastReduction: 0, needProductionIncrease: 0, needBoth: 0 } };
 
-  const allSkusList = await db.select().from(skus);
+  const allSkusList = await getSkusForCountry('Lebanon');
+  const activeSkuIds = new Set(allSkusList.map(s => s.id));
   const allPeriods = await db.select().from(periods).orderBy(periods.sortOrder);
-  const allPlanningFg = await db.select().from(planningFgData);
-  const allImsH = await db.select().from(imsData);
-  const allForecastH = await db.select().from(forecastData);
-  const allShipmentH = await db.select().from(shipmentData);
+  const allPlanningFg = (await db.select().from(planningFgData)).filter(d => activeSkuIds.has(d.skuId));
+  const allImsH = (await db.select().from(imsData)).filter(d => activeSkuIds.has(d.skuId));
+  const allForecastH = (await db.select().from(forecastData)).filter(d => activeSkuIds.has(d.skuId));
+  const allShipmentH = (await db.select().from(shipmentData)).filter(d => activeSkuIds.has(d.skuId));
   const now = new Date();
   const curYr = now.getFullYear();
   const curMo = now.getMonth() + 1;

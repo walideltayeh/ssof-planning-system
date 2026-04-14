@@ -165,6 +165,17 @@ Schema was converted from MySQL to PostgreSQL during Replit import. Uses Drizzle
 - API: `trpc.country.forecastIntelligence` endpoint
 - Files: `server/db.ts` (getForecastIntelligence), `client/src/components/ForecastIntelligenceTab.tsx`, both Analysis pages
 
+### 11. SKU Active/Inactive Toggle — Lebanon
+- Toggle switch on each SKU row in Lebanon SKU Management page
+- Inactive SKUs are excluded from all calculations (forecast, stock, analysis, planning) but data is preserved
+- Toggle ON to re-include the SKU in all calculations
+- Visual indicators: inactive SKUs shown at 50% opacity with strikethrough name
+- Stats dashboard shows Active/Inactive counts
+- `isActive` column on `skus` table (boolean, default true)
+- `getSkusForCountry()` filters by `isActive=true` by default; SKU management passes `includeInactive=true`
+- All 8 Lebanon analysis functions (`getAnalysisOverview`, `getAnalysisBySku`, `getAnalysisByWeight`, `getAnalysisByCategory`, `getAnalysisByFlavor`, `getAnalysisProduction`, `getAnalysisStockHealth`, `getStockSnapshot`) filter by active SKUs only
+- Cache invalidation: toggling a SKU invalidates forecast, planning, shipment, IMS, and arrival query caches
+
 ## Deployment
 
 - Custom domain: `ssofplan.live`

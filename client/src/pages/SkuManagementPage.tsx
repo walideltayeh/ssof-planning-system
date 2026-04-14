@@ -39,6 +39,7 @@ function SortableSkuRow({
   onDelete,
   deleteConfirm,
   onCategoryToggle,
+  onToggleActive,
   isAdmin,
 }: {
   sku: any;
@@ -46,13 +47,15 @@ function SortableSkuRow({
   onDelete: (id: number) => void;
   deleteConfirm: number | null;
   onCategoryToggle: (id: number, current: string) => void;
+  onToggleActive: (sku: any) => void;
   isAdmin: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: sku.id });
+  const inactive = sku.isActive === false;
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
-    opacity: isDragging ? 0.5 : 1,
+    opacity: isDragging ? 0.5 : inactive ? 0.5 : 1,
     zIndex: isDragging ? 10 : undefined,
   };
 
@@ -60,7 +63,7 @@ function SortableSkuRow({
     <tr
       ref={setNodeRef}
       style={style}
-      className={`border-t border-border/50 hover:bg-muted/30 transition-colors group ${isDragging ? "bg-muted shadow-lg" : ""}`}
+      className={`border-t border-border/50 hover:bg-muted/30 transition-colors group ${isDragging ? "bg-muted shadow-lg" : ""} ${inactive ? "bg-muted/20" : ""}`}
     >
       <td className="px-4 py-2.5 text-muted-foreground text-xs">{index + 1}</td>
       <td className="px-2 py-2.5 w-8">
@@ -75,7 +78,7 @@ function SortableSkuRow({
           </button>
         )}
       </td>
-      <td className="px-4 py-2.5 font-medium">{sku.name}</td>
+      <td className={`px-4 py-2.5 font-medium ${inactive ? "line-through text-muted-foreground" : ""}`}>{sku.name}</td>
       <td className="px-4 py-2.5 text-muted-foreground">{sku.weight}</td>
       <td className="px-4 py-2.5">
         <button
@@ -84,6 +87,20 @@ function SortableSkuRow({
           title="Click to toggle category"
           disabled={!isAdmin}
         >{sku.category}</button>
+      </td>
+      <td className="px-4 py-2.5">
+        <button
+          onClick={() => onToggleActive(sku)}
+          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${
+            !inactive ? "bg-emerald-500" : "bg-gray-300"
+          }`}
+          title={!inactive ? "Click to disable SKU" : "Click to enable SKU"}
+          disabled={!isAdmin}
+        >
+          <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
+            !inactive ? "translate-x-4" : "translate-x-0.5"
+          }`} />
+        </button>
       </td>
       <td className="px-4 py-2.5 text-right">
         {isAdmin && (
@@ -188,6 +205,31 @@ function LebanonSkuManagement() {
     onSettled: () => { utils.country.skus.invalidate(); },
   });
 
+  const toggleActiveMutation = trpc.country.toggleSkuActive.useMutation({
+    onMutate: async ({ skuId, isActive }) => {
+      await utils.country.skus.cancel();
+      const prev = utils.country.skus.getData({ country: "Lebanon", includeInactive: true });
+      utils.country.skus.setData({ country: "Lebanon", includeInactive: true }, (old: any) =>
+        old?.map((s: any) => s.id === skuId ? { ...s, isActive } : s)
+      );
+      setLocalSkus(prev => prev ? prev.map(s => s.id === skuId ? { ...s, isActive } : s) : null);
+      return { prev };
+    },
+    onError: (_err: any, _vars: any, ctx: any) => {
+      if (ctx?.prev) utils.country.skus.setData({ country: "Lebanon", includeInactive: true }, ctx.prev);
+      setLocalSkus(null);
+      toast.error("Failed to update SKU status");
+    },
+    onSettled: () => {
+      utils.country.skus.invalidate();
+      utils.data.forecast.invalidate();
+      utils.data.planningFg.invalidate();
+      utils.data.shipment.invalidate();
+      utils.data.ims.invalidate();
+      utils.data.arrival.invalidate();
+    },
+  });
+
   const reorderMutation = trpc.skus.reorder.useMutation({
     onError: () => {
       setLocalSkus(null);
@@ -227,6 +269,8 @@ function LebanonSkuManagement() {
 
   const stats = useMemo(() => ({
     total: displaySkus.length,
+    active: displaySkus.filter((s: any) => s.isActive !== false).length,
+    inactive: displaySkus.filter((s: any) => s.isActive === false).length,
     w50: displaySkus.filter((s: any) => s.weight === "50g").length,
     w250: displaySkus.filter((s: any) => s.weight === "250g").length,
     w1kg: displaySkus.filter((s: any) => s.weight === "1kg").length,
@@ -299,9 +343,11 @@ function LebanonSkuManagement() {
 
       {/* Stats */}
       {stats.total > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
           {[
             { label: "Total SKUs", value: stats.total, color: "text-foreground" },
+            { label: "Active", value: stats.active, color: "text-emerald-600" },
+            { label: "Inactive", value: stats.inactive, color: "text-red-500" },
             { label: "50g", value: stats.w50, color: "text-blue-600" },
             { label: "250g", value: stats.w250, color: "text-indigo-600" },
             { label: "1kg", value: stats.w1kg, color: "text-violet-600" },
@@ -357,7 +403,7 @@ function LebanonSkuManagement() {
                         <span className="text-xs text-muted-foreground ml-auto flex items-center gap-1"><GripVertical className="h-3 w-3" />Drag to reorder</span>
                       </div>
                       <table className="w-full text-sm">
-                        <thead className="sr-only"><tr><th>#</th><th>Drag</th><th>Name</th><th>Weight</th><th>Category</th><th>Actions</th></tr></thead>
+                        <thead className="sr-only"><tr><th>#</th><th>Drag</th><th>Name</th><th>Weight</th><th>Category</th><th>Active</th><th>Actions</th></tr></thead>
                         <SortableContext items={weightGroups[weight].map((s: any) => s.id)} strategy={verticalListSortingStrategy}>
                           <tbody>
                             {weightGroups[weight].map((sku: any, i: number) => (
@@ -368,6 +414,13 @@ function LebanonSkuManagement() {
                                 onDelete={(id) => setDeleteTarget({ id, name: sku.name })}
                                 deleteConfirm={deleteTarget?.id ?? null}
                                 onCategoryToggle={(id, cat) => updateCategoryMutation.mutate({ id, category: cat === "Core" ? "NPI" : "Core", username: appUser?.displayName })}
+                                onToggleActive={(s) => toggleActiveMutation.mutate({
+                                  skuId: s.id,
+                                  isActive: s.isActive === false ? true : false,
+                                  skuName: s.name,
+                                  country: "Lebanon",
+                                  username: appUser?.displayName,
+                                })}
                                 isAdmin={isAdmin}
                               />
                             ))}
