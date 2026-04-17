@@ -1865,9 +1865,27 @@ export const appRouter = router({
         const skus = includeNpi ? allSkus : allSkus.filter(s => (s.category ?? 'Core') === 'Core');
         if (!skus.length) throw new TRPCError({ code: 'NOT_FOUND', message: includeNpi ? 'No SKUs found for this country' : 'No Core SKUs found for this country (all SKUs are NPI)' });
 
-        // 2. Fetch all IMS data for this country
+        // 2. Fetch all IMS data + shipment (production/order) data for this country
         const periods = await db.getPeriodsForCountry(country);
         const imsData = await db.getImsDataForCountry(country);
+        const shipmentRows = await db.getShipmentDataForCountry(country);
+
+        // Build orders-by-SKU map: sum of week1..week4 in mastercases per period
+        // This represents PRODUCTION/ORDERS placed (the planner's committed intent),
+        // even for brand-new SKUs that have no IMS sales history yet.
+        const ordersBySku: Record<number, { year: number; month: number; mc: number }[]> = {};
+        for (const row of shipmentRows) {
+          const period = periods.find(p => p.id === row.periodId);
+          if (!period) continue;
+          const w1 = parseFloat(row.week1 ?? '0') || 0;
+          const w2 = parseFloat(row.week2 ?? '0') || 0;
+          const w3 = parseFloat(row.week3 ?? '0') || 0;
+          const w4 = parseFloat(row.week4 ?? '0') || 0;
+          const mc = w1 + w2 + w3 + w4;
+          if (mc <= 0) continue;
+          if (!ordersBySku[row.skuId]) ordersBySku[row.skuId] = [];
+          ordersBySku[row.skuId].push({ year: period.year, month: period.month, mc });
+        }
 
         // 3. Build per-SKU monthly IMS history
         const skuHistory: Record<number, { name: string; weight: string; category: string; packagingType: string; monthlyIms: { year: number; month: number; value: number }[] }> = {};
@@ -2008,6 +2026,26 @@ export const appRouter = router({
           const nwKey = `${sku.name}|${sku.weight}`;
           const hasDuplicateNameWeight = Object.values(skuHistory).filter(s => `${s.name}|${s.weight}` === nwKey).length > 1;
           const displayName = hasDuplicateNameWeight ? `${sku.name} ${sku.weight} ${sku.packagingType}` : `${sku.name} ${sku.weight}`;
+
+          // Orders/production signal — last 6 months and upcoming 3 months (incl. target)
+          const orders = ordersBySku[skuId] ?? [];
+          const monthIndex = (y: number, m: number) => y * 12 + (m - 1);
+          const targetIdx = monthIndex(targetYear, targetMonth);
+          const recentOrders = orders.filter(o => {
+            const di = targetIdx - monthIndex(o.year, o.month);
+            return di > 0 && di <= 6;
+          });
+          const upcomingOrders = orders.filter(o => {
+            const di = monthIndex(o.year, o.month) - targetIdx;
+            return di >= 0 && di < 3;
+          });
+          const recentOrdersMC = recentOrders.reduce((s, o) => s + o.mc, 0);
+          const upcomingOrdersMC = upcomingOrders.reduce((s, o) => s + o.mc, 0);
+          const ordersDetail = [...recentOrders, ...upcomingOrders]
+            .sort((a, b) => monthIndex(a.year, a.month) - monthIndex(b.year, b.month))
+            .map(o => `${o.year}-${String(o.month).padStart(2, '0')}:${Math.round(o.mc)}MC`)
+            .join(' ');
+          const isNewSkuWithOrders = nonZero.length === 0 && (recentOrdersMC + upcomingOrdersMC) > 0;
           return {
             skuId,
             name: displayName,
@@ -2024,6 +2062,10 @@ export const appRouter = router({
             history,
             monthsOfData: nonZero.length,
             sameMonthRawData: sameMonthData,
+            recentOrdersMC,
+            upcomingOrdersMC,
+            ordersDetail,
+            isNewSkuWithOrders,
           };
         });
         const grandTotal = skuSummaries.reduce((s, sk) => s + sk.totalIms, 0);
@@ -2159,8 +2201,19 @@ export const appRouter = router({
           const skuObj = skus.find(s => s.id === sk.skuId);
           const health = skuObj ? stockHealthBySku[skuObj.id] : null;
 
-          // Factor 1: Historical trend score (35%) — based on avg monthly IMS relative to total
-          const historicalShare = grandTotal > 0 ? (sk.totalIms / grandTotal) : (1 / Math.max(1, skuSummaries.length));
+          // Factor 1: Historical trend score (35%) — based on avg monthly IMS relative to total.
+          // FALLBACK for SKUs with zero IMS but with active orders (new SKU just added by planner):
+          // use their share of recent+upcoming orders as a proxy demand signal so they aren't allocated 0.
+          let historicalShare: number;
+          if (sk.totalIms > 0 && grandTotal > 0) {
+            historicalShare = sk.totalIms / grandTotal;
+          } else if (sk.isNewSkuWithOrders) {
+            const allOrdersTotal = skuSummaries.reduce((s, x) => s + x.recentOrdersMC + x.upcomingOrdersMC, 0);
+            const skuOrders = sk.recentOrdersMC + sk.upcomingOrdersMC;
+            historicalShare = allOrdersTotal > 0 ? (skuOrders / allOrdersTotal) : (1 / Math.max(1, skuSummaries.length));
+          } else {
+            historicalShare = grandTotal > 0 ? (sk.totalIms / grandTotal) : (1 / Math.max(1, skuSummaries.length));
+          }
           const trendMultiplier = (() => {
             const rt = parseFloat(String(sk.rollingTrend));
             if (isNaN(rt)) return 1.0;
@@ -2265,12 +2318,20 @@ ${skuSummaries.map(s => {
   const health = skuObj ? stockHealthBySku[skuObj.id] : null;
   const conf = skuConfidenceScores[s.name] ?? 50;
   const baseAlloc = skuBaseAllocPct[s.name]?.toFixed(1) ?? 'N/A';
+  const orderLine = (s.recentOrdersMC + s.upcomingOrdersMC) > 0
+    ? `  ORDERS/PRODUCTION (planner committed): last 6mo=${Math.round(s.recentOrdersMC)}MC | upcoming 3mo=${Math.round(s.upcomingOrdersMC)}MC | detail: ${s.ordersDetail || 'none'}`
+    : `  ORDERS/PRODUCTION: no recent or upcoming orders placed`;
+  const newSkuFlag = s.isNewSkuWithOrders
+    ? `  🆕 NEW SKU WITH ACTIVE ORDERS — zero IMS history but planner has committed ${Math.round(s.recentOrdersMC + s.upcomingOrdersMC)}MC of orders. ALLOCATE BASED ON ORDER VOLUME, NOT ZERO.`
+    : '';
   return [
     `▸ SKU: ${s.name} [${s.category}] | Packaging: ${s.packagingType} | Base alloc: ${baseAlloc}% | Confidence: ${conf}%`,
     `  IMS: avg/month=${s.avgMonthly} | total=${s.totalIms.toFixed(0)} | months of data=${s.monthsOfData}`,
     `  Trend: 3-month rolling vs prior 3 months: ${s.rollingTrend}% | YoY same month: ${s.yoyGrowth}%`,
     `  Seasonality index for ${monthName}: ${s.seasonalityIndex} | Same month prior years: ${s.sameMonthHistory || 'no data'}`,
     `  Full monthly history: ${s.history || 'no data'}`,
+    orderLine,
+    newSkuFlag,
     health ? `  STOCK HEALTH: Now=${health.currentWeeks}wks [${health.currentZone}] | ${monthName}=${health.targetMonthWeeks}wks [${health.targetMonthZone}] | Next=${health.nextMonthWeeks}wks [${health.nextMonthZone}] | Health score=${health.healthScore}% | Trend=${health.trend}` : '  STOCK HEALTH: No Planning FG data available',
     health && health.criticalPeriods.length > 0 ? `  ⚠ CRITICAL STOCK PERIODS: ${health.criticalPeriods.join(', ')} — MUST increase allocation` : '',
     health && health.overstockPeriods.length > 0 ? `  ⚠ OVERSTOCK PERIODS: ${health.overstockPeriods.join(', ')} — MUST reduce allocation` : '',
@@ -2287,7 +2348,8 @@ SECTION E: DECISION FRAMEWORK — APPLY IN THIS ORDER
 5. COMPETITIVE CONTEXT: In ${country}, Al Fakher competes primarily with ${country === 'Lebanon' ? 'Nakhla and Mazaya' : country === 'Syria' ? 'Nakhla and local Syrian brands' : 'Nakhla and Eastern Company Egypt'}. Premium SKUs (Tier 1) should be prioritized as they are harder for competitors to match.
 6. YEAR-END / Q4 ADJUSTMENT: ${isYearEnd ? 'THIS IS DECEMBER — apply year-end closing logic: reduce NPI by 20-30%, maintain Core at 85-90% of normal. Distributors are minimizing inventory.' : isQ4 ? `Q4 month — be aware of approaching year-end patterns. ${targetMonth === 11 ? 'November may see front-loading before December slowdown.' : 'October is typically stable.'}` : isJanRestock ? 'JANUARY RESTOCKING — expect above-normal demand as distributors rebuild after December. Good time for NPI push.' : 'No special year-end adjustment needed for this month.'}
 7. SMOOTH TRANSITIONS: ${previousMonthContext ? 'This is part of a multi-month forecast. Avoid >15% month-over-month swings in any SKU share unless justified by seasonal shift, Ramadan, or year-end closing.' : 'Single month forecast — optimize for this month independently.'}
-8. BALANCE: Ensure the sum of all recommendedMastercases equals EXACTLY ${totalMastercases}. Round to whole numbers.
+8. NEW SKU SAFEGUARD (mandatory — read carefully): A SKU flagged "🆕 NEW SKU WITH ACTIVE ORDERS" has zero IMS sales history because it was only just launched, but the planner has already committed production/shipment orders for it. NEVER allocate 0 to such a SKU. Treat the orders volume (last 6mo + upcoming 3mo) as the strongest possible intent signal — the planner has put real money behind these SKUs. Allocate at least proportional to their share of total committed orders across all SKUs, and apply seasonal/Ramadan multipliers on top. If a SKU has both IMS history AND orders, weight orders as a forward-looking intent signal that complements (does not replace) IMS history. If a SKU has IMS history but no orders, allocate using the LLM's normal trend/seasonality/stock-health logic. If a SKU has NO IMS and NO orders, it may legitimately receive a very small or zero allocation.
+9. BALANCE: Ensure the sum of all recommendedMastercases equals EXACTLY ${totalMastercases}. Round to whole numbers.
 
 ${progressiveContext}
 
@@ -2353,6 +2415,7 @@ REQUIRED OUTPUT FORMAT (valid JSON only, no markdown):
             const rt = parseFloat(String(sk.rollingTrend));
             if (!isNaN(rt)) { if (rt > 10) trend = 'growing'; else if (rt < -10) trend = 'declining'; }
             if (sk.monthsOfData < 3) trend = 'new';
+            if (sk.isNewSkuWithOrders) trend = 'new';
 
             let stockAlert = 'unknown';
             if (health) {
@@ -2462,6 +2525,74 @@ REQUIRED OUTPUT FORMAT (valid JSON only, no markdown):
           overallInsight = overallInsight
             .replace(/[Rr]amadan[\s-]*(related|driven|uplift|boost|spike|effect|demand|adjustment|month|period|season)?/gi, 'seasonal')
             .replace(/\s+/g, ' ').trim();
+        }
+
+        // Deterministic post-processing: enforce non-zero allocation for any flagged
+        // "NEW SKU WITH ACTIVE ORDERS" — applies whether output came from the LLM or fallback.
+        // For each flagged SKU, compute a target allocation = its share of total committed orders,
+        // applied to total mastercases, with a hard minimum of 1 MC. Donor MC is taken proportionally
+        // from non-flagged SKUs that have allocation above 1.
+        const newSkuLookup = new Map<string, typeof skuSummaries[number]>();
+        for (const sk of skuSummaries) {
+          if (sk.isNewSkuWithOrders) {
+            const k1 = `${sk.rawName}|${sk.rawWeight}|${sk.packagingType}`;
+            const k2 = `${sk.rawName}|${sk.rawWeight}`;
+            newSkuLookup.set(k1, sk);
+            newSkuLookup.set(k2, sk);
+          }
+        }
+        if (newSkuLookup.size > 0 && recommendations.length > 0) {
+          const allOrdersTotal = skuSummaries.reduce((s, x) => s + x.recentOrdersMC + x.upcomingOrdersMC, 0);
+          const targets = new Map<number, number>(); // index → target MC
+          recommendations.forEach((rec: any, idx: number) => {
+            const k1 = `${rec.skuName}|${rec.weight}|${rec.packagingType}`;
+            const k2 = `${rec.skuName}|${rec.weight}`;
+            const sk = newSkuLookup.get(k1) ?? newSkuLookup.get(k2);
+            if (!sk) return;
+            const skuOrders = sk.recentOrdersMC + sk.upcomingOrdersMC;
+            const orderShare = allOrdersTotal > 0 ? (skuOrders / allOrdersTotal) : 0;
+            const proposed = Math.max(1, Math.round(totalMastercases * orderShare));
+            const current = Math.max(0, Math.round(rec.recommendedMastercases ?? 0));
+            if (proposed > current) targets.set(idx, proposed - current);
+          });
+          let needed = Array.from(targets.values()).reduce((s, v) => s + v, 0);
+          if (needed > 0) {
+            // Donors: non-flagged SKUs with current allocation > 1, sorted by allocation desc
+            const donors = recommendations
+              .map((rec: any, idx: number) => ({ idx, mc: Math.max(0, Math.round(rec.recommendedMastercases ?? 0)), isFlagged: targets.has(idx) }))
+              .filter(d => !d.isFlagged && d.mc > 1)
+              .sort((a, b) => b.mc - a.mc);
+            // Apply boosts to flagged SKUs first
+            for (const [idx, boost] of targets.entries()) {
+              recommendations[idx].recommendedMastercases = Math.round((recommendations[idx].recommendedMastercases ?? 0)) + boost;
+              if (!recommendations[idx].reasoning || !/order/i.test(recommendations[idx].reasoning)) {
+                recommendations[idx].reasoning = (recommendations[idx].reasoning ?? '') + ` Allocation boosted to honor planner-committed orders for this new SKU.`;
+              }
+              if (recommendations[idx].trend === 'declining' || recommendations[idx].trend === 'stable') {
+                recommendations[idx].trend = 'new';
+              }
+            }
+            // Take from donors round-robin until we've taken `needed` MC
+            let take = needed;
+            let i = 0;
+            const maxIter = donors.length * needed + donors.length + 1;
+            let iter = 0;
+            while (take > 0 && donors.length > 0 && iter < maxIter) {
+              const d = donors[i % donors.length];
+              const cur = Math.round(recommendations[d.idx].recommendedMastercases ?? 0);
+              if (cur > 1) {
+                recommendations[d.idx].recommendedMastercases = cur - 1;
+                take -= 1;
+              }
+              i++;
+              iter++;
+            }
+            // Recompute share percentages
+            const finalTotal = recommendations.reduce((s: number, r: any) => s + Math.max(0, Math.round(r.recommendedMastercases ?? 0)), 0);
+            recommendations.forEach((r: any) => {
+              r.sharePercent = finalTotal > 0 ? Math.round((r.recommendedMastercases / finalTotal) * 1000) / 10 : 0;
+            });
+          }
         }
 
         return {
