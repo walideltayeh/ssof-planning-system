@@ -258,6 +258,7 @@ export default function ForecastSplitPage() {
   const [targetMonth, setTargetMonth] = useState(String(now.getMonth() + 2 > 12 ? 1 : now.getMonth() + 2));
   const [targetYear, setTargetYear] = useState(String(now.getMonth() + 2 > 12 ? now.getFullYear() + 1 : now.getFullYear()));
   const [duration, setDuration] = useState<1 | 3 | 6 | 12>(1);
+  const [splitMode, setSplitMode] = useState<"perMonth" | "totalSplit">("perMonth");
   const [includeNpi, setIncludeNpi] = useState(true);
   
   // Single-month result (backward compat)
@@ -581,7 +582,9 @@ export default function ForecastSplitPage() {
   const handleGenerate = useCallback(async () => {
     const rawVal = parseFloat(inputValue);
     if (!rawVal || rawVal <= 0) { toast.error(`Please enter a valid ${inputUnit === 'tons' ? 'tonnage' : 'mastercase quantity'}`); return; }
-    const tons = inputUnit === "tons" ? rawVal : (rawVal * MC_WEIGHT_KG / 1000);
+    const totalInputTons = inputUnit === "tons" ? rawVal : (rawVal * MC_WEIGHT_KG / 1000);
+    // If "totalSplit" mode and multi-month: divide the input across months
+    const tons = (duration > 1 && splitMode === "totalSplit") ? (totalInputTons / duration) : totalInputTons;
     const mcKg = MC_WEIGHT_KG;
     const month = parseInt(targetMonth);
     const year = parseInt(targetYear);
@@ -688,7 +691,7 @@ export default function ForecastSplitPage() {
       
       setIsGeneratingMulti(false);
     }
-  }, [inputValue, inputUnit, targetMonth, targetYear, country, duration, recommendMutation]);
+  }, [inputValue, inputUnit, targetMonth, targetYear, country, duration, splitMode, includeNpi, recommendMutation, utils]);
 
   const sortRecs = (recs: Recommendation[]) => {
     return [...recs].sort((a, b) => {
@@ -1102,16 +1105,59 @@ export default function ForecastSplitPage() {
             </div>
           )}
 
-          {/* Summary preview */}
-          {inputValue && parseFloat(inputValue) > 0 && (
-            <div className="mt-3 p-3 bg-blue-50 rounded-lg text-sm text-blue-800 border border-blue-100">
-              {inputUnit === 'tons' ? (
-                <><strong>{parseFloat(inputValue).toLocaleString()} tons</strong> ÷ <strong>{MC_WEIGHT_KG} kg/MC</strong> = <strong>{Math.floor(parseFloat(inputValue) * 1000 / MC_WEIGHT_KG).toLocaleString()} master cases</strong> per month to allocate across {country} SKUs{duration > 1 ? ` × ${duration} months` : ''}</>
-              ) : (
-                <><strong>{Math.floor(parseFloat(inputValue)).toLocaleString()} master cases</strong> × <strong>{MC_WEIGHT_KG} kg/MC</strong> = <strong>{(parseFloat(inputValue) * MC_WEIGHT_KG / 1000).toFixed(1)} tons</strong> per month to allocate across {country} SKUs{duration > 1 ? ` × ${duration} months` : ''}</>
-              )}
+          {/* Split-mode chooser (only when multi-month) */}
+          {duration > 1 && (
+            <div className="mt-3 p-3 bg-amber-50 rounded-lg border border-amber-200">
+              <Label className="text-sm font-semibold text-amber-900 block mb-2">
+                Is your input <strong>per month</strong> or the <strong>total</strong> to split across {duration} months?
+              </Label>
+              <div className="flex rounded-lg border border-amber-300 overflow-hidden h-9 bg-white" style={{ maxWidth: '420px' }}>
+                <button
+                  type="button"
+                  onClick={() => setSplitMode("perMonth")}
+                  className={`flex-1 text-sm font-medium transition-colors px-4 ${splitMode === 'perMonth' ? 'bg-amber-600 text-white' : 'text-gray-700 hover:bg-amber-50'}`}
+                >
+                  Per Month (each month gets the full amount)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSplitMode("totalSplit")}
+                  className={`flex-1 text-sm font-medium transition-colors px-4 ${splitMode === 'totalSplit' ? 'bg-amber-600 text-white' : 'text-gray-700 hover:bg-amber-50'}`}
+                >
+                  Total (split across {duration} months)
+                </button>
+              </div>
             </div>
           )}
+
+          {/* Summary preview */}
+          {inputValue && parseFloat(inputValue) > 0 && (() => {
+            const totalInputTons = inputUnit === 'tons' ? parseFloat(inputValue) : (parseFloat(inputValue) * MC_WEIGHT_KG / 1000);
+            const isSplit = duration > 1 && splitMode === 'totalSplit';
+            const tonsPerMonth = isSplit ? totalInputTons / duration : totalInputTons;
+            const mcPerMonth = Math.floor(tonsPerMonth * 1000 / MC_WEIGHT_KG);
+            const totalTonsAllMonths = tonsPerMonth * duration;
+            return (
+              <div className="mt-3 p-3 bg-blue-50 rounded-lg text-sm text-blue-800 border border-blue-100">
+                {duration > 1 ? (
+                  isSplit ? (
+                    <>
+                      <strong>{totalInputTons.toLocaleString()} tons total</strong> ÷ <strong>{duration} months</strong> = <strong>{tonsPerMonth.toFixed(1)} tons/month</strong> ({mcPerMonth.toLocaleString()} MC/month) to allocate across {country} SKUs.
+                      <span className="block mt-1 text-blue-600">AI will tune each month based on seasonality, stock health, and trends — monthly totals may vary slightly while preserving the {totalInputTons.toLocaleString()}-ton overall budget.</span>
+                    </>
+                  ) : (
+                    <>
+                      <strong>{tonsPerMonth.toLocaleString()} tons per month</strong> × <strong>{duration} months</strong> = <strong>{totalTonsAllMonths.toLocaleString()} tons total</strong> ({mcPerMonth.toLocaleString()} MC/month).
+                    </>
+                  )
+                ) : (
+                  <>
+                    <strong>{totalInputTons.toLocaleString()} tons</strong> ÷ <strong>{MC_WEIGHT_KG} kg/MC</strong> = <strong>{mcPerMonth.toLocaleString()} master cases</strong> to allocate across {country} SKUs.
+                  </>
+                )}
+              </div>
+            );
+          })()}
 
           <Button
             className="mt-4 bg-blue-600 hover:bg-blue-700 text-white"
