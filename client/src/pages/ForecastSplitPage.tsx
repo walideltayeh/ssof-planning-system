@@ -1111,22 +1111,27 @@ export default function ForecastSplitPage() {
               <Label className="text-sm font-semibold text-amber-900 block mb-2">
                 Is your input <strong>per month</strong> or the <strong>total</strong> to split across {duration} months?
               </Label>
-              <div className="flex rounded-lg border border-amber-300 overflow-hidden h-9 bg-white" style={{ maxWidth: '420px' }}>
+              <div className="inline-flex rounded-lg border border-amber-300 overflow-hidden bg-white">
                 <button
                   type="button"
                   onClick={() => setSplitMode("perMonth")}
-                  className={`flex-1 text-sm font-medium transition-colors px-4 ${splitMode === 'perMonth' ? 'bg-amber-600 text-white' : 'text-gray-700 hover:bg-amber-50'}`}
+                  className={`text-sm font-medium transition-colors px-4 py-2 whitespace-nowrap ${splitMode === 'perMonth' ? 'bg-amber-600 text-white' : 'text-gray-700 hover:bg-amber-50'}`}
                 >
-                  Per Month (each month gets the full amount)
+                  Per Month
                 </button>
                 <button
                   type="button"
                   onClick={() => setSplitMode("totalSplit")}
-                  className={`flex-1 text-sm font-medium transition-colors px-4 ${splitMode === 'totalSplit' ? 'bg-amber-600 text-white' : 'text-gray-700 hover:bg-amber-50'}`}
+                  className={`text-sm font-medium transition-colors px-4 py-2 whitespace-nowrap border-l border-amber-300 ${splitMode === 'totalSplit' ? 'bg-amber-600 text-white' : 'text-gray-700 hover:bg-amber-50'}`}
                 >
                   Total (split across {duration} months)
                 </button>
               </div>
+              <p className="text-xs text-amber-700 mt-1.5">
+                {splitMode === 'perMonth'
+                  ? `Each of the ${duration} months will receive the full amount you entered.`
+                  : `Your input will be divided by ${duration} so the months together match your total.`}
+              </p>
             </div>
           )}
 
