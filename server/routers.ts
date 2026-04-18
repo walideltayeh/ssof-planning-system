@@ -2289,8 +2289,11 @@ export const appRouter = router({
         // without needing an LLM. Sentences are split by newlines, commas, semicolons, or " and ".
         if (plannerInstructions && plannerInstructions.trim().length > 0) {
           const text = plannerInstructions.trim();
+          // Split only on hard sentence boundaries and action-VERB starts that always
+          // begin a directive. "zero", "set", and "skip" are excluded because they
+          // commonly appear mid-sentence (e.g. "reduce X to zero", "set to 0").
           const sentences = text
-            .split(/\n+|(?:^|[\s,;])(?=(?:reduce|increase|boost|raise|lower|cut|skip|zero|cap|prioritize|prioritise|set|don'?t)\b)|,\s+|;\s+| and (?=\w)/i)
+            .split(/\n+|(?:^|[\s,;])(?=(?:reduce|increase|boost|raise|lower|cut|cap|prioriti[sz]e|don'?t|do not)\b)|,\s+|;\s+| and (?=(?:reduce|increase|boost|raise|lower|cut|cap|prioriti[sz]e|skip|zero|set|don'?t|do not)\b)/i)
             .map(s => s.trim())
             .filter(s => s.length > 0);
 
