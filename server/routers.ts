@@ -2284,7 +2284,112 @@ export const appRouter = router({
         };
         let parsedDirectives: PlannerDirective[] = [];
         const hasLlmKeyForParse = !!(process.env.BUILT_IN_FORGE_API_KEY && process.env.BUILT_IN_FORGE_API_KEY.trim());
-        if (plannerInstructions && plannerInstructions.trim().length > 0 && hasLlmKeyForParse) {
+
+        // 8b.1 — Regex-based parser (fast, deterministic). Handles the most common patterns
+        // without needing an LLM. Sentences are split by newlines, commas, semicolons, or " and ".
+        if (plannerInstructions && plannerInstructions.trim().length > 0) {
+          const text = plannerInstructions.trim();
+          const sentences = text
+            .split(/\n+|(?:^|[\s,;])(?=(?:reduce|increase|boost|raise|lower|cut|skip|zero|cap|prioritize|prioritise|set|don'?t)\b)|,\s+|;\s+| and (?=\w)/i)
+            .map(s => s.trim())
+            .filter(s => s.length > 0);
+
+          const norm = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+          const skuIndex = skus.map(s => ({
+            id: s.id,
+            nameLow: norm(s.name),
+            weightLow: norm(s.weight),
+            packLow: norm(((s as any).packagingType ?? 'New')),
+          }));
+
+          const findMatchingSkus = (sentence: string): number[] => {
+            const sLow = norm(sentence);
+            // weight token: "50g", "1kg", "250 g", "1 kg"
+            const weightMatch = sLow.match(/(\d+(?:\.\d+)?)\s*(g|kg|gm|gr)\b/);
+            const weightWanted = weightMatch ? `${weightMatch[1]}${weightMatch[2] === 'kg' ? 'kg' : 'g'}` : null;
+            // packaging: old/new, with optional "package"/"pkg"/"packaging"
+            let packWanted: 'old' | 'new' | null = null;
+            if (/\bold\s*(pkg|pack(?:age|aging)?)?\b/.test(sLow)) packWanted = 'old';
+            else if (/\bnew\s*(pkg|pack(?:age|aging)?)?\b/.test(sLow)) packWanted = 'new';
+
+            // Score each SKU: name must appear in sentence (longest contiguous match wins)
+            const matches: { id: number; score: number }[] = [];
+            for (const sk of skuIndex) {
+              if (!sk.nameLow) continue;
+              if (!sLow.includes(sk.nameLow)) continue;
+              let score = sk.nameLow.length;
+              if (weightWanted) {
+                const wn = norm(sk.weightLow).replace(/\s+/g, '');
+                if (wn !== weightWanted.replace(/\s+/g, '')) continue;
+                score += 50;
+              }
+              if (packWanted) {
+                if (sk.packLow !== packWanted) continue;
+                score += 20;
+              }
+              matches.push({ id: sk.id, score });
+            }
+            if (matches.length === 0) return [];
+            // Keep only matches with the highest name length (most specific name match)
+            const maxNameLen = Math.max(...matches.map(m => {
+              const sk = skuIndex.find(x => x.id === m.id)!;
+              return sk.nameLow.length;
+            }));
+            let topNameMatches = matches.filter(m => {
+              const sk = skuIndex.find(x => x.id === m.id)!;
+              return sk.nameLow.length === maxNameLen;
+            });
+            // When the planner did not specify packaging and multiple variants remain
+            // (e.g. Old + New 1kg both match), prefer "New" — that is the standard
+            // assumption per the prompt rules.
+            if (!packWanted && topNameMatches.length > 1) {
+              const newOnly = topNameMatches.filter(m => {
+                const sk = skuIndex.find(x => x.id === m.id)!;
+                return sk.packLow === 'new';
+              });
+              if (newOnly.length > 0) topNameMatches = newOnly;
+            }
+            return topNameMatches.map(m => m.id);
+          };
+
+          for (const sentence of sentences) {
+            const sLow = norm(sentence);
+            let action: PlannerDirective['action'] | null = null;
+            let valuePct: number | undefined;
+            let valueMC: number | undefined;
+
+            const pctMatch = sLow.match(/by\s+(\d+(?:\.\d+)?)\s*%/) || sLow.match(/(\d+(?:\.\d+)?)\s*%/);
+            const mcMatch = sLow.match(/at\s+(\d+(?:\.\d+)?)\s*(?:mc|mastercases?)?/);
+
+            if (/\b(zero|skip|don'?t|do not|no allocation|set\s+(?:it\s+)?to\s+0|to\s+zero|to\s+0)\b/.test(sLow)) {
+              action = 'zero';
+            } else if (/\b(cap|maximum|max)\b/.test(sLow) && mcMatch) {
+              action = 'cap';
+              valueMC = parseFloat(mcMatch[1]);
+            } else if (/\b(reduce|lower|cut|decrease|drop)\b/.test(sLow)) {
+              action = 'reduce';
+              valuePct = pctMatch ? parseFloat(pctMatch[1]) : 20;
+            } else if (/\b(increase|boost|raise|grow|push)\b/.test(sLow)) {
+              action = 'increase';
+              valuePct = pctMatch ? parseFloat(pctMatch[1]) : 25;
+            } else if (/\b(prioritize|prioritise|focus on|favor|favour)\b/.test(sLow)) {
+              action = 'prioritize';
+            }
+
+            if (!action) continue;
+            const skuIds = findMatchingSkus(sentence);
+            if (skuIds.length === 0) continue;
+            parsedDirectives.push({ skuIds, action, valuePct, valueMC, raw: sentence });
+          }
+
+          if (parsedDirectives.length > 0) {
+            console.log(`[ForecastSplit] Regex parser found ${parsedDirectives.length} directive(s):`,
+              parsedDirectives.map(d => `${d.action}${d.valuePct ? ' '+d.valuePct+'%' : ''}${d.valueMC ? ' cap '+d.valueMC : ''} → SKUs ${d.skuIds.join(',')}`).join(' | '));
+          }
+        }
+
+        // 8b.2 — LLM parser as supplementary pass (only if regex found nothing).
+        if (parsedDirectives.length === 0 && plannerInstructions && plannerInstructions.trim().length > 0 && hasLlmKeyForParse) {
           const skuList = skus.map(s => `${s.id}|${s.name}|${s.weight}|${(s as any).packagingType ?? 'New'}`).join('\n');
           const parsePrompt = `You are parsing a demand planner's free-text instructions into structured JSON directives.
 
@@ -2761,14 +2866,19 @@ REQUIRED OUTPUT FORMAT (valid JSON only, no markdown):
           }
 
           // Rebalance: ensure total still equals totalMastercases.
-          // Donors / receivers are non-locked SKUs only.
+          // Donors / receivers are non-locked SKUs only. Lock detection MUST use
+          // packagingType so Old/New variants don't get swapped.
           const sumNow = recommendations.reduce((s: number, r: any) => s + Math.max(0, Math.round(r.recommendedMastercases ?? 0)), 0);
           let diff = totalMastercases - sumNow;
           if (diff !== 0) {
+            const resolveSkuIdForRec = (rec: any): number | undefined => {
+              const exact = skus.find(s => s.name === rec.skuName && s.weight === rec.weight && (rec.packagingType ? (s as any).packagingType === rec.packagingType : true));
+              if (exact) return exact.id;
+              return skus.find(s => s.name === rec.skuName && s.weight === rec.weight)?.id;
+            };
             const flexibleIdxs = recommendations
               .map((rec: any, idx: number) => {
-                const sku = skus.find(s => s.name === rec.skuName && s.weight === rec.weight);
-                const id = sku?.id;
+                const id = resolveSkuIdForRec(rec);
                 return { idx, mc: Math.max(0, Math.round(rec.recommendedMastercases ?? 0)), locked: id !== undefined && lockedSkuIds.has(id) };
               })
               .filter(d => !d.locked);
@@ -2791,6 +2901,31 @@ REQUIRED OUTPUT FORMAT (valid JSON only, no markdown):
               }
               i++;
               iter++;
+            }
+
+            // Hard-fallback: if every SKU is locked (or all flexible rows are 0 and we still
+            // need to remove MC), fall back to taking from the largest locked SKU we INCREASED
+            // (or, as a last resort, any row with mc > 0). This guarantees the total is preserved.
+            if (diff !== 0) {
+              extraWarnings.push(`Planner directives could not be balanced fully via flexible SKUs (residual ${diff} MC). Adjusting locked rows as last resort.`);
+              const allIdxs = recommendations.map((rec: any, idx: number) => ({ idx, mc: Math.max(0, Math.round(rec.recommendedMastercases ?? 0)) }));
+              allIdxs.sort((a, b) => b.mc - a.mc);
+              let j = 0;
+              let it2 = 0;
+              const maxIt2 = allIdxs.length * Math.abs(diff) + allIdxs.length + 1;
+              while (diff !== 0 && allIdxs.length > 0 && it2 < maxIt2) {
+                const t = allIdxs[j % allIdxs.length];
+                const cur = Math.max(0, Math.round(recommendations[t.idx].recommendedMastercases ?? 0));
+                if (diff > 0) {
+                  recommendations[t.idx].recommendedMastercases = cur + 1;
+                  diff -= 1;
+                } else if (cur > 0) {
+                  recommendations[t.idx].recommendedMastercases = cur - 1;
+                  diff += 1;
+                }
+                j++;
+                it2++;
+              }
             }
           }
 
