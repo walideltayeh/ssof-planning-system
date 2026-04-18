@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -260,6 +261,7 @@ export default function ForecastSplitPage() {
   const [duration, setDuration] = useState<1 | 3 | 6 | 12>(1);
   const [splitMode, setSplitMode] = useState<"perMonth" | "totalSplit">("perMonth");
   const [includeNpi, setIncludeNpi] = useState(true);
+  const [plannerInstructions, setPlannerInstructions] = useState("");
   
   // Single-month result (backward compat)
   const [result, setResult] = useState<RecommendResult | null>(null);
@@ -612,6 +614,7 @@ export default function ForecastSplitPage() {
         targetMonth: month,
         targetYear: year,
         includeNpi,
+        ...(plannerInstructions.trim() ? { plannerInstructions: plannerInstructions.trim() } : {}),
       });
     } else {
       // Multi-month — call recommend endpoint sequentially for each month
@@ -654,6 +657,7 @@ export default function ForecastSplitPage() {
             targetMonth: m.month,
             targetYear: m.year,
             includeNpi,
+            ...(plannerInstructions.trim() ? { plannerInstructions: plannerInstructions.trim() } : {}),
             ...(previousMonthContext ? {
               previousMonthContext,
               monthPositionInForecast: i + 1,
@@ -1134,6 +1138,28 @@ export default function ForecastSplitPage() {
               </p>
             </div>
           )}
+
+          {/* Planner instructions for the AI */}
+          <div className="mt-3">
+            <Label htmlFor="planner-instructions" className="text-sm font-medium">
+              Additional instructions for the AI <span className="text-muted-foreground font-normal">(optional)</span>
+            </Label>
+            <p className="text-xs text-muted-foreground mt-0.5 mb-1.5">
+              Free-text guidance the AI must follow. Example: "Reduce Mint 250g by 20%", "Boost Double Apple", "Skip Watermelon this month", "Prioritize new SKUs", "Cap Blueberry at 1000 MC".
+            </p>
+            <Textarea
+              id="planner-instructions"
+              value={plannerInstructions}
+              onChange={(e) => setPlannerInstructions(e.target.value)}
+              placeholder="e.g. Reduce Mint 250g share by 20%. Increase Double Apple. Don't allocate to Lemon Mint this month."
+              rows={3}
+              className="resize-y"
+              maxLength={1500}
+            />
+            {plannerInstructions.length > 0 && (
+              <div className="text-xs text-muted-foreground mt-1 text-right">{plannerInstructions.length}/1500</div>
+            )}
+          </div>
 
           {/* Summary preview */}
           {inputValue && parseFloat(inputValue) > 0 && (() => {

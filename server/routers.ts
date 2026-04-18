@@ -1855,9 +1855,10 @@ export const appRouter = router({
         previousMonthContext: z.string().optional(),
         monthPositionInForecast: z.number().optional(),
         totalForecastDuration: z.number().optional(),
+        plannerInstructions: z.string().max(2000).optional(),
       }))
       .mutation(async ({ input }) => {
-        const { country: countryRaw, totalTons, mastercaseKg, targetMonth, targetYear, includeNpi, previousMonthContext, monthPositionInForecast, totalForecastDuration } = input;
+        const { country: countryRaw, totalTons, mastercaseKg, targetMonth, targetYear, includeNpi, previousMonthContext, monthPositionInForecast, totalForecastDuration, plannerInstructions } = input;
         const country = countryRaw as 'Lebanon' | 'Syria' | 'Libya';
 
         // 1. Fetch all SKUs for this country, optionally filtering out NPI
@@ -2271,11 +2272,16 @@ export const appRouter = router({
         }
 
         // 9. Call LLM for intelligent split with deep market intelligence
+        const plannerInstructionsBlock = (plannerInstructions && plannerInstructions.trim().length > 0)
+          ? `\n═══════════════════════════════════════════════════════════════\n⚠ MANDATORY PLANNER INSTRUCTIONS (HIGHEST PRIORITY — OVERRIDES ALL OTHER LOGIC)\n═══════════════════════════════════════════════════════════════\nThe demand planner has provided the following explicit instructions for THIS forecast. You MUST honor them. They override historical trends, seasonality models, market intelligence, and base allocations. If an instruction conflicts with stock health (e.g. planner says "reduce X" but X is critical), still apply the planner's directive and surface the conflict in the warnings array.\n\nPLANNER SAYS:\n"""\n${plannerInstructions.trim()}\n"""\n\nHOW TO APPLY:\n- Parse each directive carefully. Match SKU names case-insensitively and tolerate minor variations (e.g. "Mint" matches "Mint 250g" and "Mint 1kg" unless a weight is specified).\n- "Reduce X by N%" → cut X's allocation by N% from its base; redistribute the freed mastercases to other SKUs proportionally to their base allocation (excluding any SKU the planner said to reduce/skip).\n- "Increase X by N%" or "Boost X" → raise X's allocation; take from non-priority SKUs.\n- "Skip X" / "Don't allocate to X" / "Zero X" → set X's recommendedMastercases to 0 and redistribute.\n- "Cap X at N MC" → ensure X.recommendedMastercases ≤ N.\n- "Prioritize Y" → give Y above-base allocation.\n- For each SKU affected by a planner directive, in its "reasoning" field explicitly cite the directive (e.g. "Reduced by 20% per planner instruction.") and set "primaryDriver" to "market_intel".\n- In overallInsight, include a sentence summarizing which planner directives were applied.\n- In warnings, flag any directive that creates a stock-out risk or conflicts with critical stock health.\n- The total must still sum to EXACTLY ${totalMastercases}.\n═══════════════════════════════════════════════════════════════\n`
+          : '';
+
         const prompt = `You are acting as a SENIOR FMCG DEMAND PLANNER and DATA ANALYST for Al Fakher tobacco products in ${country}. Your analysis must reflect deep knowledge of the shisha tobacco market, cultural consumption patterns, competitive dynamics, and supply chain constraints.
 
 ═══════════════════════════════════════════════════════════════
 MISSION: Recommend how to split ${totalMastercases} mastercases (${totalTons} tons, ${mastercaseKg}kg each) across all SKUs for ${monthName} ${targetYear}.
 ═══════════════════════════════════════════════════════════════
+${plannerInstructionsBlock}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SECTION A: COUNTRY MARKET INTELLIGENCE — ${country}
