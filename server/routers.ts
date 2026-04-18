@@ -2271,9 +2271,106 @@ export const appRouter = router({
           skuBaseAllocPct[sk.name] = totalBaseScore > 0 ? (skuBaseScores[sk.name] / totalBaseScore) * 100 : (100 / skuSummaries.length);
         }
 
+        // 8b. Parse free-text planner instructions into structured directives.
+        // We use a small dedicated LLM pass that returns JSON mapping directives → exact SKU IDs.
+        // These directives are then enforced DETERMINISTICALLY after the main recommend pass,
+        // so the planner's intent is honored even if the main LLM ignores Section in the prompt.
+        type PlannerDirective = {
+          skuIds: number[];
+          action: 'zero' | 'reduce' | 'increase' | 'cap' | 'prioritize';
+          valuePct?: number;
+          valueMC?: number;
+          raw: string;
+        };
+        let parsedDirectives: PlannerDirective[] = [];
+        const hasLlmKeyForParse = !!(process.env.BUILT_IN_FORGE_API_KEY && process.env.BUILT_IN_FORGE_API_KEY.trim());
+        if (plannerInstructions && plannerInstructions.trim().length > 0 && hasLlmKeyForParse) {
+          const skuList = skus.map(s => `${s.id}|${s.name}|${s.weight}|${(s as any).packagingType ?? 'New'}`).join('\n');
+          const parsePrompt = `You are parsing a demand planner's free-text instructions into structured JSON directives.
+
+AVAILABLE SKUs (format: id|name|weight|packagingType):
+${skuList}
+
+PLANNER INSTRUCTIONS:
+"""
+${plannerInstructions.trim()}
+"""
+
+Output JSON ONLY in this exact shape:
+{
+  "directives": [
+    {
+      "skuIds": [int, ...],         // ids from the SKU list above that match this directive
+      "action": "zero"|"reduce"|"increase"|"cap"|"prioritize",
+      "valuePct": number,           // for reduce/increase: percent (e.g. 20 for "by 20%"). Default 100 for "to zero"; default 25 for "boost"/"increase" without %.
+      "valueMC": number,            // for cap: the maximum mastercases
+      "raw": string                 // the exact directive snippet you parsed
+    }
+  ]
+}
+
+MATCHING RULES (apply carefully):
+- Match by name (case-insensitive, partial allowed). If the planner specifies a weight (e.g. "50g", "1kg", "250g"), match only that weight.
+- If the planner specifies a packaging type ("Old" or "New" or "Old package"/"New package"), match only that packaging.
+- "Double Apple Old package 50g" → match SKU named Double Apple, weight 50g, packaging Old. Return that ONE id.
+- "Double Apple 1kg" → match SKU named Double Apple, weight 1kg (any packaging if not specified, but prefer New).
+- "Mint" alone (no weight) → match all Mint SKUs (could be multiple ids).
+- "Reduce X to zero" / "Skip X" / "Don't allocate to X" / "Zero X" → action "zero".
+- "Reduce X by 20%" → action "reduce", valuePct 20.
+- "Increase X" / "Boost X" / "Prioritize X" without % → action "increase", valuePct 25.
+- "Increase X by 30%" → action "increase", valuePct 30.
+- "Cap X at 500 MC" → action "cap", valueMC 500.
+- If a directive does not clearly match any SKU, omit it (do not guess).
+- Preserve order of directives as the planner wrote them.
+Return ONLY the JSON object, no markdown, no commentary.`;
+
+          try {
+            const parseResp = await invokeLLM({
+              messages: [
+                { role: 'system', content: 'You are a precise JSON parser. Return only valid JSON matching the requested schema.' },
+                { role: 'user', content: parsePrompt },
+              ],
+              response_format: { type: 'json_object' },
+            });
+            const raw = parseResp.choices[0].message.content;
+            const txt = typeof raw === 'string' ? raw : JSON.stringify(raw);
+            const obj = JSON.parse(txt);
+            if (Array.isArray(obj?.directives)) {
+              const validSkuIds = new Set(skus.map(s => s.id));
+              parsedDirectives = obj.directives
+                .map((d: any) => ({
+                  skuIds: Array.isArray(d.skuIds) ? d.skuIds.filter((id: any) => validSkuIds.has(Number(id))).map(Number) : [],
+                  action: ['zero', 'reduce', 'increase', 'cap', 'prioritize'].includes(d.action) ? d.action : null,
+                  valuePct: typeof d.valuePct === 'number' ? d.valuePct : undefined,
+                  valueMC: typeof d.valueMC === 'number' ? d.valueMC : undefined,
+                  raw: typeof d.raw === 'string' ? d.raw : '',
+                }))
+                .filter((d: any) => d.action && d.skuIds.length > 0);
+            }
+          } catch (parseErr: any) {
+            console.warn('[ForecastSplit] Planner-instructions parse failed:', parseErr?.message);
+          }
+        }
+
         // 9. Call LLM for intelligent split with deep market intelligence
+        const directivesSummary = parsedDirectives.length > 0
+          ? '\nPARSED DIRECTIVES (will be ENFORCED deterministically after your output):\n' + parsedDirectives.map(d => {
+              const targetSkus = d.skuIds
+                .map(id => skus.find(s => s.id === id))
+                .filter(Boolean)
+                .map(s => `${s!.name} ${s!.weight} (${(s as any).packagingType ?? 'New'})`)
+                .join('; ');
+              const detail = d.action === 'zero' ? 'set to 0 MC'
+                : d.action === 'reduce' ? `reduce by ${d.valuePct ?? 20}%`
+                : d.action === 'increase' ? `increase by ${d.valuePct ?? 25}%`
+                : d.action === 'cap' ? `cap at ${d.valueMC ?? 0} MC`
+                : 'prioritize (above-base allocation)';
+              return `  • [${d.action.toUpperCase()}] ${targetSkus} → ${detail}  (raw: "${d.raw}")`;
+            }).join('\n')
+          : '';
+
         const plannerInstructionsBlock = (plannerInstructions && plannerInstructions.trim().length > 0)
-          ? `\n═══════════════════════════════════════════════════════════════\n⚠ MANDATORY PLANNER INSTRUCTIONS (HIGHEST PRIORITY — OVERRIDES ALL OTHER LOGIC)\n═══════════════════════════════════════════════════════════════\nThe demand planner has provided the following explicit instructions for THIS forecast. You MUST honor them. They override historical trends, seasonality models, market intelligence, and base allocations. If an instruction conflicts with stock health (e.g. planner says "reduce X" but X is critical), still apply the planner's directive and surface the conflict in the warnings array.\n\nPLANNER SAYS:\n"""\n${plannerInstructions.trim()}\n"""\n\nHOW TO APPLY:\n- Parse each directive carefully. Match SKU names case-insensitively and tolerate minor variations (e.g. "Mint" matches "Mint 250g" and "Mint 1kg" unless a weight is specified).\n- "Reduce X by N%" → cut X's allocation by N% from its base; redistribute the freed mastercases to other SKUs proportionally to their base allocation (excluding any SKU the planner said to reduce/skip).\n- "Increase X by N%" or "Boost X" → raise X's allocation; take from non-priority SKUs.\n- "Skip X" / "Don't allocate to X" / "Zero X" → set X's recommendedMastercases to 0 and redistribute.\n- "Cap X at N MC" → ensure X.recommendedMastercases ≤ N.\n- "Prioritize Y" → give Y above-base allocation.\n- For each SKU affected by a planner directive, in its "reasoning" field explicitly cite the directive (e.g. "Reduced by 20% per planner instruction.") and set "primaryDriver" to "market_intel".\n- In overallInsight, include a sentence summarizing which planner directives were applied.\n- In warnings, flag any directive that creates a stock-out risk or conflicts with critical stock health.\n- The total must still sum to EXACTLY ${totalMastercases}.\n═══════════════════════════════════════════════════════════════\n`
+          ? `\n═══════════════════════════════════════════════════════════════\n⚠ MANDATORY PLANNER INSTRUCTIONS (HIGHEST PRIORITY — OVERRIDES ALL OTHER LOGIC)\n═══════════════════════════════════════════════════════════════\nThe demand planner has provided the following explicit instructions for THIS forecast. You MUST honor them. They override historical trends, seasonality models, market intelligence, and base allocations. If an instruction conflicts with stock health (e.g. planner says "reduce X" but X is critical), still apply the planner's directive and surface the conflict in the warnings array.\n\nPLANNER SAYS:\n"""\n${plannerInstructions.trim()}\n"""\n${directivesSummary}\n\nHOW TO APPLY:\n- Parse each directive carefully. Match SKU names case-insensitively and tolerate minor variations (e.g. "Mint" matches "Mint 250g" and "Mint 1kg" unless a weight is specified).\n- "Reduce X by N%" → cut X's allocation by N% from its base; redistribute the freed mastercases to other SKUs proportionally to their base allocation (excluding any SKU the planner said to reduce/skip).\n- "Increase X by N%" or "Boost X" → raise X's allocation; take from non-priority SKUs.\n- "Skip X" / "Don't allocate to X" / "Zero X" → set X's recommendedMastercases to 0 and redistribute.\n- "Cap X at N MC" → ensure X.recommendedMastercases ≤ N.\n- "Prioritize Y" → give Y above-base allocation.\n- For each SKU affected by a planner directive, in its "reasoning" field explicitly cite the directive (e.g. "Reduced by 20% per planner instruction.") and set "primaryDriver" to "market_intel".\n- In overallInsight, include a sentence summarizing which planner directives were applied.\n- In warnings, flag any directive that creates a stock-out risk or conflicts with critical stock health.\n- The total must still sum to EXACTLY ${totalMastercases}.\n═══════════════════════════════════════════════════════════════\n`
           : '';
 
         const prompt = `You are acting as a SENIOR FMCG DEMAND PLANNER and DATA ANALYST for Al Fakher tobacco products in ${country}. Your analysis must reflect deep knowledge of the shisha tobacco market, cultural consumption patterns, competitive dynamics, and supply chain constraints.
@@ -2601,6 +2698,115 @@ REQUIRED OUTPUT FORMAT (valid JSON only, no markdown):
           }
         }
 
+        // Deterministic enforcement of parsed planner directives.
+        // Runs AFTER both LLM and algorithmic outputs, so the planner's intent is honored
+        // regardless of whether the main LLM obeyed the prompt instructions.
+        const extraWarnings: string[] = [];
+        if (parsedDirectives.length > 0 && recommendations.length > 0) {
+          // Helper: find recommendation index by SKU id
+          const recIndexBySkuId = new Map<number, number>();
+          recommendations.forEach((rec: any, idx: number) => {
+            const sk = skus.find(s => s.name === rec.skuName && s.weight === rec.weight && (rec.packagingType ? (s as any).packagingType === rec.packagingType : true));
+            const skAny = sk ?? skus.find(s => s.name === rec.skuName && s.weight === rec.weight);
+            if (skAny) recIndexBySkuId.set(skAny.id, idx);
+          });
+
+          // Track which SKU ids are "locked" by a planner directive — they should not be donors/receivers
+          // for redistribution caused by other directives.
+          const lockedSkuIds = new Set<number>();
+          const directiveAppliedSummaries: string[] = [];
+
+          for (const dir of parsedDirectives) {
+            for (const skuId of dir.skuIds) {
+              const idx = recIndexBySkuId.get(skuId);
+              if (idx === undefined) continue;
+              const rec = recommendations[idx];
+              const sku = skus.find(s => s.id === skuId);
+              const skuLabel = sku ? `${sku.name} ${sku.weight} (${(sku as any).packagingType ?? 'New'})` : rec.skuName;
+              const before = Math.max(0, Math.round(rec.recommendedMastercases ?? 0));
+              let after = before;
+
+              if (dir.action === 'zero') {
+                after = 0;
+              } else if (dir.action === 'reduce') {
+                const pct = Math.min(100, Math.max(0, dir.valuePct ?? 20));
+                after = Math.max(0, Math.round(before * (1 - pct / 100)));
+              } else if (dir.action === 'increase') {
+                const pct = Math.max(0, dir.valuePct ?? 25);
+                after = Math.max(before + 1, Math.round(before * (1 + pct / 100)));
+              } else if (dir.action === 'cap') {
+                const cap = Math.max(0, Math.round(dir.valueMC ?? 0));
+                after = Math.min(before, cap);
+              } else if (dir.action === 'prioritize') {
+                after = Math.max(before + 1, Math.round(before * 1.20));
+              }
+
+              const delta = after - before;
+              if (delta === 0) continue;
+
+              rec.recommendedMastercases = after;
+              rec.reasoning = `${rec.reasoning ?? ''} [Planner directive: ${dir.action}${dir.valuePct ? ` ${dir.valuePct}%` : ''}${dir.valueMC ? ` cap ${dir.valueMC}MC` : ''} → ${before} → ${after} MC]`.trim();
+              rec.primaryDriver = 'market_intel';
+              if (after === 0) rec.trend = 'declining';
+
+              lockedSkuIds.add(skuId);
+              directiveAppliedSummaries.push(`${skuLabel}: ${dir.action} (${before}→${after} MC)`);
+
+              // Health-conflict warning
+              const healthInfo = stockHealthBySku[skuId];
+              if (healthInfo && (after < before) && (healthInfo.targetMonthZone === 'Critical' || healthInfo.targetMonthZone === 'Negative' || healthInfo.targetMonthZone === 'Out of Stock')) {
+                extraWarnings.push(`Planner reduced "${skuLabel}" but stock is ${healthInfo.targetMonthZone} for ${monthName} ${targetYear}.`);
+              }
+            }
+          }
+
+          // Rebalance: ensure total still equals totalMastercases.
+          // Donors / receivers are non-locked SKUs only.
+          const sumNow = recommendations.reduce((s: number, r: any) => s + Math.max(0, Math.round(r.recommendedMastercases ?? 0)), 0);
+          let diff = totalMastercases - sumNow;
+          if (diff !== 0) {
+            const flexibleIdxs = recommendations
+              .map((rec: any, idx: number) => {
+                const sku = skus.find(s => s.name === rec.skuName && s.weight === rec.weight);
+                const id = sku?.id;
+                return { idx, mc: Math.max(0, Math.round(rec.recommendedMastercases ?? 0)), locked: id !== undefined && lockedSkuIds.has(id) };
+              })
+              .filter(d => !d.locked);
+
+            // Sort donors (mc desc) and receivers (mc desc) for stability
+            flexibleIdxs.sort((a, b) => b.mc - a.mc);
+
+            const maxIter = flexibleIdxs.length * Math.abs(diff) + flexibleIdxs.length + 1;
+            let i = 0;
+            let iter = 0;
+            while (diff !== 0 && flexibleIdxs.length > 0 && iter < maxIter) {
+              const target = flexibleIdxs[i % flexibleIdxs.length];
+              const cur = Math.max(0, Math.round(recommendations[target.idx].recommendedMastercases ?? 0));
+              if (diff > 0) {
+                recommendations[target.idx].recommendedMastercases = cur + 1;
+                diff -= 1;
+              } else if (cur > 0) {
+                recommendations[target.idx].recommendedMastercases = cur - 1;
+                diff += 1;
+              }
+              i++;
+              iter++;
+            }
+          }
+
+          // Recompute share percentages
+          const finalTotal = recommendations.reduce((s: number, r: any) => s + Math.max(0, Math.round(r.recommendedMastercases ?? 0)), 0);
+          recommendations.forEach((r: any) => {
+            r.sharePercent = finalTotal > 0 ? Math.round((r.recommendedMastercases / finalTotal) * 1000) / 10 : 0;
+          });
+
+          if (directiveAppliedSummaries.length > 0) {
+            overallInsight = `${overallInsight} Planner directives applied: ${directiveAppliedSummaries.join('; ')}.`.trim();
+          }
+        }
+
+        const finalWarnings = [...(parsed.warnings ?? []), ...extraWarnings];
+
         return {
           totalTons,
           totalMastercases,
@@ -2610,7 +2816,7 @@ REQUIRED OUTPUT FORMAT (valid JSON only, no markdown):
           country,
           recommendations,
           overallInsight,
-          warnings: parsed.warnings ?? [],
+          warnings: finalWarnings,
           marketSummary: parsed.marketSummary ?? '',
           isRamadanMonth,
           ramadanBoostPct,
