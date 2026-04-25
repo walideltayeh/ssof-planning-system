@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { Sparkles, TrendingUp, TrendingDown, Minus, AlertTriangle, Download, RefreshCw, CheckCircle2, Undo2, Layers, Globe, Moon, Sun, Thermometer, BarChart2, Package, Brain, Database, Activity, Search, Cpu, FileSpreadsheet, ChevronDown, ChevronRight, Calendar, Clock, Upload, FileUp, X, ArrowRight } from "lucide-react";
@@ -265,10 +266,10 @@ export default function ForecastSplitPage() {
 
   // Per-SKU adjustment directives — explicit, structured overrides from the UI panel.
   // Keyed by skuId. Empty action means "no change".
-  // monthScope: "all" applies to every month in a multi-month forecast;
-  // a number 0..N-1 applies only to that month index. Single-month always uses "all".
+  // monthScope: array of month indices (0..N-1) that this adjustment applies to.
+  // undefined or empty array means "all months". Single-month forecast always uses "all".
   type SkuAction = "none" | "zero" | "reduce" | "increase" | "cap";
-  type SkuAdjustment = { action: SkuAction; valuePct?: string; valueMC?: string; monthScope?: "all" | number };
+  type SkuAdjustment = { action: SkuAction; valuePct?: string; valueMC?: string; monthScope?: number[] };
   const [skuAdjustments, setSkuAdjustments] = useState<Record<number, SkuAdjustment>>({});
   const [showAdjustPanel, setShowAdjustPanel] = useState(false);
   const [adjustSearch, setAdjustSearch] = useState("");
@@ -333,10 +334,10 @@ export default function ForecastSplitPage() {
     for (const [idStr, adj] of Object.entries(skuAdjustments)) {
       const id = parseInt(idStr);
       if (!adj || adj.action === "none") continue;
-      // Month scope filter (multi-month only)
+      // Month scope filter (multi-month only). Empty/undefined = all months.
       if (monthIdx !== undefined) {
-        const scope = adj.monthScope ?? "all";
-        if (scope !== "all" && scope !== monthIdx) continue;
+        const scope = adj.monthScope;
+        if (scope && scope.length > 0 && !scope.includes(monthIdx)) continue;
       }
       if (adj.action === "zero") {
         out.push({ skuId: id, action: "zero" });
@@ -1268,7 +1269,7 @@ export default function ForecastSplitPage() {
                             </div>
                             <Select
                               value={adj.action}
-                              onValueChange={(v) => setAdj({ action: v as SkuAction, valuePct: adj.valuePct, valueMC: adj.valueMC })}
+                              onValueChange={(v) => setAdj({ action: v as SkuAction, valuePct: adj.valuePct, valueMC: adj.valueMC, monthScope: adj.monthScope })}
                             >
                               <SelectTrigger className="h-8 w-[140px] text-xs">
                                 <SelectValue />
@@ -1312,23 +1313,73 @@ export default function ForecastSplitPage() {
                             )}
                             {duration > 1 && adj.action !== "none" && (() => {
                               const monthList = getConsecutiveMonths(parseInt(targetMonth), parseInt(targetYear), duration);
+                              // Always re-clamp the stored indices to the current month window. If the
+                              // user shrinks the duration after selecting months, stale indices would
+                              // otherwise crash the label render or display incorrect counts.
+                              const rawScope = adj.monthScope ?? [];
+                              const scope = rawScope.filter(i => i >= 0 && i < monthList.length);
+                              const isAll = scope.length === 0 || scope.length === monthList.length;
+                              let labelText: string;
+                              if (isAll) {
+                                labelText = `📅 All ${monthList.length} months`;
+                              } else if (scope.length === 1) {
+                                const m = monthList[scope[0]];
+                                labelText = m
+                                  ? `Only ${SHORT_MONTHS[m.month - 1]} ${String(m.year).slice(-2)}`
+                                  : `${scope.length} months selected`;
+                              } else {
+                                labelText = `${scope.length} months selected`;
+                              }
+                              const toggleMonth = (idx: number, checked: boolean) => {
+                                const next = new Set(scope);
+                                if (checked) next.add(idx); else next.delete(idx);
+                                const arr = Array.from(next).sort((a, b) => a - b);
+                                setAdj({ ...adj, monthScope: arr.length === monthList.length ? [] : arr });
+                              };
                               return (
-                                <Select
-                                  value={String(adj.monthScope ?? "all")}
-                                  onValueChange={(v) => setAdj({ ...adj, monthScope: v === "all" ? "all" : parseInt(v) })}
-                                >
-                                  <SelectTrigger className="h-8 w-[130px] text-xs border-purple-300">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="all">📅 All months</SelectItem>
-                                    {monthList.map((m, idx) => (
-                                      <SelectItem key={idx} value={String(idx)}>
-                                        Only {SHORT_MONTHS[m.month - 1]} {String(m.year).slice(-2)}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
+                                <Popover>
+                                  <PopoverTrigger asChild>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-8 px-2 text-xs border-purple-300 justify-between gap-1 min-w-[140px]"
+                                    >
+                                      <span className="truncate">{labelText}</span>
+                                      <ChevronDown className="h-3 w-3 opacity-60 shrink-0" />
+                                    </Button>
+                                  </PopoverTrigger>
+                                  <PopoverContent className="w-56 p-2" align="end">
+                                    <div className="flex items-center justify-between mb-2 pb-2 border-b">
+                                      <span className="text-xs font-semibold text-muted-foreground">Apply to months</span>
+                                      <button
+                                        type="button"
+                                        className="text-[10px] text-purple-600 hover:underline"
+                                        onClick={() => setAdj({ ...adj, monthScope: [] })}
+                                      >
+                                        Select all
+                                      </button>
+                                    </div>
+                                    <div className="space-y-1 max-h-[280px] overflow-y-auto">
+                                      {monthList.map((m, idx) => {
+                                        const checked = isAll || scope.includes(idx);
+                                        return (
+                                          <label
+                                            key={idx}
+                                            className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-muted/60 cursor-pointer"
+                                          >
+                                            <Checkbox
+                                              checked={checked}
+                                              onCheckedChange={(c) => toggleMonth(idx, !!c)}
+                                            />
+                                            <span className="text-xs">
+                                              {SHORT_MONTHS[m.month - 1]} {m.year}
+                                            </span>
+                                          </label>
+                                        );
+                                      })}
+                                    </div>
+                                  </PopoverContent>
+                                </Popover>
                               );
                             })()}
                           </div>
