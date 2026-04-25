@@ -1856,9 +1856,17 @@ export const appRouter = router({
         monthPositionInForecast: z.number().optional(),
         totalForecastDuration: z.number().optional(),
         plannerInstructions: z.string().max(2000).optional(),
+        // Structured per-SKU adjustments coming from the new UI panel. When provided,
+        // they ALWAYS take precedence over (and supplement) the free-text parser.
+        skuDirectives: z.array(z.object({
+          skuId: z.number().int().positive(),
+          action: z.enum(["zero", "reduce", "increase", "cap"]),
+          valuePct: z.number().min(0).max(500).optional(),
+          valueMC: z.number().min(0).optional(),
+        })).optional(),
       }))
       .mutation(async ({ input }) => {
-        const { country: countryRaw, totalTons, mastercaseKg, targetMonth, targetYear, includeNpi, previousMonthContext, monthPositionInForecast, totalForecastDuration, plannerInstructions } = input;
+        const { country: countryRaw, totalTons, mastercaseKg, targetMonth, targetYear, includeNpi, previousMonthContext, monthPositionInForecast, totalForecastDuration, plannerInstructions, skuDirectives } = input;
         const country = countryRaw as 'Lebanon' | 'Syria' | 'Libya';
 
         // 1. Fetch all SKUs for this country, optionally filtering out NPI
@@ -2284,6 +2292,28 @@ export const appRouter = router({
         };
         let parsedDirectives: PlannerDirective[] = [];
         const hasLlmKeyForParse = !!(process.env.BUILT_IN_FORGE_API_KEY && process.env.BUILT_IN_FORGE_API_KEY.trim());
+
+        // 8b.0 — Structured directives from the per-SKU adjustment UI panel.
+        // These are explicit and unambiguous — the planner clicked exact actions on
+        // exact SKUs, so they always take precedence and skip the parsers.
+        if (skuDirectives && skuDirectives.length > 0) {
+          const validIds = new Set(skus.map(s => s.id));
+          for (const d of skuDirectives) {
+            if (!validIds.has(d.skuId)) continue;
+            const sk = skus.find(s => s.id === d.skuId)!;
+            parsedDirectives.push({
+              skuIds: [d.skuId],
+              action: d.action,
+              valuePct: d.valuePct,
+              valueMC: d.valueMC,
+              raw: `[UI] ${sk.name} ${sk.weight} (${(sk as any).packagingType ?? 'New'}) → ${d.action}${d.valuePct ? ` ${d.valuePct}%` : ''}${d.valueMC ? ` cap ${d.valueMC}MC` : ''}`,
+            });
+          }
+          if (parsedDirectives.length > 0) {
+            console.log(`[ForecastSplit] UI panel sent ${parsedDirectives.length} structured directive(s):`,
+              parsedDirectives.map(d => `${d.action}${d.valuePct ? ' '+d.valuePct+'%' : ''}${d.valueMC ? ' cap '+d.valueMC : ''} → SKU ${d.skuIds[0]}`).join(' | '));
+          }
+        }
 
         // 8b.1 — Regex-based parser (fast, deterministic). Handles the most common patterns
         // without needing an LLM. Sentences are split by newlines, commas, semicolons, or " and ".

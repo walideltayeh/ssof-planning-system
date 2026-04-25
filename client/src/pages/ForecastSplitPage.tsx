@@ -262,6 +262,13 @@ export default function ForecastSplitPage() {
   const [splitMode, setSplitMode] = useState<"perMonth" | "totalSplit">("perMonth");
   const [includeNpi, setIncludeNpi] = useState(true);
   const [plannerInstructions, setPlannerInstructions] = useState("");
+
+  // Per-SKU adjustment directives — explicit, structured overrides from the UI panel.
+  // Keyed by skuId. Empty action means "no change".
+  type SkuAction = "none" | "zero" | "reduce" | "increase" | "cap";
+  const [skuAdjustments, setSkuAdjustments] = useState<Record<number, { action: SkuAction; valuePct?: string; valueMC?: string }>>({});
+  const [showAdjustPanel, setShowAdjustPanel] = useState(false);
+  const [adjustSearch, setAdjustSearch] = useState("");
   
   // Single-month result (backward compat)
   const [result, setResult] = useState<RecommendResult | null>(null);
@@ -307,6 +314,32 @@ export default function ForecastSplitPage() {
   const [bulkSelectedMonths, setBulkSelectedMonths] = useState<Set<string>>(new Set());
 
   const utils = trpc.useUtils();
+
+  // Active SKUs for the per-SKU adjustment panel.
+  const { data: activeSkusData } = trpc.country.skus.useQuery(
+    { country: (country as "Lebanon" | "Syria" | "Libya"), includeInactive: false },
+    { enabled: !!country },
+  );
+  const activeSkus = (activeSkusData ?? []).filter((s: any) => s.isActive !== false);
+
+  // Build the structured directives array sent to the backend.
+  const buildSkuDirectives = useCallback(() => {
+    const out: Array<{ skuId: number; action: "zero" | "reduce" | "increase" | "cap"; valuePct?: number; valueMC?: number }> = [];
+    for (const [idStr, adj] of Object.entries(skuAdjustments)) {
+      const id = parseInt(idStr);
+      if (!adj || adj.action === "none") continue;
+      if (adj.action === "zero") {
+        out.push({ skuId: id, action: "zero" });
+      } else if (adj.action === "reduce" || adj.action === "increase") {
+        const pct = parseFloat(adj.valuePct ?? "");
+        if (isFinite(pct) && pct > 0) out.push({ skuId: id, action: adj.action, valuePct: pct });
+      } else if (adj.action === "cap") {
+        const mc = parseFloat(adj.valueMC ?? "");
+        if (isFinite(mc) && mc >= 0) out.push({ skuId: id, action: "cap", valueMC: mc });
+      }
+    }
+    return out;
+  }, [skuAdjustments]);
 
   const applyMutation = trpc.forecastSplit.applyToForecast.useMutation({
     onSuccess: (data) => {
@@ -607,6 +640,7 @@ export default function ForecastSplitPage() {
         accumulated += s.duration;
         setTimeout(() => advance(), accumulated);
       });
+      const directives = buildSkuDirectives();
       recommendMutation.mutate({
         country,
         totalTons: tons,
@@ -615,6 +649,7 @@ export default function ForecastSplitPage() {
         targetYear: year,
         includeNpi,
         ...(plannerInstructions.trim() ? { plannerInstructions: plannerInstructions.trim() } : {}),
+        ...(directives.length > 0 ? { skuDirectives: directives } : {}),
       });
     } else {
       // Multi-month — call recommend endpoint sequentially for each month
@@ -650,6 +685,7 @@ export default function ForecastSplitPage() {
           }
 
           // Call via tRPC client (not raw fetch) so superjson transformer is applied correctly
+          const directives = buildSkuDirectives();
           const monthResult = await utils.client.forecastSplit.recommend.mutate({
             country,
             totalTons: tons,
@@ -658,6 +694,7 @@ export default function ForecastSplitPage() {
             targetYear: m.year,
             includeNpi,
             ...(plannerInstructions.trim() ? { plannerInstructions: plannerInstructions.trim() } : {}),
+            ...(directives.length > 0 ? { skuDirectives: directives } : {}),
             ...(previousMonthContext ? {
               previousMonthContext,
               monthPositionInForecast: i + 1,
@@ -1138,6 +1175,139 @@ export default function ForecastSplitPage() {
               </p>
             </div>
           )}
+
+          {/* Per-SKU adjustment panel — explicit, structured overrides */}
+          {activeSkus.length > 0 && (() => {
+            const directiveCount = Object.values(skuAdjustments).filter(a => a && a.action !== "none").length;
+            const filtered = activeSkus.filter((sk: any) => {
+              if (!adjustSearch.trim()) return true;
+              const q = adjustSearch.trim().toLowerCase();
+              return `${sk.name} ${sk.weight} ${sk.packagingType ?? ''}`.toLowerCase().includes(q);
+            });
+            return (
+              <div className="mt-3 border border-purple-200 rounded-lg bg-gradient-to-br from-purple-50 to-indigo-50">
+                <button
+                  type="button"
+                  onClick={() => setShowAdjustPanel(!showAdjustPanel)}
+                  className="w-full flex items-center justify-between px-3 py-2.5 text-left hover:bg-purple-100/50 rounded-t-lg transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    {showAdjustPanel ? <ChevronDown className="w-4 h-4 text-purple-700" /> : <ChevronRight className="w-4 h-4 text-purple-700" />}
+                    <Sparkles className="w-4 h-4 text-purple-600" />
+                    <span className="text-sm font-semibold text-purple-900">Per-SKU adjustments</span>
+                    {directiveCount > 0 && (
+                      <Badge className="bg-purple-600 text-white text-xs">{directiveCount} active</Badge>
+                    )}
+                  </div>
+                  <span className="text-xs text-purple-700">{showAdjustPanel ? "Hide" : "Show"} ({activeSkus.length} SKUs)</span>
+                </button>
+                {showAdjustPanel && (
+                  <div className="px-3 pb-3 border-t border-purple-200">
+                    <p className="text-xs text-purple-700 mt-2 mb-2">
+                      Pick an action and value for any SKU. These are applied <strong>exactly</strong> to the recommendation, then the rest of the SKUs are rebalanced so the total stays correct.
+                    </p>
+                    <div className="flex items-center gap-2 mb-2">
+                      <Input
+                        placeholder="Search SKUs…"
+                        value={adjustSearch}
+                        onChange={(e) => setAdjustSearch(e.target.value)}
+                        className="h-8 text-sm"
+                      />
+                      {directiveCount > 0 && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 text-xs text-purple-700 hover:text-purple-900 hover:bg-purple-100"
+                          onClick={() => setSkuAdjustments({})}
+                        >
+                          <X className="w-3 h-3 mr-1" /> Clear all
+                        </Button>
+                      )}
+                    </div>
+                    <div className="max-h-72 overflow-y-auto bg-white rounded border border-purple-100">
+                      {filtered.length === 0 && (
+                        <div className="text-xs text-muted-foreground text-center py-4">No SKUs match "{adjustSearch}"</div>
+                      )}
+                      {filtered.map((sku: any) => {
+                        const adj = skuAdjustments[sku.id] ?? { action: "none" as SkuAction };
+                        const isPctAction = adj.action === "reduce" || adj.action === "increase";
+                        const isCapAction = adj.action === "cap";
+                        const setAdj = (next: typeof adj) => setSkuAdjustments(prev => {
+                          const copy = { ...prev };
+                          if (next.action === "none") delete copy[sku.id];
+                          else copy[sku.id] = next;
+                          return copy;
+                        });
+                        const rowBg = adj.action === "none" ? "" : adj.action === "zero" ? "bg-red-50" : adj.action === "reduce" ? "bg-orange-50" : adj.action === "increase" ? "bg-emerald-50" : "bg-blue-50";
+                        return (
+                          <div key={sku.id} className={`flex items-center gap-2 px-2 py-1.5 border-b border-purple-50 last:border-0 ${rowBg}`}>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm font-medium truncate">{sku.name} <span className="text-muted-foreground font-normal">{sku.weight}</span></div>
+                              <div className="flex items-center gap-1 mt-0.5">
+                                {sku.packagingType && (
+                                  <Badge variant="outline" className={`text-[10px] py-0 px-1.5 ${sku.packagingType === 'Old' ? 'border-amber-300 text-amber-800 bg-amber-50' : 'border-slate-300 text-slate-700 bg-slate-50'}`}>
+                                    {sku.packagingType} Pkg
+                                  </Badge>
+                                )}
+                                {(sku.category ?? 'Core') === 'NPI' && (
+                                  <Badge variant="outline" className="text-[10px] py-0 px-1.5 border-blue-300 text-blue-700 bg-blue-50">NPI</Badge>
+                                )}
+                              </div>
+                            </div>
+                            <Select
+                              value={adj.action}
+                              onValueChange={(v) => setAdj({ action: v as SkuAction, valuePct: adj.valuePct, valueMC: adj.valueMC })}
+                            >
+                              <SelectTrigger className="h-8 w-[140px] text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="none">No change</SelectItem>
+                                <SelectItem value="increase">▲ Increase by %</SelectItem>
+                                <SelectItem value="reduce">▼ Reduce by %</SelectItem>
+                                <SelectItem value="zero">⨯ Set to zero</SelectItem>
+                                <SelectItem value="cap">⊓ Cap at MC</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            {isPctAction && (
+                              <div className="flex items-center gap-1">
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  max={500}
+                                  step={1}
+                                  value={adj.valuePct ?? ""}
+                                  onChange={(e) => setAdj({ ...adj, valuePct: e.target.value })}
+                                  placeholder={adj.action === "increase" ? "25" : "20"}
+                                  className="h-8 w-16 text-xs text-right"
+                                />
+                                <span className="text-xs text-muted-foreground">%</span>
+                              </div>
+                            )}
+                            {isCapAction && (
+                              <div className="flex items-center gap-1">
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  step={10}
+                                  value={adj.valueMC ?? ""}
+                                  onChange={(e) => setAdj({ ...adj, valueMC: e.target.value })}
+                                  placeholder="500"
+                                  className="h-8 w-20 text-xs text-right"
+                                />
+                                <span className="text-xs text-muted-foreground">MC</span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Planner instructions for the AI */}
           <div className="mt-3">
