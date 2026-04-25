@@ -2566,7 +2566,7 @@ ${skuSummaries.map(s => {
     ? `  🆕 NEW SKU WITH ACTIVE ORDERS — zero IMS history but planner has committed ${Math.round(s.recentOrdersMC + s.upcomingOrdersMC)}MC of orders. ALLOCATE BASED ON ORDER VOLUME, NOT ZERO.`
     : '';
   return [
-    `▸ SKU [ID:${s.skuId}]: ${s.name} ${s.weight} [${s.category}] | Packaging: ${s.packagingType} | Base alloc: ${baseAlloc}% | Confidence: ${conf}%`,
+    `▸ SKU [ID:${s.skuId}] name="${s.name}" weight="${s.weight}" packaging="${s.packagingType}" category="${s.category}" | Base alloc: ${baseAlloc}% | Confidence: ${conf}%`,
     `  IMS: avg/month=${s.avgMonthly} | total=${s.totalIms.toFixed(0)} | months of data=${s.monthsOfData}`,
     `  Trend: 3-month rolling vs prior 3 months: ${s.rollingTrend}% | YoY same month: ${s.yoyGrowth}%`,
     `  Seasonality index for ${monthName}: ${s.seasonalityIndex} | Same month prior years: ${s.sameMonthHistory || 'no data'}`,
@@ -2683,6 +2683,7 @@ REQUIRED OUTPUT FORMAT (valid JSON only, no markdown):
             const seasonalityNote = `Seasonality index for ${monthName}: ${isNaN(si) ? 'N/A' : si.toFixed(2)}. ${isRamadanMonth ? `Ramadan effect applies (+${ramadanBoostPct}%).` : currentSeasonalInfo.effect}`;
 
             return {
+              skuId: sk.skuId,
               skuName: sk.rawName,
               weight: sk.rawWeight,
               category: sk.category,
