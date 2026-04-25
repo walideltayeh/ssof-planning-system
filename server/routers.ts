@@ -2941,19 +2941,21 @@ REQUIRED OUTPUT FORMAT (valid JSON only, no markdown):
           }
 
           // Rebalance: ensure total still equals totalMastercases.
-          // Donors / receivers are non-locked SKUs only. Lock detection MUST use
-          // packagingType so Old/New variants don't get swapped.
+          // Donors / receivers are non-locked SKUs only.
+          // CRITICAL: lock detection MUST use the SAME normalized index that the
+          // enforcement pass used. If we re-resolve with strict equality here, the
+          // LLM's slight name/weight casing differences (e.g. "1kg" vs "1Kg") cause
+          // the lock check to fail silently — and the rebalance then reverts the
+          // directive by treating the locked row as a flexible donor/receiver.
+          // We invert the rec→skuId map and reuse it.
+          const skuIdByRecIdx = new Map<number, number>();
+          recIndexBySkuId.forEach((idx, skuId) => { skuIdByRecIdx.set(idx, skuId); });
           const sumNow = recommendations.reduce((s: number, r: any) => s + Math.max(0, Math.round(r.recommendedMastercases ?? 0)), 0);
           let diff = totalMastercases - sumNow;
           if (diff !== 0) {
-            const resolveSkuIdForRec = (rec: any): number | undefined => {
-              const exact = skus.find(s => s.name === rec.skuName && s.weight === rec.weight && (rec.packagingType ? (s as any).packagingType === rec.packagingType : true));
-              if (exact) return exact.id;
-              return skus.find(s => s.name === rec.skuName && s.weight === rec.weight)?.id;
-            };
             const flexibleIdxs = recommendations
               .map((rec: any, idx: number) => {
-                const id = resolveSkuIdForRec(rec);
+                const id = skuIdByRecIdx.get(idx);
                 return { idx, mc: Math.max(0, Math.round(rec.recommendedMastercases ?? 0)), locked: id !== undefined && lockedSkuIds.has(id) };
               })
               .filter(d => !d.locked);
