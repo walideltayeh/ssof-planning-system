@@ -2566,7 +2566,7 @@ ${skuSummaries.map(s => {
     ? `  🆕 NEW SKU WITH ACTIVE ORDERS — zero IMS history but planner has committed ${Math.round(s.recentOrdersMC + s.upcomingOrdersMC)}MC of orders. ALLOCATE BASED ON ORDER VOLUME, NOT ZERO.`
     : '';
   return [
-    `▸ SKU: ${s.name} [${s.category}] | Packaging: ${s.packagingType} | Base alloc: ${baseAlloc}% | Confidence: ${conf}%`,
+    `▸ SKU [ID:${s.skuId}]: ${s.name} ${s.weight} [${s.category}] | Packaging: ${s.packagingType} | Base alloc: ${baseAlloc}% | Confidence: ${conf}%`,
     `  IMS: avg/month=${s.avgMonthly} | total=${s.totalIms.toFixed(0)} | months of data=${s.monthsOfData}`,
     `  Trend: 3-month rolling vs prior 3 months: ${s.rollingTrend}% | YoY same month: ${s.yoyGrowth}%`,
     `  Seasonality index for ${monthName}: ${s.seasonalityIndex} | Same month prior years: ${s.sameMonthHistory || 'no data'}`,
@@ -2600,6 +2600,7 @@ REQUIRED OUTPUT FORMAT (valid JSON only, no markdown):
 {
   "recommendations": [
     {
+      "skuId": number (REQUIRED — the exact numeric ID from the SKU header above, e.g. ID:150011. Do NOT make up IDs. Do NOT omit this field. The SKU id is the ONLY reliable way to match your output back to the planner's directives.),
       "skuName": string,
       "weight": string,
       "category": string,
@@ -2841,11 +2842,20 @@ REQUIRED OUTPUT FORMAT (valid JSON only, no markdown):
         // regardless of whether the main LLM obeyed the prompt instructions.
         const extraWarnings: string[] = [];
         if (parsedDirectives.length > 0 && recommendations.length > 0) {
-          // Helper: find recommendation index by SKU id (normalized: case-insensitive name,
-          // whitespace-stripped weight, packaging defaulting to "New" when missing).
+          // Helper: find recommendation index by SKU id.
+          // Primary key is rec.skuId (LLM is now told to echo it). Fallback chain
+          // (for legacy responses or LLM omissions) uses normalized name+weight+packaging.
           const normLow = (s: any) => String(s ?? '').toLowerCase().replace(/\s+/g, '').trim();
+          const validSkuIdSet = new Set(skus.map(s => s.id));
           const recIndexBySkuId = new Map<number, number>();
+          let matchedById = 0, matchedByFallback = 0, unmatched = 0;
           recommendations.forEach((rec: any, idx: number) => {
+            // 0) Trust rec.skuId when present and valid
+            if (typeof rec.skuId === 'number' && validSkuIdSet.has(rec.skuId)) {
+              recIndexBySkuId.set(rec.skuId, idx);
+              matchedById++;
+              return;
+            }
             const recName = normLow(rec.skuName);
             const recWeight = normLow(rec.weight);
             const recPack = normLow(rec.packagingType ?? 'New');
@@ -2858,8 +2868,16 @@ REQUIRED OUTPUT FORMAT (valid JSON only, no markdown):
             if (!matched) matched = skus.find(s => normLow(s.name) === recName && normLow(s.weight) === recWeight);
             // 3) Name only (last resort)
             if (!matched) matched = skus.find(s => normLow(s.name) === recName);
-            if (matched) recIndexBySkuId.set(matched.id, idx);
+            if (matched) {
+              recIndexBySkuId.set(matched.id, idx);
+              matchedByFallback++;
+              // Heal the rec so downstream code (and the client) get a stable id
+              rec.skuId = matched.id;
+            } else {
+              unmatched++;
+            }
           });
+          console.log(`[ForecastSplit] Recs→SKU mapping: ${matchedById} by id, ${matchedByFallback} by name fallback, ${unmatched} unmatched (of ${recommendations.length} recs).`);
 
           // For any directive SKU NOT in the recommendations array, append a synthetic
           // recommendation row with 0 MC so the directive can be applied (e.g. "set
