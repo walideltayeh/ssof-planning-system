@@ -265,8 +265,11 @@ export default function ForecastSplitPage() {
 
   // Per-SKU adjustment directives — explicit, structured overrides from the UI panel.
   // Keyed by skuId. Empty action means "no change".
+  // monthScope: "all" applies to every month in a multi-month forecast;
+  // a number 0..N-1 applies only to that month index. Single-month always uses "all".
   type SkuAction = "none" | "zero" | "reduce" | "increase" | "cap";
-  const [skuAdjustments, setSkuAdjustments] = useState<Record<number, { action: SkuAction; valuePct?: string; valueMC?: string }>>({});
+  type SkuAdjustment = { action: SkuAction; valuePct?: string; valueMC?: string; monthScope?: "all" | number };
+  const [skuAdjustments, setSkuAdjustments] = useState<Record<number, SkuAdjustment>>({});
   const [showAdjustPanel, setShowAdjustPanel] = useState(false);
   const [adjustSearch, setAdjustSearch] = useState("");
   
@@ -323,11 +326,18 @@ export default function ForecastSplitPage() {
   const activeSkus = (activeSkusData ?? []).filter((s: any) => s.isActive !== false);
 
   // Build the structured directives array sent to the backend.
-  const buildSkuDirectives = useCallback(() => {
+  // monthIdx: when defined (multi-month), only include directives whose monthScope is
+  // "all" or matches monthIdx. When undefined (single-month), include everything.
+  const buildSkuDirectives = useCallback((monthIdx?: number) => {
     const out: Array<{ skuId: number; action: "zero" | "reduce" | "increase" | "cap"; valuePct?: number; valueMC?: number }> = [];
     for (const [idStr, adj] of Object.entries(skuAdjustments)) {
       const id = parseInt(idStr);
       if (!adj || adj.action === "none") continue;
+      // Month scope filter (multi-month only)
+      if (monthIdx !== undefined) {
+        const scope = adj.monthScope ?? "all";
+        if (scope !== "all" && scope !== monthIdx) continue;
+      }
       if (adj.action === "zero") {
         out.push({ skuId: id, action: "zero" });
       } else if (adj.action === "reduce" || adj.action === "increase") {
@@ -684,8 +694,9 @@ export default function ForecastSplitPage() {
             previousMonthContext = `Month: ${prevMonthLabel} ${prev.targetYear}\n${previousMonthContext}`;
           }
 
-          // Call via tRPC client (not raw fetch) so superjson transformer is applied correctly
-          const directives = buildSkuDirectives();
+          // Call via tRPC client (not raw fetch) so superjson transformer is applied correctly.
+          // Pass the index `i` so per-month-scoped adjustments are filtered correctly.
+          const directives = buildSkuDirectives(i);
           const monthResult = await utils.client.forecastSplit.recommend.mutate({
             country,
             totalTons: tons,
@@ -1299,6 +1310,27 @@ export default function ForecastSplitPage() {
                                 <span className="text-xs text-muted-foreground">MC</span>
                               </div>
                             )}
+                            {duration > 1 && adj.action !== "none" && (() => {
+                              const monthList = getConsecutiveMonths(parseInt(targetMonth), parseInt(targetYear), duration);
+                              return (
+                                <Select
+                                  value={String(adj.monthScope ?? "all")}
+                                  onValueChange={(v) => setAdj({ ...adj, monthScope: v === "all" ? "all" : parseInt(v) })}
+                                >
+                                  <SelectTrigger className="h-8 w-[130px] text-xs border-purple-300">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="all">📅 All months</SelectItem>
+                                    {monthList.map((m, idx) => (
+                                      <SelectItem key={idx} value={String(idx)}>
+                                        Only {SHORT_MONTHS[m.month - 1]} {String(m.year).slice(-2)}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              );
+                            })()}
                           </div>
                         );
                       })}

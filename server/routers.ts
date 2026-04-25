@@ -2841,13 +2841,55 @@ REQUIRED OUTPUT FORMAT (valid JSON only, no markdown):
         // regardless of whether the main LLM obeyed the prompt instructions.
         const extraWarnings: string[] = [];
         if (parsedDirectives.length > 0 && recommendations.length > 0) {
-          // Helper: find recommendation index by SKU id
+          // Helper: find recommendation index by SKU id (normalized: case-insensitive name,
+          // whitespace-stripped weight, packaging defaulting to "New" when missing).
+          const normLow = (s: any) => String(s ?? '').toLowerCase().replace(/\s+/g, '').trim();
           const recIndexBySkuId = new Map<number, number>();
           recommendations.forEach((rec: any, idx: number) => {
-            const sk = skus.find(s => s.name === rec.skuName && s.weight === rec.weight && (rec.packagingType ? (s as any).packagingType === rec.packagingType : true));
-            const skAny = sk ?? skus.find(s => s.name === rec.skuName && s.weight === rec.weight);
-            if (skAny) recIndexBySkuId.set(skAny.id, idx);
+            const recName = normLow(rec.skuName);
+            const recWeight = normLow(rec.weight);
+            const recPack = normLow(rec.packagingType ?? 'New');
+            // 1) Exact name+weight+packaging
+            let matched = skus.find(s =>
+              normLow(s.name) === recName &&
+              normLow(s.weight) === recWeight &&
+              normLow((s as any).packagingType ?? 'New') === recPack);
+            // 2) Name+weight (any packaging)
+            if (!matched) matched = skus.find(s => normLow(s.name) === recName && normLow(s.weight) === recWeight);
+            // 3) Name only (last resort)
+            if (!matched) matched = skus.find(s => normLow(s.name) === recName);
+            if (matched) recIndexBySkuId.set(matched.id, idx);
           });
+
+          // For any directive SKU NOT in the recommendations array, append a synthetic
+          // recommendation row with 0 MC so the directive can be applied (e.g. "set
+          // Blueberry 250g to zero" still shows the SKU on screen at 0). Only does
+          // this when the action is non-zero or when the planner explicitly asked
+          // to set it to zero — without this, an absent SKU could not be enforced.
+          for (const dir of parsedDirectives) {
+            for (const skuId of dir.skuIds) {
+              if (recIndexBySkuId.has(skuId)) continue;
+              const sku = skus.find(s => s.id === skuId);
+              if (!sku) continue;
+              const synthetic: any = {
+                skuName: sku.name,
+                weight: sku.weight,
+                category: sku.category ?? 'Core',
+                packagingType: (sku as any).packagingType ?? 'New',
+                recommendedMastercases: 0,
+                sharePercent: 0,
+                reasoning: '',
+                trend: 'stable',
+                seasonalityNote: '',
+                stockAlert: 'unknown',
+                confidenceScore: 50,
+                primaryDriver: 'market_intel',
+                marketIntelligenceNote: '',
+              };
+              recommendations.push(synthetic);
+              recIndexBySkuId.set(skuId, recommendations.length - 1);
+            }
+          }
 
           // Track which SKU ids are "locked" by a planner directive — they should not be donors/receivers
           // for redistribution caused by other directives.
