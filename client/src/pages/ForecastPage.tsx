@@ -210,7 +210,7 @@ export default function ForecastPage() {
     const numVal = parseFloat(editValue) || 0;
     const sku = data?.skus.find(s => s.id === skuId);
     const period = data?.periods.find(p => p.id === periodId);
-    updateCell.mutate({ skuId, periodId, value: numVal.toString(), username: appUser?.displayName, skuName: sku?.name, periodLabel: period?.label, oldValue });
+    updateCell.mutate({ skuId, periodId, value: numVal.toString(), skuName: sku?.name, periodLabel: period?.label, oldValue });
     // Forecast→Production auto-link (Syria/Libya only)
     if (!isLebanon && (country === "Syria" || country === "Libya")) {
       const cellKey = `${skuId}-${periodId}`;
@@ -220,7 +220,6 @@ export default function ForecastPage() {
         skuId, periodId,
         week1: weeks.week1, week2: weeks.week2, week3: weeks.week3, week4: weeks.week4,
         country: country as "Syria" | "Libya",
-        username: appUser?.displayName,
         skuName: sku?.name, periodLabel: period?.label,
       });
     }
@@ -736,7 +735,6 @@ export default function ForecastPage() {
                                                 skuId: sku.id, periodId: p.id,
                                                 targetWeek: w,
                                                 country: country as "Syria" | "Libya",
-                                                username: appUser?.displayName,
                                                 skuName: sku.name, periodLabel: p.label,
                                               });
                                             }

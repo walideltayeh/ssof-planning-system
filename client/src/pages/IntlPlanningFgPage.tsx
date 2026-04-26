@@ -357,7 +357,6 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
         periodId: editingCell.periodId,
         value: newVal,
         country: country as "Syria" | "Libya",
-        username: appUser?.displayName,
         skuName: sku?.name,
         periodLabel: period?.label,
       });
@@ -370,7 +369,6 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
         week3: "0",
         week4: "0",
         country: country as "Syria" | "Libya",
-        username: appUser?.displayName,
         skuName: sku?.name,
         periodLabel: period?.label,
       });
@@ -381,7 +379,6 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
         label: editingCell.label,
         value: newVal,
         country: country as "Syria" | "Libya",
-        username: appUser?.displayName,
       });
     }
   };

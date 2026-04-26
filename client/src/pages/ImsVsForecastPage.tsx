@@ -87,7 +87,6 @@ export default function ImsVsForecastPage() {
       // Second click = confirm
       autoFillMutation.mutate({
         periodId,
-        username: appUser?.displayName,
         country: country ?? undefined,
       });
     } else {
@@ -209,9 +208,9 @@ export default function ImsVsForecastPage() {
     const imsEntry = imsMap.get(`${skuId}-${periodId}`);
     const sku = data?.skus.find(s => s.id === skuId);
     const period = data?.periods.find(p => p.id === periodId);
-    updateImsCell.mutate({ skuId, periodId, value: numVal.toString(), isActual: imsEntry?.isActual ?? false, username: appUser?.displayName, skuName: sku?.name, periodLabel: period?.label, oldValue });
+    updateImsCell.mutate({ skuId, periodId, value: numVal.toString(), isActual: imsEntry?.isActual ?? false, skuName: sku?.name, periodLabel: period?.label, oldValue });
     setEditingCell(null);
-  }, [editValue, updateImsCell, imsMap, oldValue, data, appUser]);
+  }, [editValue, updateImsCell, imsMap, oldValue, data]);
 
   // Build navigable cell IDs for IMS row only (IMS is the editable row)
   const navigableCellIds = useMemo(() => {

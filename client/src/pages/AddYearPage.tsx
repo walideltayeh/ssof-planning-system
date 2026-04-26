@@ -35,7 +35,7 @@ export default function AddYearPage() {
       toast.error("Please select a year");
       return;
     }
-    addYear.mutate({ year: selectedYear, username: appUser?.displayName });
+    addYear.mutate({ year: selectedYear});
   };
 
   if (yearsLoading) return <div className="p-4 text-sm text-muted-foreground">Loading...</div>;

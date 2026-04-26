@@ -47,7 +47,7 @@ export default function UserManagementPage() {
   const utils = trpc.useUtils();
 
   const { data: users = [], isLoading } = trpc.appUsers.list.useQuery(
-    { requestingUsername: currentUser?.username ?? "" },
+    undefined,
     { enabled: !!currentUser?.username && isOwner }
   );
 
@@ -112,7 +112,6 @@ export default function UserManagementPage() {
 
     if (editingId) {
       await updateMutation.mutateAsync({
-        requestingUsername: currentUser!.username,
         id: editingId,
         displayName: form.displayName,
         ...(form.password ? { password: form.password } : {}),
@@ -121,7 +120,6 @@ export default function UserManagementPage() {
       });
     } else {
       await createMutation.mutateAsync({
-        requestingUsername: currentUser!.username,
         username: form.username,
         displayName: form.displayName,
         password: form.password,
@@ -353,7 +351,7 @@ export default function UserManagementPage() {
                                       size="sm"
                                       variant="destructive"
                                       className="h-7 text-xs px-2"
-                                      onClick={() => deleteMutation.mutate({ requestingUsername: currentUser!.username, id: u.id })}
+                                      onClick={() => deleteMutation.mutate({ id: u.id })}
                                       disabled={deleteMutation.isPending}
                                     >
                                       Confirm

@@ -144,7 +144,6 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
           skuId: variables.skuId,
           periodId: variables.periodId,
           value: variables.value,
-          username: variables.username,
           skuName: variables.skuName,
           periodLabel: variables.periodLabel,
           oldValue: variables.oldValue,
@@ -220,7 +219,6 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
         skuId: entry.skuId,
         periodId: entry.periodId,
         value: entry.oldValue,
-        username: appUser?.displayName,
         skuName: entry.skuName,
         periodLabel: entry.periodLabel,
         oldValue: entry.newValue,
@@ -232,7 +230,6 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
         periodId: entry.periodId,
         value: entry.oldValue,
         isActual: true,
-        username: appUser?.displayName,
         skuName: entry.skuName,
         periodLabel: entry.periodLabel,
         oldValue: entry.newValue,
@@ -242,7 +239,6 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
         skuId: entry.skuId,
         periodId: entry.periodId,
         value: entry.oldValue,
-        username: appUser?.displayName,
         skuName: entry.skuName,
         periodLabel: entry.periodLabel,
         oldValue: entry.newValue,
@@ -251,7 +247,6 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
       const updateData: any = {
         skuId: entry.skuId,
         periodId: entry.periodId,
-        username: appUser?.displayName,
         skuName: entry.skuName,
         periodLabel: entry.periodLabel,
         oldValue: entry.newValue,
@@ -264,14 +259,13 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
         skuId: entry.skuId,
         periodId: entry.periodId,
         invoiced: entry.oldValue,
-        username: appUser?.displayName,
         skuName: entry.skuName,
         periodLabel: entry.periodLabel,
         oldValue: entry.newValue,
       };
       updateCell.mutate(updateData, { onSuccess: onDone, onError: onErr });
     }
-  }, [undoStacks, syncIms, updateImsDirect, syncArrival, updateCell, appUser, weight, pushRedo]);
+  }, [undoStacks, syncIms, updateImsDirect, syncArrival, updateCell, weight, pushRedo]);
 
   // ── Per-SKU redo handler ──────────────────────────────────────────────────
   const handleRedoForSku = useCallback((skuId: number) => {
@@ -312,7 +306,6 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
         skuId: entry.skuId,
         periodId: entry.periodId,
         value: entry.newValue,
-        username: appUser?.displayName,
         skuName: entry.skuName,
         periodLabel: entry.periodLabel,
         oldValue: entry.oldValue,
@@ -324,7 +317,6 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
         periodId: entry.periodId,
         value: entry.newValue,
         isActual: true,
-        username: appUser?.displayName,
         skuName: entry.skuName,
         periodLabel: entry.periodLabel,
         oldValue: entry.oldValue,
@@ -334,7 +326,6 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
         skuId: entry.skuId,
         periodId: entry.periodId,
         value: entry.newValue,
-        username: appUser?.displayName,
         skuName: entry.skuName,
         periodLabel: entry.periodLabel,
         oldValue: entry.oldValue,
@@ -343,7 +334,6 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
       const updateData: any = {
         skuId: entry.skuId,
         periodId: entry.periodId,
-        username: appUser?.displayName,
         skuName: entry.skuName,
         periodLabel: entry.periodLabel,
         oldValue: entry.oldValue,
@@ -356,14 +346,13 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
         skuId: entry.skuId,
         periodId: entry.periodId,
         invoiced: entry.newValue,
-        username: appUser?.displayName,
         skuName: entry.skuName,
         periodLabel: entry.periodLabel,
         oldValue: entry.oldValue,
       };
       updateCell.mutate(updateData, { onSuccess: onDone, onError: onErr });
     }
-  }, [redoStacks, syncIms, updateImsDirect, syncArrival, updateCell, appUser, weight]);
+  }, [redoStacks, syncIms, updateImsDirect, syncArrival, updateCell, weight]);
 
   // ── Ctrl+Z keyboard shortcut (undoes last edit across all SKUs) ────────────
   const handleGlobalUndo = useCallback(() => {
@@ -656,10 +645,10 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
       const isFuture = period ? isStrictlyFuture(period) : false;
       if (isFuture) {
         pushUndo({ type: "syncIms", skuId, periodId, label: "IMS", oldValue: oldNum.toString(), newValue: numVal.toString(), skuName: sku?.name ?? "", periodLabel: period?.label ?? "" });
-        syncIms.mutate({ skuId, periodId, value: numVal.toString(), username: appUser?.displayName, skuName: sku?.name, periodLabel: period?.label, oldValue, source: `Planning FG ${weight}` });
+        syncIms.mutate({ skuId, periodId, value: numVal.toString(), skuName: sku?.name, periodLabel: period?.label, oldValue, source: `Planning FG ${weight}` });
       } else {
         pushUndo({ type: "imsDirect", skuId, periodId, label: "IMS", oldValue: oldNum.toString(), newValue: numVal.toString(), skuName: sku?.name ?? "", periodLabel: period?.label ?? "" });
-        updateImsDirect.mutate({ skuId, periodId, value: numVal.toString(), isActual: true, username: appUser?.displayName, skuName: sku?.name, periodLabel: period?.label, oldValue });
+        updateImsDirect.mutate({ skuId, periodId, value: numVal.toString(), isActual: true, skuName: sku?.name, periodLabel: period?.label, oldValue });
       }
       setEditingCell(null);
       return;
@@ -667,7 +656,7 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
 
     if (label === "Actual arrivals / Planned Orders") {
       pushUndo({ type: "syncArrival", skuId, periodId, label, oldValue: oldNum.toString(), newValue: numVal.toString(), skuName: sku?.name ?? "", periodLabel: period?.label ?? "" });
-      syncArrival.mutate({ skuId, periodId, value: numVal.toString(), username: appUser?.displayName, skuName: sku?.name, periodLabel: period?.label, oldValue });
+      syncArrival.mutate({ skuId, periodId, value: numVal.toString(), skuName: sku?.name, periodLabel: period?.label, oldValue });
       setEditingCell(null);
       return;
     }
@@ -837,7 +826,6 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
     syncIms.mutate({
       skuId, periodId,
       value: numVal.toString(),
-      username: appUser?.displayName,
       skuName: sku?.name,
       periodLabel: period?.label,
       oldValue,

@@ -100,8 +100,7 @@ function normalizeWeight(weight: string, skuName: string): string {
 // ==================== MAIN COMPONENT ====================
 
 export default function DataVersionsPage() {
-  const { isAdmin, user: appUser, country } = useAppAuth();
-  const username = appUser?.displayName || appUser?.username || "Unknown";
+  const { isAdmin, country } = useAppAuth();
   const uploadCountry = country || "Lebanon";
 
   // --- Upload state ---
@@ -610,7 +609,6 @@ export default function DataVersionsPage() {
       const result = await saveMutation.mutateAsync({
         name: versionName.trim(),
         description: versionDescription.trim() || undefined,
-        username,
         country: versionCountry as any,
       });
       toast.success(`Version "${versionName}" saved successfully!`, {
@@ -628,7 +626,7 @@ export default function DataVersionsPage() {
 
   const handleLoad = async (id: number) => {
     try {
-      const result = await loadMutation.mutateAsync({ id, username });
+      const result = await loadMutation.mutateAsync({ id });
       toast.success(`Version "${result.name}" loaded successfully!`, {
         description: "All data has been restored. Refresh any open pages to see the changes.",
       });
@@ -642,7 +640,7 @@ export default function DataVersionsPage() {
 
   const handleDelete = async (id: number) => {
     try {
-      await deleteMutation.mutateAsync({ id, username });
+      await deleteMutation.mutateAsync({ id });
       toast.success(`Version "${deleteConfirmName}" deleted`);
       setDeleteConfirmId(null);
       versionsQuery.refetch();
@@ -695,7 +693,7 @@ export default function DataVersionsPage() {
   const handleImportConfirm = async () => {
     if (!importConfirmData) return;
     try {
-      const result = await importMutation.mutateAsync({ versionData: importConfirmData, username, country: uploadCountry as any });
+      const result = await importMutation.mutateAsync({ versionData: importConfirmData, country: uploadCountry as any });
       toast.success(`Version "${result.name}" imported and loaded!`, {
         description: "All data has been restored from the imported file. Refresh any open pages.",
       });

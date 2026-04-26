@@ -193,9 +193,9 @@ export default function ShipmentPage() {
     const sku = data?.skus.find(s => s.id === skuId);
     const period = data?.periods.find(p => p.id === periodId);
     if (isLebanon) {
-      updateCellLb.mutate({ skuId, periodId, [weekKey]: numVal.toString(), username: appUser?.displayName, skuName: sku?.name, periodLabel: period?.label });
+      updateCellLb.mutate({ skuId, periodId, [weekKey]: numVal.toString(), skuName: sku?.name, periodLabel: period?.label });
     } else {
-      updateCellIntl.mutate({ skuId, periodId, week1: dataMap.get(`${skuId}-${periodId}`)?.week1 ?? "0", week2: dataMap.get(`${skuId}-${periodId}`)?.week2 ?? "0", week3: dataMap.get(`${skuId}-${periodId}`)?.week3 ?? "0", week4: dataMap.get(`${skuId}-${periodId}`)?.week4 ?? "0", [weekKey]: numVal.toString(), country: country as "Syria" | "Libya", username: appUser?.displayName, skuName: sku?.name, periodLabel: period?.label });
+      updateCellIntl.mutate({ skuId, periodId, week1: dataMap.get(`${skuId}-${periodId}`)?.week1 ?? "0", week2: dataMap.get(`${skuId}-${periodId}`)?.week2 ?? "0", week3: dataMap.get(`${skuId}-${periodId}`)?.week3 ?? "0", week4: dataMap.get(`${skuId}-${periodId}`)?.week4 ?? "0", [weekKey]: numVal.toString(), country: country as "Syria" | "Libya", skuName: sku?.name, periodLabel: period?.label });
     }
     setEditingCell(null);
   }, [editValue, updateCellLb, updateCellIntl, isLebanon, country, appUser, data, dataMap]);
@@ -216,7 +216,6 @@ export default function ShipmentPage() {
       arrivalOffsetValue: parseInt(offsetValue) || 0,
       arrivalOffsetUnit: offsetUnit,
       country: country as "Syria" | "Libya",
-      username: appUser?.displayName,
       skuName: sku?.name,
       periodLabel: period?.label,
     });
@@ -231,7 +230,6 @@ export default function ShipmentPage() {
       skuId, periodId,
       [field]: value || null,
       country: country as "Syria" | "Libya",
-      username: appUser?.displayName,
       skuName: sku?.name,
       periodLabel: period?.label,
     });

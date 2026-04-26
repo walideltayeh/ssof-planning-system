@@ -6,6 +6,28 @@ import { publicProcedure, protectedProcedure, adminProcedure, router } from "./_
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import * as db from "./db";
+import type { User } from "../drizzle/schema";
+
+/**
+ * Returns the trusted username for audit-log attribution, derived from the
+ * authenticated session (`ctx.user`). Never trust client-supplied usernames
+ * for audit identity — always use this helper instead.
+ */
+function getAuditActor(ctx: { user: User | null }): string {
+  return ctx.user?.name?.trim() || "System";
+}
+
+async function requireAppOwner(ctx: { user: User }) {
+  const username = ctx.user.name;
+  if (!username) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "No username on session" });
+  }
+  const requester = await db.getAppUserByUsername(username);
+  if (!requester?.isOwner) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Owner privileges required" });
+  }
+  return requester;
+}
 
 export const appRouter = router({
   system: systemRouter,
@@ -38,11 +60,11 @@ export const appRouter = router({
         return db.getExistingYearsForFilter(input?.country as import('../drizzle/schema').Country | undefined);
       }),
     addYear: adminProcedure
-      .input(z.object({ year: z.number().min(2024).max(2040), username: z.string().optional() }))
-      .mutation(async ({ input }) => {
+      .input(z.object({ year: z.number().min(2024).max(2040) }))
+      .mutation(async ({ ctx, input }) => {
         const result = await db.addYear(input.year);
         await db.logAudit({
-          username: input.username || "System",
+          username: getAuditActor(ctx),
           action: "add_year",
           sheet: "Periods",
           details: `Added year ${input.year} with 12 monthly periods`,
@@ -62,12 +84,11 @@ export const appRouter = router({
         weight: z.string(),
         category: z.enum(["Core", "NPI"]).optional(),
         isExcludedFromTotal: z.boolean().optional(),
-        username: z.string().optional(),
-      }))
-      .mutation(async ({ input }) => {
+              }))
+      .mutation(async ({ ctx, input }) => {
         const result = await db.createSku(input);
         await db.logAudit({
-          username: input.username || "System",
+          username: getAuditActor(ctx),
           action: "add_sku",
           sheet: "SKU",
           skuName: input.name,
@@ -76,13 +97,13 @@ export const appRouter = router({
         return result;
       }),
     delete: adminProcedure
-      .input(z.object({ id: z.number(), username: z.string().optional() }))
-      .mutation(async ({ input }) => {
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
         const allSkus = await db.getAllSkus();
         const sku = allSkus.find(s => s.id === input.id);
         await db.deleteSku(input.id);
         await db.logAudit({
-          username: input.username || "System",
+          username: getAuditActor(ctx),
           action: "delete_sku",
           sheet: "SKU",
           skuName: sku?.name || `ID:${input.id}`,
@@ -91,14 +112,14 @@ export const appRouter = router({
         return { success: true };
       }),
     updateCategory: adminProcedure
-      .input(z.object({ id: z.number(), category: z.enum(["Core", "NPI"]), username: z.string().optional() }))
-      .mutation(async ({ input }) => {
+      .input(z.object({ id: z.number(), category: z.enum(["Core", "NPI"]) }))
+      .mutation(async ({ ctx, input }) => {
         const allSkus = await db.getAllSkus();
         const sku = allSkus.find(s => s.id === input.id);
         const oldCategory = sku?.category || "unknown";
         await db.updateSkuCategory(input.id, input.category);
         await db.logAudit({
-          username: input.username || "System",
+          username: getAuditActor(ctx),
           action: "change_category",
           sheet: "SKU",
           skuName: sku?.name || `ID:${input.id}`,
@@ -109,11 +130,11 @@ export const appRouter = router({
         return { success: true };
       }),
     reorder: adminProcedure
-      .input(z.object({ orderedIds: z.array(z.number()), username: z.string().optional() }))
-      .mutation(async ({ input }) => {
+      .input(z.object({ orderedIds: z.array(z.number()) }))
+      .mutation(async ({ ctx, input }) => {
         await db.reorderLebanonSkus(input.orderedIds);
         await db.logAudit({
-          username: input.username || "System",
+          username: getAuditActor(ctx),
           action: "reorder_sku",
           sheet: "SKU",
           details: `Reordered ${input.orderedIds.length} Lebanon SKUs`,
@@ -172,13 +193,13 @@ export const appRouter = router({
   // ==================== DATA UPDATE ====================
   update: router({
     forecastCell: protectedProcedure
-      .input(z.object({ skuId: z.number(), periodId: z.number(), value: z.string(), username: z.string().optional(), skuName: z.string().optional(), periodLabel: z.string().optional(), oldValue: z.string().optional() }))
-      .mutation(async ({ input }) => {
+      .input(z.object({ skuId: z.number(), periodId: z.number(), value: z.string(), skuName: z.string().optional(), periodLabel: z.string().optional(), oldValue: z.string().optional() }))
+      .mutation(async ({ ctx, input }) => {
         // Clamp to non-negative
         const clampedValue = Math.max(0, parseFloat(input.value) || 0).toString();
         await db.upsertForecastData(input.skuId, input.periodId, clampedValue);
         await db.logAudit({
-          username: input.username || "System",
+          username: getAuditActor(ctx),
           action: "edit_cell",
           sheet: "Forecast",
           skuName: input.skuName,
@@ -191,11 +212,11 @@ export const appRouter = router({
         return { success: true };
       }),
     imsCell: protectedProcedure
-      .input(z.object({ skuId: z.number(), periodId: z.number(), value: z.string(), isActual: z.boolean(), username: z.string().optional(), skuName: z.string().optional(), periodLabel: z.string().optional(), oldValue: z.string().optional() }))
-      .mutation(async ({ input }) => {
+      .input(z.object({ skuId: z.number(), periodId: z.number(), value: z.string(), isActual: z.boolean(), skuName: z.string().optional(), periodLabel: z.string().optional(), oldValue: z.string().optional() }))
+      .mutation(async ({ ctx, input }) => {
         await db.upsertImsData(input.skuId, input.periodId, input.value, input.isActual);
         await db.logAudit({
-          username: input.username || "System",
+          username: getAuditActor(ctx),
           action: "edit_cell",
           sheet: "IMS",
           skuName: input.skuName,
@@ -212,12 +233,12 @@ export const appRouter = router({
         skuId: z.number(), periodId: z.number(),
         week1: z.string().optional(), week2: z.string().optional(),
         week3: z.string().optional(), week4: z.string().optional(),
-        username: z.string().optional(), skuName: z.string().optional(), periodLabel: z.string().optional(),
+        skuName: z.string().optional(), periodLabel: z.string().optional(),
         oldWeek1: z.string().optional(), oldWeek2: z.string().optional(),
         oldWeek3: z.string().optional(), oldWeek4: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
-        const { skuId, periodId, username, skuName, periodLabel, oldWeek1, oldWeek2, oldWeek3, oldWeek4, ...weeks } = input;
+      .mutation(async ({ ctx, input }) => {
+        const { skuId, periodId, skuName, periodLabel, oldWeek1, oldWeek2, oldWeek3, oldWeek4, ...weeks } = input;
         await db.upsertShipmentData(skuId, periodId, weeks);
         const changes: string[] = [];
         if (weeks.week1 !== undefined) changes.push(`W1: ${oldWeek1 || "0"} → ${weeks.week1}`);
@@ -225,7 +246,7 @@ export const appRouter = router({
         if (weeks.week3 !== undefined) changes.push(`W3: ${oldWeek3 || "0"} → ${weeks.week3}`);
         if (weeks.week4 !== undefined) changes.push(`W4: ${oldWeek4 || "0"} → ${weeks.week4}`);
         await db.logAudit({
-          username: username || "System",
+          username: getAuditActor(ctx),
           action: "edit_cell",
           sheet: "Shipment",
           skuName,
@@ -242,12 +263,12 @@ export const appRouter = router({
         skuId: z.number(), periodId: z.number(),
         week1: z.string().optional(), week2: z.string().optional(),
         week3: z.string().optional(), week4: z.string().optional(),
-        username: z.string().optional(), skuName: z.string().optional(), periodLabel: z.string().optional(),
+        skuName: z.string().optional(), periodLabel: z.string().optional(),
         oldWeek1: z.string().optional(), oldWeek2: z.string().optional(),
         oldWeek3: z.string().optional(), oldWeek4: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
-        const { skuId, periodId, username, skuName, periodLabel, oldWeek1, oldWeek2, oldWeek3, oldWeek4, ...weeks } = input;
+      .mutation(async ({ ctx, input }) => {
+        const { skuId, periodId, skuName, periodLabel, oldWeek1, oldWeek2, oldWeek3, oldWeek4, ...weeks } = input;
         await db.upsertArrivalData(skuId, periodId, weeks);
         const changes: string[] = [];
         if (weeks.week1 !== undefined) changes.push(`W1: ${oldWeek1 || "0"} → ${weeks.week1}`);
@@ -255,7 +276,7 @@ export const appRouter = router({
         if (weeks.week3 !== undefined) changes.push(`W3: ${oldWeek3 || "0"} → ${weeks.week3}`);
         if (weeks.week4 !== undefined) changes.push(`W4: ${oldWeek4 || "0"} → ${weeks.week4}`);
         await db.logAudit({
-          username: username || "System",
+          username: getAuditActor(ctx),
           action: "edit_cell",
           sheet: "Arrival",
           skuName,
@@ -270,18 +291,18 @@ export const appRouter = router({
     syncImsAndForecast: protectedProcedure
       .input(z.object({
         skuId: z.number(), periodId: z.number(), value: z.string(),
-        username: z.string().optional(), skuName: z.string().optional(),
+        skuName: z.string().optional(),
         periodLabel: z.string().optional(), oldValue: z.string().optional(),
         source: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         // Clamp to non-negative
         const clampedValue = Math.max(0, parseFloat(input.value) || 0).toString();
         // Update both IMS and Forecast tables to keep them in sync (two-way)
         await db.upsertImsData(input.skuId, input.periodId, clampedValue, false);
         await db.upsertForecastData(input.skuId, input.periodId, clampedValue);
         await db.logAudit({
-          username: input.username || "System",
+          username: getAuditActor(ctx),
           action: "edit_cell",
           sheet: input.source || "Planning FG (IMS sync)",
           skuName: input.skuName,
@@ -296,15 +317,15 @@ export const appRouter = router({
     applyRecommendation: protectedProcedure
       .input(z.object({
         skuId: z.number(), periodId: z.number(), newForecast: z.string(), oldForecast: z.string(),
-        username: z.string().optional(), skuName: z.string().optional(),
+        skuName: z.string().optional(),
         periodLabel: z.string().optional(), source: z.string().optional(),
         title: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         // Only update the Forecast table — do NOT touch IMS (actual sales)
         await db.upsertForecastData(input.skuId, input.periodId, input.newForecast);
         await db.logAudit({
-          username: input.username || "System",
+          username: getAuditActor(ctx),
           action: "apply_recommendation",
           sheet: input.source || "Planning FG",
           skuName: input.skuName,
@@ -319,15 +340,15 @@ export const appRouter = router({
     rollbackRecommendation: protectedProcedure
       .input(z.object({
         skuId: z.number(), periodId: z.number(), oldForecast: z.string(), appliedForecast: z.string(),
-        username: z.string().optional(), skuName: z.string().optional(),
+        skuName: z.string().optional(),
         periodLabel: z.string().optional(), source: z.string().optional(),
         title: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         // Rollback: restore the original Forecast value
         await db.upsertForecastData(input.skuId, input.periodId, input.oldForecast);
         await db.logAudit({
-          username: input.username || "System",
+          username: getAuditActor(ctx),
           action: "rollback_recommendation",
           sheet: input.source || "Planning FG",
           skuName: input.skuName,
@@ -344,10 +365,10 @@ export const appRouter = router({
         skuId: z.number(), periodId: z.number(),
         week1: z.number().default(0), week2: z.number().default(0),
         week3: z.number().default(0), week4: z.number().default(0),
-        username: z.string().optional(), skuName: z.string().optional(), periodLabel: z.string().optional(),
+        skuName: z.string().optional(), periodLabel: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
-        const { skuId, periodId, username, skuName, periodLabel, week1, week2, week3, week4 } = input;
+      .mutation(async ({ ctx, input }) => {
+        const { skuId, periodId, skuName, periodLabel, week1, week2, week3, week4 } = input;
         // 1. Save shipment weekly data
         await db.upsertShipmentData(skuId, periodId, {
           week1: String(week1), week2: String(week2), week3: String(week3), week4: String(week4),
@@ -388,7 +409,7 @@ export const appRouter = router({
           }
         }
         await db.logAudit({
-          username: username || 'System',
+          username: getAuditActor(ctx),
           action: 'edit_cell',
           sheet: 'Planning FG (Invoiced SHP)',
           skuName,
@@ -405,12 +426,12 @@ export const appRouter = router({
         skuId: z.number(), periodId: z.number(),
         openingStock: z.string().optional(), adjustments: z.string().optional(),
         invoiced: z.string().optional(), arrivals: z.string().optional(),
-        username: z.string().optional(), skuName: z.string().optional(), periodLabel: z.string().optional(),
+        skuName: z.string().optional(), periodLabel: z.string().optional(),
         oldOpeningStock: z.string().optional(), oldAdjustments: z.string().optional(),
         oldInvoiced: z.string().optional(), oldArrivals: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
-        const { skuId, periodId, username, skuName, periodLabel, oldOpeningStock, oldAdjustments, oldInvoiced, oldArrivals, ...data } = input;
+      .mutation(async ({ ctx, input }) => {
+        const { skuId, periodId, skuName, periodLabel, oldOpeningStock, oldAdjustments, oldInvoiced, oldArrivals, ...data } = input;
         await db.upsertPlanningFgData(skuId, periodId, data);
         const changes: string[] = [];
         if (data.openingStock !== undefined) changes.push(`Opening Stock: ${oldOpeningStock || "0"} → ${data.openingStock}`);
@@ -418,7 +439,7 @@ export const appRouter = router({
         if (data.invoiced !== undefined) changes.push(`Invoiced: ${oldInvoiced || "0"} → ${data.invoiced}`);
         if (data.arrivals !== undefined) changes.push(`Arrivals: ${oldArrivals || "0"} → ${data.arrivals}`);
         await db.logAudit({
-          username: username || "System",
+          username: getAuditActor(ctx),
           action: "edit_cell",
           sheet: "Planning FG",
           skuName,
@@ -434,15 +455,15 @@ export const appRouter = router({
     syncPlanningFgArrival: protectedProcedure
       .input(z.object({
         skuId: z.number(), periodId: z.number(), value: z.string(),
-        username: z.string().optional(), skuName: z.string().optional(),
+        skuName: z.string().optional(),
         periodLabel: z.string().optional(), oldValue: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const clampedValue = Math.max(0, parseFloat(input.value) || 0).toString();
         await db.upsertPlanningFgData(input.skuId, input.periodId, { arrivals: clampedValue });
         await db.upsertArrivalData(input.skuId, input.periodId, { week1: clampedValue, week2: "0", week3: "0", week4: "0" });
         await db.logAudit({
-          username: input.username || "System",
+          username: getAuditActor(ctx),
           action: "edit_cell",
           sheet: "Planning FG",
           skuName: input.skuName,
@@ -458,10 +479,9 @@ export const appRouter = router({
     autoFillImsFromForecast: protectedProcedure
       .input(z.object({
         periodId: z.number(),
-        username: z.string().optional(),
-        country: z.string().optional(),
+                country: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const country = (input.country || 'Lebanon') as import('../drizzle/schema').Country;
         const skus = await db.getSkusForCountry(country);
         const forecastData = await db.getForecastDataForCountry(country);
@@ -486,7 +506,7 @@ export const appRouter = router({
         }
 
         await db.logAudit({
-          country, username: input.username || "System",
+          country, username: getAuditActor(ctx),
           action: "auto_fill", sheet: "IMS",
           details: `Auto-filled ${filled} IMS cells from Forecast for period ${input.periodId}`,
         });
@@ -508,10 +528,9 @@ export const appRouter = router({
             value: z.string(),
           })),
         })),
-        username: z.string().optional(),
-        country: z.string().optional(),
+                country: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const country = (input.country || 'Lebanon') as import('../drizzle/schema').Country;
         let periodsRefreshed = await db.getPeriodsForCountry(country);
         if (periodsRefreshed.length === 0) { await db.ensurePeriods(); periodsRefreshed = await db.getPeriodsForCountry(country); }
@@ -537,7 +556,7 @@ export const appRouter = router({
         }
         await db.bulkUpsertForecast(bulkRecords);
         await db.logAudit({
-          username: input.username || "System",
+          username: getAuditActor(ctx),
           action: "upload",
           sheet: "Forecast",
           details: `Uploaded ${bulkRecords.length} forecast records for ${input.records.length} SKUs`,
@@ -556,10 +575,9 @@ export const appRouter = router({
             isActual: z.boolean(),
           })),
         })),
-        username: z.string().optional(),
-        country: z.string().optional(),
+                country: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const country = (input.country || 'Lebanon') as import('../drizzle/schema').Country;
         const allPeriods = await db.getPeriodsForCountry(country);
         const allSkus = await db.getSkusForCountry(country, true);
@@ -576,7 +594,7 @@ export const appRouter = router({
         }
         await db.bulkUpsertIms(bulkRecords);
         await db.logAudit({
-          username: input.username || "System",
+          username: getAuditActor(ctx),
           action: "upload",
           sheet: "IMS Actuals",
           details: `Uploaded ${bulkRecords.length} IMS records for ${input.records.length} SKUs`,
@@ -592,10 +610,9 @@ export const appRouter = router({
           periodYear: z.number(),
           periodMonth: z.number(),
         })),
-        username: z.string().optional(),
-        country: z.string().optional(),
+                country: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const country = (input.country || 'Lebanon') as import('../drizzle/schema').Country;
         const allPeriods = await db.getPeriodsForCountry(country);
         const allSkus = await db.getSkusForCountry(country, true);
@@ -609,7 +626,7 @@ export const appRouter = router({
           }
         }
         await db.logAudit({
-          username: input.username || "System",
+          username: getAuditActor(ctx),
           action: "upload",
           sheet: "Opening Stock",
           details: `Uploaded ${processed} opening stock records`,
@@ -631,10 +648,9 @@ export const appRouter = router({
             value: z.string().optional(), // Lebanon monthly total
           })),
         })),
-        username: z.string().optional(),
-        country: z.string().optional(),
+                country: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const country = (input.country || 'Lebanon') as import('../drizzle/schema').Country;
         const allPeriods = await db.getPeriodsForCountry(country);
         const allSkus = await db.getSkusForCountry(country, true);
@@ -655,7 +671,7 @@ export const appRouter = router({
         }
         await db.bulkUpsertShipment(bulkRecords);
         await db.logAudit({
-          username: input.username || "System",
+          username: getAuditActor(ctx),
           action: "upload",
           sheet: "Shipment",
           details: `Uploaded ${bulkRecords.length} shipment records for ${input.records.length} SKUs`,
@@ -677,10 +693,9 @@ export const appRouter = router({
             value: z.string().optional(), // Lebanon monthly total
           })),
         })),
-        username: z.string().optional(),
-        country: z.string().optional(),
+                country: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const country = (input.country || 'Lebanon') as import('../drizzle/schema').Country;
         const allPeriods = await db.getPeriodsForCountry(country);
         const allSkus = await db.getSkusForCountry(country, true);
@@ -701,7 +716,7 @@ export const appRouter = router({
         }
         await db.bulkUpsertArrival(bulkRecords);
         await db.logAudit({
-          username: input.username || "System",
+          username: getAuditActor(ctx),
           action: "upload",
           sheet: "Arrival",
           details: `Uploaded ${bulkRecords.length} arrival records for ${input.records.length} SKUs`,
@@ -724,10 +739,9 @@ export const appRouter = router({
             ims: z.string().optional(), // IMS from Planning FG sheet
           })),
         })),
-        username: z.string().optional(),
-        country: z.string().optional(),
+                country: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const country = (input.country || 'Lebanon') as import('../drizzle/schema').Country;
         let periodsRefreshed = await db.getPeriodsForCountry(country);
         if (periodsRefreshed.length === 0) { await db.ensurePeriods(); periodsRefreshed = await db.getPeriodsForCountry(country); }
@@ -758,7 +772,7 @@ export const appRouter = router({
         await db.bulkUpsertPlanningFg(pfgRecords);
         if (imsRecords.length > 0) await db.bulkUpsertIms(imsRecords);
         await db.logAudit({
-          username: input.username || "System",
+          username: getAuditActor(ctx),
           action: "upload",
           sheet: "Planning FG",
           details: `Uploaded ${pfgRecords.length} planning FG records for ${input.records.length} SKUs`,
@@ -773,8 +787,7 @@ export const appRouter = router({
       .input(z.object({
         limit: z.number().min(1).max(200).optional(),
         offset: z.number().min(0).optional(),
-        username: z.string().optional(),
-        action: z.string().optional(),
+                action: z.string().optional(),
         sheet: z.string().optional(),
       }).optional())
       .query(async ({ input }) => {
@@ -782,7 +795,6 @@ export const appRouter = router({
       }),
     logAction: protectedProcedure
       .input(z.object({
-        username: z.string(),
         action: z.string(),
         sheet: z.string().optional(),
         skuName: z.string().optional(),
@@ -792,8 +804,8 @@ export const appRouter = router({
         newValue: z.string().optional(),
         details: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
-        await db.logAudit(input);
+      .mutation(async ({ ctx, input }) => {
+        await db.logAudit({ ...input, username: getAuditActor(ctx) });
         return { success: true };
       }),
   }),
@@ -810,10 +822,10 @@ export const appRouter = router({
       .input(z.object({
         name: z.string().min(1).max(255),
         description: z.string().optional(),
-        username: z.string(),
         country: z.enum(['Lebanon', 'Syria', 'Libya']).optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
+        const actor = getAuditActor(ctx);
         const country = (input.country || 'Lebanon') as import('../drizzle/schema').Country;
         // 1. Take country-scoped snapshot of current data
         const snapshot = await db.getFullSnapshot(country);
@@ -867,7 +879,7 @@ export const appRouter = router({
         const result = await db.saveVersion({
           name: input.name,
           description: input.description,
-          savedBy: input.username,
+          savedBy: actor,
           snapshotData: snapshot,
           changesSummary,
           docUrl,
@@ -876,7 +888,7 @@ export const appRouter = router({
 
         await db.logAudit({
           country,
-          username: input.username,
+          username: actor,
           action: 'save_version',
           sheet: 'SSOF Version',
           details: `Saved version "${input.name}" for ${country}${input.description ? ': ' + input.description : ''}`,
@@ -886,14 +898,14 @@ export const appRouter = router({
       }),
 
     load: adminProcedure
-      .input(z.object({ id: z.number(), username: z.string() }))
-      .mutation(async ({ input }) => {
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
         const version = await db.getVersionById(input.id);
         if (!version) throw new Error('Version not found');
         await db.restoreSnapshot(version.snapshotData, version.country as any);
         await db.logAudit({
           country: version.country as any,
-          username: input.username,
+          username: getAuditActor(ctx),
           action: 'load_version',
           sheet: 'SSOF Version',
           details: `Loaded version "${version.name}" (ID: ${version.id}) for ${version.country}`,
@@ -902,13 +914,13 @@ export const appRouter = router({
       }),
 
     delete: adminProcedure
-      .input(z.object({ id: z.number(), username: z.string() }))
-      .mutation(async ({ input }) => {
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ ctx, input }) => {
         const version = await db.getVersionById(input.id);
         if (!version) throw new Error('Version not found');
         await db.deleteVersion(input.id);
         await db.logAudit({
-          username: input.username,
+          username: getAuditActor(ctx),
           action: 'delete_version',
           sheet: 'SSOF Version',
           details: `Deleted version "${version.name}" (ID: ${version.id})`,
@@ -934,17 +946,16 @@ export const appRouter = router({
     import: adminProcedure
       .input(z.object({
         versionData: z.any(), // The full version JSON from file
-        username: z.string(),
         country: z.enum(['Lebanon', 'Syria', 'Libya']).optional(),
       }))
-      .mutation(async ({ input }) => {
-        const { versionData, username } = input;
+      .mutation(async ({ ctx, input }) => {
+        const { versionData } = input;
         const country = (input.country || versionData.country || 'Lebanon') as import('../drizzle/schema').Country;
         if (!versionData.snapshotData) throw new Error('Invalid version file: missing snapshot data');
         await db.restoreSnapshot(versionData.snapshotData, country);
         await db.logAudit({
           country,
-          username,
+          username: getAuditActor(ctx),
           action: 'import_version',
           sheet: 'SSOF Version',
           details: `Imported version "${versionData.name || 'Unknown'}" from local file for ${country}`,
@@ -973,14 +984,18 @@ export const appRouter = router({
       }),
 
     addComment: protectedProcedure
-      .input(z.object({ versionId: z.number(), username: z.string(), comment: z.string().min(1) }))
-      .mutation(async ({ input }) => {
-        const result = await db.addVersionComment(input);
+      .input(z.object({ versionId: z.number(), comment: z.string().min(1) }))
+      .mutation(async ({ ctx, input }) => {
+        const result = await db.addVersionComment({
+          versionId: input.versionId,
+          username: getAuditActor(ctx),
+          comment: input.comment,
+        });
         return { success: true, id: result.id };
       }),
 
     deleteComment: protectedProcedure
-      .input(z.object({ id: z.number(), username: z.string() }))
+      .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await db.deleteVersionComment(input.id);
         return { success: true };
@@ -1062,9 +1077,8 @@ export const appRouter = router({
         category: z.enum(["Core", "NPI"]).optional(),
         packagingType: z.enum(["Old", "New"]).optional(),
         isExcludedFromTotal: z.boolean().optional(),
-        username: z.string().optional(),
-      }))
-      .mutation(async ({ input }) => {
+              }))
+      .mutation(async ({ ctx, input }) => {
         const result = await db.createSkuForCountry(input.country, {
           name: input.name,
           weight: input.weight,
@@ -1074,7 +1088,7 @@ export const appRouter = router({
         });
         await db.logAudit({
           country: input.country,
-          username: input.username || "System",
+          username: getAuditActor(ctx),
           action: "create_sku",
           sheet: "SKU Management",
           skuName: input.name,
@@ -1087,15 +1101,14 @@ export const appRouter = router({
       .input(z.object({
         skuId: z.number(),
         packagingType: z.enum(["Old", "New"]),
-        username: z.string().optional(),
-        skuName: z.string().optional(),
+                skuName: z.string().optional(),
         country: z.enum(["Lebanon", "Syria", "Libya"]).optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         await db.updateSkuPackagingType(input.skuId, input.packagingType);
         await db.logAudit({
           country: input.country,
-          username: input.username || "System",
+          username: getAuditActor(ctx),
           action: "update_sku",
           sheet: "SKU Management",
           skuName: input.skuName,
@@ -1108,15 +1121,14 @@ export const appRouter = router({
     deleteSku: adminProcedure
       .input(z.object({
         skuId: z.number(),
-        username: z.string().optional(),
-        skuName: z.string().optional(),
+                skuName: z.string().optional(),
         country: z.enum(["Lebanon", "Syria", "Libya"]).optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         await db.deleteSku(input.skuId);
         await db.logAudit({
           country: input.country,
-          username: input.username || "System",
+          username: getAuditActor(ctx),
           action: "delete_sku",
           sheet: "SKU Management",
           skuName: input.skuName,
@@ -1129,15 +1141,14 @@ export const appRouter = router({
       .input(z.object({
         skuId: z.number(),
         isActive: z.boolean(),
-        username: z.string().optional(),
-        skuName: z.string().optional(),
+                skuName: z.string().optional(),
         country: z.enum(["Lebanon", "Syria", "Libya"]).optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         await db.toggleSkuActive(input.skuId, input.isActive);
         await db.logAudit({
           country: input.country,
-          username: input.username || "System",
+          username: getAuditActor(ctx),
           action: "edit",
           sheet: "SKU Management",
           skuName: input.skuName,
@@ -1151,14 +1162,14 @@ export const appRouter = router({
         skuId: z.number(), periodId: z.number(), value: z.string(),
         country: z.enum(["Lebanon", "Syria", "Libya"]),
         targetWeek: z.string().optional(), // "week1" | "week2" | "week3" | "week4"
-        username: z.string().optional(), skuName: z.string().optional(),
+        skuName: z.string().optional(),
         periodLabel: z.string().optional(), oldValue: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const clamped = Math.max(0, parseFloat(input.value) || 0).toString();
         await db.upsertForecastData(input.skuId, input.periodId, clamped, input.targetWeek);
         await db.logAudit({
-          country: input.country, username: input.username || "System",
+          country: input.country, username: getAuditActor(ctx),
           action: "edit", sheet: "Forecast Production",
           skuName: input.skuName, periodLabel: input.periodLabel,
           oldValue: input.oldValue || "", newValue: clamped,
@@ -1172,7 +1183,7 @@ export const appRouter = router({
         skuId: z.number(), periodId: z.number(),
         targetWeek: z.string(), // "week1" | "week2" | "week3" | "week4"
         country: z.enum(["Lebanon", "Syria", "Libya"]),
-        username: z.string().optional(), skuName: z.string().optional(),
+        skuName: z.string().optional(),
         periodLabel: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
@@ -1191,14 +1202,14 @@ export const appRouter = router({
       .input(z.object({
         skuId: z.number(), periodId: z.number(), value: z.string(),
         country: z.enum(["Lebanon", "Syria", "Libya"]),
-        username: z.string().optional(), skuName: z.string().optional(),
+        skuName: z.string().optional(),
         periodLabel: z.string().optional(), oldValue: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const clamped = Math.max(0, parseFloat(input.value) || 0).toString();
         await db.upsertRevisedForecastData(input.skuId, input.periodId, clamped);
         await db.logAudit({
-          country: input.country, username: input.username || "System",
+          country: input.country, username: getAuditActor(ctx),
           action: "edit", sheet: "Revised Forecast",
           skuName: input.skuName, periodLabel: input.periodLabel,
           oldValue: input.oldValue || "", newValue: clamped,
@@ -1217,9 +1228,9 @@ export const appRouter = router({
         invoiceRef: z.string().nullable().optional(),
         containerRef: z.string().nullable().optional(),
         country: z.enum(["Lebanon", "Syria", "Libya"]),
-        username: z.string().optional(), skuName: z.string().optional(), periodLabel: z.string().optional(),
+        skuName: z.string().optional(), periodLabel: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         await db.upsertShipmentData(input.skuId, input.periodId, {
           week1: input.week1, week2: input.week2, week3: input.week3, week4: input.week4,
           arrivalOffsetValue: input.arrivalOffsetValue,
@@ -1229,7 +1240,7 @@ export const appRouter = router({
           containerRef: input.containerRef,
         });
         await db.logAudit({
-          country: input.country, username: input.username || "System",
+          country: input.country, username: getAuditActor(ctx),
           action: "edit", sheet: "Production",
           skuName: input.skuName, periodLabel: input.periodLabel,
           details: `Updated production weeks`,
@@ -1242,15 +1253,15 @@ export const appRouter = router({
         invoiceRef: z.string().nullable().optional(),
         containerRef: z.string().nullable().optional(),
         country: z.enum(["Lebanon", "Syria", "Libya"]),
-        username: z.string().optional(), skuName: z.string().optional(), periodLabel: z.string().optional(),
+        skuName: z.string().optional(), periodLabel: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         await db.upsertShipmentData(input.skuId, input.periodId, {
           invoiceRef: input.invoiceRef,
           containerRef: input.containerRef,
         });
         await db.logAudit({
-          country: input.country, username: input.username || "System",
+          country: input.country, username: getAuditActor(ctx),
           action: "edit", sheet: "Production",
           skuName: input.skuName, periodLabel: input.periodLabel,
           details: `Updated refs — Invoice: ${input.invoiceRef ?? ""}, Container: ${input.containerRef ?? ""}`,
@@ -1264,14 +1275,14 @@ export const appRouter = router({
         week1: z.string(), week2: z.string(), week3: z.string(), week4: z.string(),
         arrivalOffsetWeeks: z.number().optional(),
         country: z.enum(["Lebanon", "Syria", "Libya"]),
-        username: z.string().optional(), skuName: z.string().optional(), periodLabel: z.string().optional(),
+        skuName: z.string().optional(), periodLabel: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         await db.upsertArrivalData(input.skuId, input.periodId, {
           week1: input.week1, week2: input.week2, week3: input.week3, week4: input.week4,
         });
         await db.logAudit({
-          country: input.country, username: input.username || "System",
+          country: input.country, username: getAuditActor(ctx),
           action: "edit", sheet: "Arrival",
           skuName: input.skuName, periodLabel: input.periodLabel,
           details: `Updated arrival data`,
@@ -1283,12 +1294,11 @@ export const appRouter = router({
       .input(z.object({
         country: z.enum(["Lebanon", "Syria", "Libya"]),
         year: z.number().min(2024).max(2040),
-        username: z.string().optional(),
-      }))
-      .mutation(async ({ input }) => {
+              }))
+      .mutation(async ({ ctx, input }) => {
         const result = await db.addYearForCountry(input.country, input.year);
         await db.logAudit({
-          country: input.country, username: input.username || "System",
+          country: input.country, username: getAuditActor(ctx),
           action: "add_year", sheet: "Periods",
           details: `Added year ${input.year} for ${input.country}`,
         });
@@ -1308,11 +1318,10 @@ export const appRouter = router({
         weight: z.string().optional(),
         category: z.enum(["Core", "NPI"]).optional(),
         packagingType: z.enum(["Old", "New"]).optional(),
-        username: z.string().optional(),
-        skuName: z.string().optional(),
+                skuName: z.string().optional(),
         country: z.enum(["Lebanon", "Syria", "Libya"]).optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         await db.updateSkuDetails(input.skuId, {
           name: input.name,
           weight: input.weight,
@@ -1321,7 +1330,7 @@ export const appRouter = router({
         });
         await db.logAudit({
           country: input.country,
-          username: input.username || "System",
+          username: getAuditActor(ctx),
           action: "update_sku",
           sheet: "SKU Management",
           skuName: input.skuName || input.name,
@@ -1336,15 +1345,14 @@ export const appRouter = router({
         periodId: z.number(),
         status: z.enum(["Pending", "In Transit", "Arrived", "Delayed", "Cleared", "Partially Cleared"]),
         country: z.enum(["Lebanon", "Syria", "Libya"]),
-        username: z.string().optional(),
-        skuName: z.string().optional(),
+                skuName: z.string().optional(),
         periodLabel: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         await db.updateShipmentArrivalStatus(input.skuId, input.periodId, input.status);
         await db.logAudit({
           country: input.country,
-          username: input.username || "System",
+          username: getAuditActor(ctx),
           action: "edit",
           sheet: "Arrival",
           skuName: input.skuName,
@@ -1362,11 +1370,10 @@ export const appRouter = router({
         clearedQty: z.number().nullable(),
         totalQty: z.number(), // full production qty to determine auto-status
         country: z.enum(["Lebanon", "Syria", "Libya"]),
-        username: z.string().optional(),
-        skuName: z.string().optional(),
+                skuName: z.string().optional(),
         periodLabel: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const result = await db.updateShipmentClearedQty(
           input.skuId,
           input.periodId,
@@ -1375,7 +1382,7 @@ export const appRouter = router({
         );
         await db.logAudit({
           country: input.country,
-          username: input.username || "System",
+          username: getAuditActor(ctx),
           action: "edit",
           sheet: "Arrival",
           skuName: input.skuName,
@@ -1394,15 +1401,14 @@ export const appRouter = router({
         periodId: z.number(),
         clearedDate: z.string().nullable(), // ISO date string YYYY-MM-DD or null
         country: z.enum(["Lebanon", "Syria", "Libya"]),
-        username: z.string().optional(),
-        skuName: z.string().optional(),
+                skuName: z.string().optional(),
         periodLabel: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         await db.updateShipmentClearedDate(input.skuId, input.periodId, input.clearedDate);
         await db.logAudit({
           country: input.country,
-          username: input.username || "System",
+          username: getAuditActor(ctx),
           action: "edit",
           sheet: "Arrival",
           skuName: input.skuName,
@@ -1421,15 +1427,14 @@ export const appRouter = router({
         periodId: z.number(),
         pendingClearDate: z.string().nullable(), // ISO date string YYYY-MM-DD or null
         country: z.enum(["Lebanon", "Syria", "Libya"]),
-        username: z.string().optional(),
-        skuName: z.string().optional(),
+                skuName: z.string().optional(),
         periodLabel: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         await db.updateShipmentPendingClearDate(input.skuId, input.periodId, input.pendingClearDate);
         await db.logAudit({
           country: input.country,
-          username: input.username || "System",
+          username: getAuditActor(ctx),
           action: "edit",
           sheet: "Arrival",
           skuName: input.skuName,
@@ -1460,15 +1465,14 @@ export const appRouter = router({
         notes: z.string().nullable().optional(),
         invoiceRef: z.string().nullable().optional(),
         containerRef: z.string().nullable().optional(),
-        username: z.string().optional(),
-        skuName: z.string().optional(),
+                skuName: z.string().optional(),
         periodLabel: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const id = await db.addClearanceEvent(input);
         await db.logAudit({
           country: input.country,
-          username: input.username || "System",
+          username: getAuditActor(ctx),
           action: "edit",
           sheet: "Arrival",
           skuName: input.skuName,
@@ -1491,16 +1495,15 @@ export const appRouter = router({
         notes: z.string().nullable().optional(),
         invoiceRef: z.string().nullable().optional(),
         containerRef: z.string().nullable().optional(),
-        username: z.string().optional(),
-        skuName: z.string().optional(),
+                skuName: z.string().optional(),
         periodLabel: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
-        const { eventId, username, skuName, periodLabel, ...rest } = input;
+      .mutation(async ({ ctx, input }) => {
+        const { eventId, skuName, periodLabel, ...rest } = input;
         await db.updateClearanceEvent(eventId, rest);
         await db.logAudit({
           country: input.country,
-          username: username || "System",
+          username: getAuditActor(ctx),
           action: "edit",
           sheet: "Arrival",
           skuName,
@@ -1517,15 +1520,14 @@ export const appRouter = router({
         skuId: z.number(),
         periodId: z.number(),
         country: z.enum(["Lebanon", "Syria", "Libya"]),
-        username: z.string().optional(),
-        skuName: z.string().optional(),
+                skuName: z.string().optional(),
         periodLabel: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         await db.deleteClearanceEvent(input.eventId, input.skuId, input.periodId, input.country);
         await db.logAudit({
           country: input.country,
-          username: input.username || "System",
+          username: getAuditActor(ctx),
           action: "edit",
           sheet: "Arrival",
           skuName: input.skuName,
@@ -1548,15 +1550,14 @@ export const appRouter = router({
         periodId: z.number(),
         value: z.string(),
         country: z.enum(["Lebanon", "Syria", "Libya"]),
-        username: z.string().optional(),
-        skuName: z.string().optional(),
+                skuName: z.string().optional(),
         periodLabel: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         await db.upsertImsData(input.skuId, input.periodId, input.value, true);
         await db.logAudit({
           country: input.country,
-          username: input.username || "System",
+          username: getAuditActor(ctx),
           action: "edit_cell",
           sheet: "IMS",
           skuName: input.skuName,
@@ -1620,12 +1621,11 @@ export const appRouter = router({
         label: z.string(),
         value: z.string(),
         country: z.enum(["Lebanon", "Syria", "Libya"]),
-        username: z.string().optional(),
-        skuName: z.string().optional(),
+                skuName: z.string().optional(),
         periodLabel: z.string().optional(),
         oldValue: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const fieldMap: Record<string, string> = {
           "Opening Stock": "openingStock",
           "Adjustments": "adjustments",
@@ -1638,7 +1638,7 @@ export const appRouter = router({
         await db.upsertCountryPlanningFgCell(input.skuId, input.periodId, { [field]: clampedValue });
         await db.logAudit({
           country: input.country,
-          username: input.username || "System",
+          username: getAuditActor(ctx),
           action: "edit_cell",
           sheet: "Planning FG",
           skuName: input.skuName,
@@ -1661,13 +1661,12 @@ export const appRouter = router({
       .input(z.object({
         country: z.enum(["Syria", "Libya"]),
         orderedIds: z.array(z.number()),
-        username: z.string().optional(),
-      }))
-      .mutation(async ({ input }) => {
+              }))
+      .mutation(async ({ ctx, input }) => {
         await db.reorderCountrySkus(input.country, input.orderedIds);
         await db.logAudit({
           country: input.country,
-          username: input.username || "System",
+          username: getAuditActor(ctx),
           action: "reorder_sku",
           sheet: "SKU",
           details: `Reordered ${input.orderedIds.length} ${input.country} SKUs`,
@@ -1687,7 +1686,7 @@ export const appRouter = router({
         await db.ensureOwnerExists("walid", "Walid El Tayeh");
         const logFailure = async () => {
           await db.logAudit({
-            username: input.username || "unknown",
+            username: "anonymous",
             action: "login_failed",
             details: input.country
               ? `Failed login attempt for username: ${input.username} (country: ${input.country})`
@@ -1756,11 +1755,9 @@ export const appRouter = router({
         return result;
       }),
     // List all users - owner only
-    list: publicProcedure
-      .input(z.object({ requestingUsername: z.string() }))
-      .query(async ({ input }) => {
-        const requester = await db.getAppUserByUsername(input.requestingUsername);
-        if (!requester?.isOwner) throw new TRPCError({ code: "FORBIDDEN" });
+    list: protectedProcedure
+      .query(async ({ ctx }) => {
+        await requireAppOwner(ctx);
         const rows = await db.listAppUsers();
         return rows.map(u => ({
           id: u.id,
@@ -1773,18 +1770,16 @@ export const appRouter = router({
         }));
       }),
     // Create user - owner only
-    create: adminProcedure
+    create: protectedProcedure
       .input(z.object({
-        requestingUsername: z.string(),
         username: z.string().min(2),
         displayName: z.string().min(1),
         password: z.string().min(1),
         role: z.enum(["admin", "viewer"]),
         countries: z.array(z.string()),
       }))
-      .mutation(async ({ input }) => {
-        const requester = await db.getAppUserByUsername(input.requestingUsername);
-        if (!requester?.isOwner) throw new TRPCError({ code: "FORBIDDEN" });
+      .mutation(async ({ ctx, input }) => {
+        const requester = await requireAppOwner(ctx);
         const existing = await db.getAppUserByUsername(input.username);
         if (existing) throw new TRPCError({ code: "CONFLICT", message: "Username already exists" });
         await db.createAppUser({
@@ -1794,40 +1789,59 @@ export const appRouter = router({
           role: input.role,
           countries: input.countries,
         });
+        await db.logAudit({
+          username: requester.username,
+          action: "create_user",
+          sheet: "Users",
+          details: `Created user '${input.username}' (${input.role}) with access to ${input.countries.join(", ") || "no countries"}`,
+        });
         return { success: true };
       }),
     // Update user - owner only
-    update: adminProcedure
+    update: protectedProcedure
       .input(z.object({
-        requestingUsername: z.string(),
         id: z.number(),
         displayName: z.string().optional(),
         password: z.string().optional(),
         role: z.enum(["admin", "viewer"]).optional(),
         countries: z.array(z.string()).optional(),
       }))
-      .mutation(async ({ input }) => {
-        const requester = await db.getAppUserByUsername(input.requestingUsername);
-        if (!requester?.isOwner) throw new TRPCError({ code: "FORBIDDEN" });
+      .mutation(async ({ ctx, input }) => {
+        const requester = await requireAppOwner(ctx);
         await db.updateAppUser(input.id, {
           displayName: input.displayName,
           password: input.password,
           role: input.role,
           countries: input.countries,
         });
+        const changes: string[] = [];
+        if (input.displayName !== undefined) changes.push(`displayName=${input.displayName}`);
+        if (input.password !== undefined) changes.push("password=(changed)");
+        if (input.role !== undefined) changes.push(`role=${input.role}`);
+        if (input.countries !== undefined) changes.push(`countries=${input.countries.join(", ")}`);
+        await db.logAudit({
+          username: requester.username,
+          action: "update_user",
+          sheet: "Users",
+          details: `Updated user id=${input.id}: ${changes.join("; ") || "(no changes)"}`,
+        });
         return { success: true };
       }),
     // Delete user - owner only, cannot delete self
-    delete: adminProcedure
+    delete: protectedProcedure
       .input(z.object({
-        requestingUsername: z.string(),
         id: z.number(),
       }))
-      .mutation(async ({ input }) => {
-        const requester = await db.getAppUserByUsername(input.requestingUsername);
-        if (!requester?.isOwner) throw new TRPCError({ code: "FORBIDDEN" });
+      .mutation(async ({ ctx, input }) => {
+        const requester = await requireAppOwner(ctx);
         if (requester.id === input.id) throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot delete yourself" });
         await db.deleteAppUser(input.id);
+        await db.logAudit({
+          username: requester.username,
+          action: "delete_user",
+          sheet: "Users",
+          details: `Deleted user id=${input.id}`,
+        });
         return { success: true };
       }),
   }),
@@ -3427,8 +3441,7 @@ Use the base allocation hints above as a starting point; you may adjust ±25% ba
           packagingType: z.string().optional(),
           recommendedMastercases: z.number().int().min(0),
         })),
-        username: z.string().optional(),
-      }))
+              }))
       .mutation(async ({ input, ctx }) => {
         const country = input.country as 'Lebanon' | 'Syria' | 'Libya';
         const allSkus = await db.getSkusForCountry(country);
@@ -3457,7 +3470,7 @@ Use the base allocation hints above as a starting point; you may adjust ±25% ba
         }
         const monthName = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][input.targetMonth - 1];
         await db.logAudit({
-          username: input.username || ctx.user?.name || 'System',
+          username: getAuditActor(ctx),
           action: 'edit',
           sheet: 'Forecast',
           details: `Applied AI recommended forecast split to ${monthName} ${input.targetYear} for ${country} — ${applied} SKUs updated (Forecast + IMS)`,
@@ -3476,8 +3489,7 @@ Use the base allocation hints above as a starting point; you may adjust ±25% ba
           previousValue: z.string(),
           previousImsValue: z.string().optional(),
         })),
-        username: z.string().optional(),
-      }))
+              }))
       .mutation(async ({ input, ctx }) => {
         const country = input.country as 'Lebanon' | 'Syria' | 'Libya';
         const allSkus = await db.getSkusForCountry(country);
@@ -3502,7 +3514,7 @@ Use the base allocation hints above as a starting point; you may adjust ±25% ba
         }
         const monthName = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][input.targetMonth - 1];
         await db.logAudit({
-          username: input.username || ctx.user?.name || 'System',
+          username: getAuditActor(ctx),
           action: 'edit',
           sheet: 'Forecast',
           details: `Undid AI recommended forecast split for ${monthName} ${input.targetYear} in ${country} — ${restored} SKUs restored (Forecast + IMS)`,

@@ -77,7 +77,7 @@ function LebanonHome() {
       toast.error(`Year ${yr} already exists`);
       return;
     }
-    addYearMutation.mutate({ year: yr, username: appUser?.displayName });
+    addYearMutation.mutate({ year: yr});
   };
 
   const handleExport = async () => {

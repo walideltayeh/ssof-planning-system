@@ -159,7 +159,6 @@ export default function IntlImsPage() {
         periodId,
         value: numVal.toString(),
         country: country as "Syria" | "Libya",
-        username: appUser?.displayName,
         skuName: sku?.name,
         periodLabel: period?.label,
       });

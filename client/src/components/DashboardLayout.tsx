@@ -290,7 +290,7 @@ function DashboardLayoutContent({
   const handleLogout = () => {
     const username = appUser?.username || user?.openId;
     if (appUser) {
-      logAction.mutate({ username: appUser.username, action: "logout", details: `User logged out` });
+      logAction.mutate({ action: "logout", details: `User logged out` });
     }
     if (username) {
       leavePresence.mutate({ username });

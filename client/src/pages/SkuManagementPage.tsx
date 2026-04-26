@@ -302,14 +302,14 @@ function LebanonSkuManagement() {
     }
     const newOrder = arrayMove(allSkusList, oldIndex, newIndex);
     setLocalSkus(newOrder);
-    reorderMutation.mutate({ orderedIds: newOrder.map((s: any) => s.id), username: appUser?.displayName });
+    reorderMutation.mutate({ orderedIds: newOrder.map((s: any) => s.id)});
   }
 
   async function handleCreate() {
     if (!newName.trim()) { toast.error("Please enter a SKU name"); return; }
     if (allSizes) {
       for (const w of ["50g", "250g", "1kg"]) {
-        await createMutation.mutateAsync({ name: newName.trim(), weight: w, category: newCategory, username: appUser?.displayName });
+        await createMutation.mutateAsync({ name: newName.trim(), weight: w, category: newCategory});
       }
       utils.country.skus.invalidate();
       setLocalSkus(null);
@@ -318,7 +318,7 @@ function LebanonSkuManagement() {
       resetCreateForm();
     } else {
       createMutation.mutate(
-        { name: newName.trim(), weight: newWeight, category: newCategory, username: appUser?.displayName },
+        { name: newName.trim(), weight: newWeight, category: newCategory},
         { onSuccess: () => { setCreateOpen(false); resetCreateForm(); } }
       );
     }
@@ -413,13 +413,12 @@ function LebanonSkuManagement() {
                                 index={i}
                                 onDelete={(id) => setDeleteTarget({ id, name: sku.name })}
                                 deleteConfirm={deleteTarget?.id ?? null}
-                                onCategoryToggle={(id, cat) => updateCategoryMutation.mutate({ id, category: cat === "Core" ? "NPI" : "Core", username: appUser?.displayName })}
+                                onCategoryToggle={(id, cat) => updateCategoryMutation.mutate({ id, category: cat === "Core" ? "NPI" : "Core"})}
                                 onToggleActive={(s) => toggleActiveMutation.mutate({
                                   skuId: s.id,
                                   isActive: s.isActive === false ? true : false,
                                   skuName: s.name,
                                   country: "Lebanon",
-                                  username: appUser?.displayName,
                                 })}
                                 isAdmin={isAdmin}
                               />
@@ -519,7 +518,7 @@ function LebanonSkuManagement() {
           </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={() => deleteTarget && deleteMutation.mutate({ id: deleteTarget.id, username: appUser?.displayName })} disabled={deleteMutation.isPending}>
+            <Button variant="destructive" onClick={() => deleteTarget && deleteMutation.mutate({ id: deleteTarget.id})} disabled={deleteMutation.isPending}>
               {deleteMutation.isPending ? "Deleting..." : "Delete SKU"}
             </Button>
           </DialogFooter>
@@ -763,7 +762,6 @@ function IntlSkuManagement() {
           weight: w,
           category: newCategory,
           packagingType: newPackaging,
-          username: appUser?.displayName,
         });
         created++;
       }
@@ -779,7 +777,6 @@ function IntlSkuManagement() {
         weight: newWeight,
         category: newCategory,
         packagingType: newPackaging,
-        username: appUser?.displayName,
       });
     }
   }
@@ -836,7 +833,6 @@ function IntlSkuManagement() {
     reorderMutation.mutate({
       country: intlCountry,
       orderedIds: newOrder.map((s: Sku) => s.id),
-      username: appUser?.displayName,
     });
   }
 
@@ -971,7 +967,6 @@ function IntlSkuManagement() {
                                   isActive: s.isActive === false ? true : false,
                                   skuName: s.name,
                                   country: intlCountry,
-                                  username: appUser?.displayName,
                                 })}
                                 deleteTarget={deleteTarget}
                                 isAdmin={isAdmin}
@@ -1131,7 +1126,7 @@ function IntlSkuManagement() {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditTarget(null)}>Cancel</Button>
-            <Button onClick={() => editTarget && updateMutation.mutate({ skuId: editTarget.id, name: editName.trim(), weight: editWeight, category: editCategory, packagingType: editPackaging, username: appUser?.displayName, skuName: editTarget.name, country: intlCountry })} disabled={!editName.trim() || updateMutation.isPending}>
+            <Button onClick={() => editTarget && updateMutation.mutate({ skuId: editTarget.id, name: editName.trim(), weight: editWeight, category: editCategory, packagingType: editPackaging, skuName: editTarget.name, country: intlCountry })} disabled={!editName.trim() || updateMutation.isPending}>
               {updateMutation.isPending ? "Saving..." : "Save Changes"}
             </Button>
           </DialogFooter>
@@ -1148,7 +1143,7 @@ function IntlSkuManagement() {
           </p>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
-            <Button variant="destructive" onClick={() => deleteTarget && deleteMutation.mutate({ skuId: deleteTarget.id, username: appUser?.displayName, skuName: deleteTarget.name, country: intlCountry })} disabled={deleteMutation.isPending}>
+            <Button variant="destructive" onClick={() => deleteTarget && deleteMutation.mutate({ skuId: deleteTarget.id, skuName: deleteTarget.name, country: intlCountry })} disabled={deleteMutation.isPending}>
               {deleteMutation.isPending ? "Deleting..." : "Delete SKU"}
             </Button>
           </DialogFooter>

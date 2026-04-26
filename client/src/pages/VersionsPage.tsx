@@ -44,8 +44,7 @@ import VersionComparison from "@/components/VersionComparison";
 import VersionComments from "@/components/VersionComments";
 
 export default function VersionsPage() {
-  const { user, isAdmin } = useAppAuth();
-  const username = user?.displayName || user?.username || "Unknown";
+  const { isAdmin } = useAppAuth();
 
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [versionName, setVersionName] = useState("");
@@ -73,7 +72,6 @@ export default function VersionsPage() {
       const result = await saveMutation.mutateAsync({
         name: versionName.trim(),
         description: versionDescription.trim() || undefined,
-        username,
       });
       toast.success(`Version "${versionName}" saved successfully!`, {
         description: result.docUrl
@@ -94,7 +92,7 @@ export default function VersionsPage() {
 
   const handleLoad = async (id: number) => {
     try {
-      const result = await loadMutation.mutateAsync({ id, username });
+      const result = await loadMutation.mutateAsync({ id });
       toast.success(`Version "${result.name}" loaded successfully!`, {
         description:
           "All data has been restored. Refresh any open pages to see the changes.",
@@ -111,7 +109,7 @@ export default function VersionsPage() {
 
   const handleDelete = async (id: number) => {
     try {
-      await deleteMutation.mutateAsync({ id, username });
+      await deleteMutation.mutateAsync({ id });
       toast.success(`Version "${deleteConfirmName}" deleted`);
       setDeleteConfirmId(null);
       versionsQuery.refetch();
@@ -180,7 +178,6 @@ export default function VersionsPage() {
     try {
       const result = await importMutation.mutateAsync({
         versionData: importConfirmData,
-        username,
       });
       toast.success(`Version "${result.name}" imported and loaded!`, {
         description:

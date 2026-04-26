@@ -672,7 +672,6 @@ export default function SkuRecommendations({
             skuId,
             periodId: rec.forecastPeriodId,
             value: rec.newForecast.toString(),
-            username: appUser?.displayName,
             skuName,
             periodLabel: rec.forecastPeriodLabel,
             oldValue: rec.currentForecast?.toString(),
@@ -695,7 +694,6 @@ export default function SkuRecommendations({
             week2: weeklyAmount,
             week3: weeklyAmount,
             week4: Math.max(0, w4),
-            username: appUser?.displayName,
             skuName,
             periodLabel: period?.label,
           });
@@ -741,7 +739,6 @@ export default function SkuRecommendations({
           skuId,
           periodId: applied.forecastPeriodId,
           value: applied.oldForecast,
-          username: appUser?.displayName,
           skuName,
           source: `Rollback - Planning FG ${weight}`,
         });
@@ -760,7 +757,6 @@ export default function SkuRecommendations({
           week2: weeklyAmount,
           week3: weeklyAmount,
           week4: Math.max(0, w4),
-          username: appUser?.displayName,
           skuName,
           periodLabel: period?.label,
         });

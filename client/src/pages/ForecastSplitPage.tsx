@@ -430,7 +430,6 @@ export default function ForecastSplitPage() {
         packagingType: r.packagingType,
         recommendedMastercases: r.recommendedMastercases,
       })),
-      username: appUser?.displayName,
     });
   }, [result, country, applyMutation, appUser]);
 
@@ -447,7 +446,6 @@ export default function ForecastSplitPage() {
         previousValue: s.previousValue ?? "",
         previousImsValue: s.previousImsValue ?? "0",
       })),
-      username: appUser?.displayName,
     });
   }, [result, country, snapshot, undoMutation, appUser]);
 
@@ -488,7 +486,6 @@ export default function ForecastSplitPage() {
               packagingType: r.packagingType,
               recommendedMastercases: r.recommendedMastercases,
             })),
-            username: appUser?.displayName,
           });
           totalApplied += data?.applied ?? 0;
         } catch (e: any) {
@@ -567,7 +564,6 @@ export default function ForecastSplitPage() {
             packagingType: (r as any).packagingType,
             recommendedMastercases: r.recommendedMastercases,
           })),
-          username: appUser?.displayName,
         });
         totalApplied += data?.applied ?? 0;
       } catch (e: any) {

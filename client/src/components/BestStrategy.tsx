@@ -440,7 +440,6 @@ export default function BestStrategy({
             skuId,
             periodId: action.periodId,
             value: action.newForecast.toString(),
-            username: appUser?.displayName,
             skuName,
             periodLabel: action.periodLabel,
             oldValue: action.currentForecast.toString(),
@@ -459,7 +458,6 @@ export default function BestStrategy({
             week2: weeklyAmount,
             week3: weeklyAmount,
             week4: Math.max(0, w4),
-            username: appUser?.displayName,
             skuName,
             periodLabel: action.periodLabel,
           });

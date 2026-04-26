@@ -300,9 +300,9 @@ export default function ArrivalPage() {
     const sku = data?.skus.find(s => s.id === skuId);
     const period = data?.periods.find(p => p.id === periodId);
     const oldKey = `old${weekKey.charAt(0).toUpperCase()}${weekKey.slice(1)}` as "oldWeek1" | "oldWeek2" | "oldWeek3" | "oldWeek4";
-    updateCell.mutate({ skuId, periodId, [weekKey]: numVal.toString(), username: appUser?.displayName, skuName: sku?.name, periodLabel: period?.label, [oldKey]: oldValue });
+    updateCell.mutate({ skuId, periodId, [weekKey]: numVal.toString(), skuName: sku?.name, periodLabel: period?.label, [oldKey]: oldValue });
     setEditingCell(null);
-  }, [editValue, updateCell, oldValue, appUser, data]);
+  }, [editValue, updateCell, oldValue, data]);
 
   const years = Array.from(new Set(periods.map(p => p.year))).sort();
   const periodsByYear = years.map(year => ({
@@ -869,7 +869,7 @@ export default function ArrivalPage() {
                           onValueChange={(val) => updateArrivalStatus.mutate({
                             skuId: batch.sku.id, periodId: batch.period.id,
                             status: val as ArrivalStatus, country: country as "Syria" | "Libya",
-                            username: appUser?.displayName, skuName: batch.sku.name, periodLabel: batch.period.label,
+                            skuName: batch.sku.name, periodLabel: batch.period.label,
                           })}
                         >
                           <SelectTrigger className={`h-6 text-[10px] font-medium border-0 px-2 rounded ${STATUS_CONFIG[batch.arrivalStatus]?.className ?? "bg-gray-100 text-gray-600"}`}>
@@ -921,7 +921,7 @@ export default function ArrivalPage() {
                                       onBlur={e => {
                                         const val = e.target.value;
                                         if (val !== ev.clearedQty) {
-                                          updateClearanceEvent.mutate({ eventId: ev.id, skuId: batch.sku.id, periodId: batch.period.id, country: country as "Syria" | "Libya", clearedQty: val, username: appUser?.displayName, skuName: batch.sku.name, periodLabel: batch.period.label });
+                                          updateClearanceEvent.mutate({ eventId: ev.id, skuId: batch.sku.id, periodId: batch.period.id, country: country as "Syria" | "Libya", clearedQty: val, skuName: batch.sku.name, periodLabel: batch.period.label });
                                         }
                                       }}
                                       onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
@@ -936,7 +936,7 @@ export default function ArrivalPage() {
                                       onBlur={e => {
                                         const val = e.target.value;
                                         if (val !== fmtDate(ev.clearedDate)) {
-                                          updateClearanceEvent.mutate({ eventId: ev.id, skuId: batch.sku.id, periodId: batch.period.id, country: country as "Syria" | "Libya", clearedDate: val, username: appUser?.displayName, skuName: batch.sku.name, periodLabel: batch.period.label });
+                                          updateClearanceEvent.mutate({ eventId: ev.id, skuId: batch.sku.id, periodId: batch.period.id, country: country as "Syria" | "Libya", clearedDate: val, skuName: batch.sku.name, periodLabel: batch.period.label });
                                         }
                                       }}
                                       onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
@@ -958,7 +958,7 @@ export default function ArrivalPage() {
                                         onBlur={e => {
                                           const val = e.target.value || null;
                                           if (val !== fmtDate(ev.pendingClearDate)) {
-                                            updateClearanceEvent.mutate({ eventId: ev.id, skuId: batch.sku.id, periodId: batch.period.id, country: country as "Syria" | "Libya", pendingClearDate: val, username: appUser?.displayName, skuName: batch.sku.name, periodLabel: batch.period.label });
+                                            updateClearanceEvent.mutate({ eventId: ev.id, skuId: batch.sku.id, periodId: batch.period.id, country: country as "Syria" | "Libya", pendingClearDate: val, skuName: batch.sku.name, periodLabel: batch.period.label });
                                           }
                                         }}
                                         onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
@@ -977,7 +977,7 @@ export default function ArrivalPage() {
                                       onBlur={e => {
                                         const val = e.target.value || null;
                                         if (val !== (ev.invoiceRef ?? null)) {
-                                          updateClearanceEvent.mutate({ eventId: ev.id, skuId: batch.sku.id, periodId: batch.period.id, country: country as "Syria" | "Libya", invoiceRef: val, username: appUser?.displayName, skuName: batch.sku.name, periodLabel: batch.period.label });
+                                          updateClearanceEvent.mutate({ eventId: ev.id, skuId: batch.sku.id, periodId: batch.period.id, country: country as "Syria" | "Libya", invoiceRef: val, skuName: batch.sku.name, periodLabel: batch.period.label });
                                         }
                                       }}
                                       onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
@@ -993,7 +993,7 @@ export default function ArrivalPage() {
                                       onBlur={e => {
                                         const val = e.target.value || null;
                                         if (val !== (ev.containerRef ?? null)) {
-                                          updateClearanceEvent.mutate({ eventId: ev.id, skuId: batch.sku.id, periodId: batch.period.id, country: country as "Syria" | "Libya", containerRef: val, username: appUser?.displayName, skuName: batch.sku.name, periodLabel: batch.period.label });
+                                          updateClearanceEvent.mutate({ eventId: ev.id, skuId: batch.sku.id, periodId: batch.period.id, country: country as "Syria" | "Libya", containerRef: val, skuName: batch.sku.name, periodLabel: batch.period.label });
                                         }
                                       }}
                                       onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
@@ -1005,7 +1005,7 @@ export default function ArrivalPage() {
                                       className="text-red-400 hover:text-red-600 text-[11px] font-medium px-1.5 py-0.5 rounded hover:bg-red-50 transition-colors"
                                       onClick={() => {
                                         if (confirm(`Delete clearance event #${evIdx + 1}?`)) {
-                                          deleteClearanceEvent.mutate({ eventId: ev.id, skuId: batch.sku.id, periodId: batch.period.id, country: country as "Syria" | "Libya", username: appUser?.displayName, skuName: batch.sku.name, periodLabel: batch.period.label });
+                                          deleteClearanceEvent.mutate({ eventId: ev.id, skuId: batch.sku.id, periodId: batch.period.id, country: country as "Syria" | "Libya", skuName: batch.sku.name, periodLabel: batch.period.label });
                                         }
                                       }}
                                     >Delete</button>
@@ -1084,7 +1084,6 @@ export default function ArrivalPage() {
                                   pendingClearDate: addForm.pendingClearDate || null,
                                   invoiceRef: addForm.invoiceRef || null,
                                   containerRef: addForm.containerRef || null,
-                                  username: appUser?.displayName,
                                   skuName: batch.sku.name,
                                   periodLabel: batch.period.label,
                                 }, {

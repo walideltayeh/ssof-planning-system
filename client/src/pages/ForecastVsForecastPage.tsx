@@ -152,7 +152,6 @@ export default function ForecastVsForecastPage() {
     updateRevisedForecast.mutate({
       skuId, periodId, value: numVal.toString(),
       country: country as "Syria" | "Libya",
-      username: appUser?.displayName,
       skuName: sku?.name,
       periodLabel: period?.label,
       oldValue,

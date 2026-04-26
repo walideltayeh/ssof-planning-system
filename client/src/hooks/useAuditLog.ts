@@ -38,7 +38,6 @@ export function useNavigationLogger() {
 
     const pageLabel = PAGE_LABELS[location] || location;
     logAction.mutate({
-      username: user.username,
       action: "page_view",
       details: `Navigated to ${pageLabel}`,
       sheet: pageLabel,
@@ -65,7 +64,6 @@ export function useAuditAction() {
   }) => {
     if (!user) return;
     logAction.mutate({
-      username: user.username,
       ...params,
     });
   };

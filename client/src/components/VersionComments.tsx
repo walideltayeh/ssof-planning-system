@@ -7,8 +7,7 @@ import { toast } from "sonner";
 import { MessageSquare, Send, Trash2, User, Clock, ChevronDown, ChevronUp } from "lucide-react";
 
 export default function VersionComments({ versionId }: { versionId: number }) {
-  const { user, isAdmin } = useAppAuth();
-  const username = user?.displayName || user?.username || "Unknown";
+  const { isAdmin } = useAppAuth();
   const [expanded, setExpanded] = useState(false);
   const [newComment, setNewComment] = useState("");
 
@@ -26,7 +25,6 @@ export default function VersionComments({ versionId }: { versionId: number }) {
     try {
       await addCommentMutation.mutateAsync({
         versionId,
-        username,
         comment: newComment.trim(),
       });
       setNewComment("");
@@ -41,7 +39,7 @@ export default function VersionComments({ versionId }: { versionId: number }) {
 
   const handleDeleteComment = async (id: number) => {
     try {
-      await deleteCommentMutation.mutateAsync({ id, username });
+      await deleteCommentMutation.mutateAsync({ id });
       commentsQuery.refetch();
       toast.success("Comment deleted");
     } catch (err: any) {

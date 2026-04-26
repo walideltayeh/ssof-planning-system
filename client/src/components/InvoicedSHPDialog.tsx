@@ -94,7 +94,6 @@ export function InvoicedSHPDialog({
     invoicedMutation.mutate({
       skuId, periodId,
       week1: weeks.week1, week2: weeks.week2, week3: weeks.week3, week4: weeks.week4,
-      username: user?.name || "User",
       skuName, periodLabel,
     });
   };
