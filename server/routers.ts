@@ -2844,8 +2844,9 @@ REQUIRED OUTPUT FORMAT (valid JSON only, no markdown):
         const extraWarnings: string[] = [];
         if (parsedDirectives.length > 0 && recommendations.length > 0) {
           // Helper: find recommendation index by SKU id.
-          // Primary key is rec.skuId (LLM is now told to echo it). Fallback chain
-          // (for legacy responses or LLM omissions) uses normalized name+weight+packaging.
+          // Primary key is rec.skuId (LLM is told to echo it). Fallback uses
+          // normalized name+weight+packaging — but NEVER name-only, because
+          // multiple SKUs can share a base name and that would silently overwrite.
           const normLow = (s: any) => String(s ?? '').toLowerCase().replace(/\s+/g, '').trim();
           const validSkuIdSet = new Set(skus.map(s => s.id));
           const recIndexBySkuId = new Map<number, number>();
@@ -2853,8 +2854,10 @@ REQUIRED OUTPUT FORMAT (valid JSON only, no markdown):
           recommendations.forEach((rec: any, idx: number) => {
             // 0) Trust rec.skuId when present and valid
             if (typeof rec.skuId === 'number' && validSkuIdSet.has(rec.skuId)) {
-              recIndexBySkuId.set(rec.skuId, idx);
-              matchedById++;
+              if (!recIndexBySkuId.has(rec.skuId)) {
+                recIndexBySkuId.set(rec.skuId, idx);
+                matchedById++;
+              }
               return;
             }
             const recName = normLow(rec.skuName);
@@ -2867,18 +2870,40 @@ REQUIRED OUTPUT FORMAT (valid JSON only, no markdown):
               normLow((s as any).packagingType ?? 'New') === recPack);
             // 2) Name+weight (any packaging)
             if (!matched) matched = skus.find(s => normLow(s.name) === recName && normLow(s.weight) === recWeight);
-            // 3) Name only (last resort)
-            if (!matched) matched = skus.find(s => normLow(s.name) === recName);
-            if (matched) {
+            // 2b) The LLM sometimes concatenates name+weight into skuName like "Blueberry 250g"
+            //     and leaves weight blank or duplicates it. Strip a trailing weight token.
+            if (!matched && !recWeight) {
+              const stripped = recName.replace(/(\d+\.?\d*)(g|kg)$/i, '');
+              const trailing = recName.match(/(\d+\.?\d*)(g|kg)$/i);
+              if (stripped && trailing) {
+                const weightGuess = `${trailing[1]}${trailing[2]}`.toLowerCase();
+                matched = skus.find(s => normLow(s.name) === stripped && normLow(s.weight) === weightGuess);
+              }
+            }
+            // 2c) name === "X Yg" matches sku.name="X" sku.weight="Yg"
+            if (!matched) {
+              for (const s of skus) {
+                const combo = normLow(`${s.name}${s.weight}`);
+                if (combo === recName) { matched = s; break; }
+              }
+            }
+            if (matched && !recIndexBySkuId.has(matched.id)) {
               recIndexBySkuId.set(matched.id, idx);
               matchedByFallback++;
-              // Heal the rec so downstream code (and the client) get a stable id
               rec.skuId = matched.id;
-            } else {
+            } else if (!matched) {
               unmatched++;
             }
           });
           console.log(`[ForecastSplit] Recs→SKU mapping: ${matchedById} by id, ${matchedByFallback} by name fallback, ${unmatched} unmatched (of ${recommendations.length} recs).`);
+          if (unmatched > 0) {
+            const samples = recommendations
+              .filter((r: any) => !r.skuId)
+              .slice(0, 5)
+              .map((r: any) => `"${r.skuName}"|"${r.weight}"|"${r.packagingType}"`)
+              .join(' ; ');
+            console.log(`[ForecastSplit] Unmatched rec samples: ${samples}`);
+          }
 
           // For any directive SKU NOT in the recommendations array, append a synthetic
           // recommendation row with 0 MC so the directive can be applied (e.g. "set
@@ -2915,47 +2940,89 @@ REQUIRED OUTPUT FORMAT (valid JSON only, no markdown):
           const lockedSkuIds = new Set<number>();
           const directiveAppliedSummaries: string[] = [];
 
+          // Helper: apply a directive's math to a single rec.
+          const applyDirectiveToRec = (rec: any, dir: any, skuId: number, skuLabel: string) => {
+            const before = Math.max(0, Math.round(rec.recommendedMastercases ?? 0));
+            let after = before;
+            if (dir.action === 'zero') after = 0;
+            else if (dir.action === 'reduce') {
+              const pct = Math.min(100, Math.max(0, dir.valuePct ?? 20));
+              after = Math.max(0, Math.round(before * (1 - pct / 100)));
+            } else if (dir.action === 'increase') {
+              const pct = Math.max(0, dir.valuePct ?? 25);
+              after = Math.max(before + 1, Math.round(before * (1 + pct / 100)));
+            } else if (dir.action === 'cap') {
+              const cap = Math.max(0, Math.round(dir.valueMC ?? 0));
+              after = Math.min(before, cap);
+            } else if (dir.action === 'prioritize') {
+              after = Math.max(before + 1, Math.round(before * 1.20));
+            }
+            if (after === before) return false;
+            rec.recommendedMastercases = after;
+            rec.reasoning = `${rec.reasoning ?? ''} [Planner directive: ${dir.action}${dir.valuePct ? ` ${dir.valuePct}%` : ''}${dir.valueMC ? ` cap ${dir.valueMC}MC` : ''} → ${before} → ${after} MC]`.trim();
+            rec.primaryDriver = 'market_intel';
+            if (after === 0) rec.trend = 'declining';
+            lockedSkuIds.add(skuId);
+            directiveAppliedSummaries.push(`${skuLabel}: ${dir.action} (${before}→${after} MC)`);
+            // Health-conflict warning
+            const healthInfo = stockHealthBySku[skuId];
+            if (healthInfo && (after < before) && (healthInfo.targetMonthZone === 'Critical' || healthInfo.targetMonthZone === 'Negative' || healthInfo.targetMonthZone === 'Out of Stock')) {
+              extraWarnings.push(`Planner reduced "${skuLabel}" but stock is ${healthInfo.targetMonthZone} for ${monthName} ${targetYear}.`);
+            }
+            return true;
+          };
+
+          // PASS 1: Apply each directive to its mapped rec (by SKU id index).
           for (const dir of parsedDirectives) {
             for (const skuId of dir.skuIds) {
               const idx = recIndexBySkuId.get(skuId);
               if (idx === undefined) continue;
-              const rec = recommendations[idx];
               const sku = skus.find(s => s.id === skuId);
-              const skuLabel = sku ? `${sku.name} ${sku.weight} (${(sku as any).packagingType ?? 'New'})` : rec.skuName;
-              const before = Math.max(0, Math.round(rec.recommendedMastercases ?? 0));
-              let after = before;
+              const skuLabel = sku ? `${sku.name} ${sku.weight} (${(sku as any).packagingType ?? 'New'})` : recommendations[idx].skuName;
+              applyDirectiveToRec(recommendations[idx], dir, skuId, skuLabel);
+            }
+          }
 
-              if (dir.action === 'zero') {
-                after = 0;
-              } else if (dir.action === 'reduce') {
-                const pct = Math.min(100, Math.max(0, dir.valuePct ?? 20));
-                after = Math.max(0, Math.round(before * (1 - pct / 100)));
-              } else if (dir.action === 'increase') {
-                const pct = Math.max(0, dir.valuePct ?? 25);
-                after = Math.max(before + 1, Math.round(before * (1 + pct / 100)));
-              } else if (dir.action === 'cap') {
-                const cap = Math.max(0, Math.round(dir.valueMC ?? 0));
-                after = Math.min(before, cap);
-              } else if (dir.action === 'prioritize') {
-                after = Math.max(before + 1, Math.round(before * 1.20));
-              }
-
-              const delta = after - before;
-              if (delta === 0) continue;
-
-              rec.recommendedMastercases = after;
-              rec.reasoning = `${rec.reasoning ?? ''} [Planner directive: ${dir.action}${dir.valuePct ? ` ${dir.valuePct}%` : ''}${dir.valueMC ? ` cap ${dir.valueMC}MC` : ''} → ${before} → ${after} MC]`.trim();
-              rec.primaryDriver = 'market_intel';
-              if (after === 0) rec.trend = 'declining';
-
-              lockedSkuIds.add(skuId);
-              directiveAppliedSummaries.push(`${skuLabel}: ${dir.action} (${before}→${after} MC)`);
-
-              // Health-conflict warning
-              const healthInfo = stockHealthBySku[skuId];
-              if (healthInfo && (after < before) && (healthInfo.targetMonthZone === 'Critical' || healthInfo.targetMonthZone === 'Negative' || healthInfo.targetMonthZone === 'Out of Stock')) {
-                extraWarnings.push(`Planner reduced "${skuLabel}" but stock is ${healthInfo.targetMonthZone} for ${monthName} ${targetYear}.`);
-              }
+          // PASS 2 — fuzzy sweep: for each directive's SKU, find any OTHER recs in
+          // the array that look like the same SKU (same normalized name+weight)
+          // and apply the directive to them too. This catches the case where the
+          // LLM emitted a duplicate or near-duplicate row that wasn't the one we
+          // mapped — e.g. user clicked "Blueberry 250g → zero" but the LLM's
+          // "Blueberry 250g" rec was mapped to a different SKU id by name-only
+          // collision. The user's intent is clearly: zero anything that LOOKS
+          // like Blueberry 250g. Without this sweep, the visible row still shows
+          // a non-zero value.
+          const recsAlreadyApplied = new Set<number>();
+          recIndexBySkuId.forEach((idx, sid) => {
+            if (lockedSkuIds.has(sid)) recsAlreadyApplied.add(idx);
+          });
+          for (const dir of parsedDirectives) {
+            for (const skuId of dir.skuIds) {
+              const sku = skus.find(s => s.id === skuId);
+              if (!sku) continue;
+              const targetName = normLow(sku.name);
+              const targetWeight = normLow(sku.weight);
+              const targetPack = normLow((sku as any).packagingType ?? 'New');
+              const skuLabel = `${sku.name} ${sku.weight} (${(sku as any).packagingType ?? 'New'})`;
+              recommendations.forEach((rec: any, idx: number) => {
+                if (recsAlreadyApplied.has(idx)) return;
+                const recName = normLow(rec.skuName);
+                const recWeight = normLow(rec.weight);
+                const recPack = normLow(rec.packagingType ?? 'New');
+                const nameMatches =
+                  recName === targetName ||
+                  recName === normLow(`${sku.name}${sku.weight}`) ||
+                  (recName.startsWith(targetName) && recName.endsWith(targetWeight));
+                const weightMatches = !recWeight || recWeight === targetWeight;
+                // Packaging must match for Old/New variants — otherwise we'd
+                // incorrectly zero the Old variant when the user meant New.
+                const packMatches = recPack === targetPack;
+                if (nameMatches && weightMatches && packMatches) {
+                  if (applyDirectiveToRec(rec, dir, skuId, skuLabel)) {
+                    recsAlreadyApplied.add(idx);
+                  }
+                }
+              });
             }
           }
 
