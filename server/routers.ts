@@ -2597,6 +2597,12 @@ ${progressiveContext}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 REQUIRED OUTPUT FORMAT (valid JSON only, no markdown):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔴 MANDATORY OUTPUT SCHEMA — COVERAGE RULE 🔴
+The "recommendations" array MUST contain EXACTLY ${skus.length} entries — one row for every active SKU listed in Section D, identified by its skuId. No skips. No duplicates. No invented SKUs. If a SKU truly should receive 0 mastercases, STILL emit its row with recommendedMastercases: 0 and explain why in "reasoning". Returning fewer than ${skus.length} rows is a hard failure and your response will be rejected.
+
+Required SKU ids — every one of these MUST appear once in your output (in any order):
+${skus.map(s => `  ${s.id} — ${s.name} ${s.weight} (${(s as any).packagingType ?? 'New'})`).join('\n')}
+
 {
   "recommendations": [
     {
@@ -2621,7 +2627,65 @@ REQUIRED OUTPUT FORMAT (valid JSON only, no markdown):
   "marketSummary": string (2-3 sentences: Al Fakher's position in ${country} for ${monthName} ${targetYear}, key demand drivers, and outlook)
 }`;
         let parsed: any;
+        let cameFromLlm = false;
         const hasLlmKey = !!(process.env.BUILT_IN_FORGE_API_KEY && process.env.BUILT_IN_FORGE_API_KEY.trim());
+
+        // Helper: build a single algorithmic recommendation row for a SKU.
+        // Used both as the full LLM-failure fallback AND as the per-SKU filler when
+        // the LLM omits some active SKUs from its response (coverage validator).
+        const buildAlgoRecForSku = (sk: typeof skuSummaries[number], reasoningPrefix: string = '') => {
+          const allocPct = skuBaseAllocPct[sk.name] ?? 0;
+          const mc = Math.round(totalMastercases * allocPct / 100);
+          const skuObj = skus.find(s => s.id === sk.skuId);
+          const health = skuObj ? stockHealthBySku[skuObj.id] : null;
+          const conf = skuConfidenceScores[sk.name] ?? 50;
+
+          let trend: string = 'stable';
+          const rt = parseFloat(String(sk.rollingTrend));
+          if (!isNaN(rt)) { if (rt > 10) trend = 'growing'; else if (rt < -10) trend = 'declining'; }
+          if (sk.monthsOfData < 3) trend = 'new';
+          if (sk.isNewSkuWithOrders) trend = 'new';
+
+          let stockAlert = 'unknown';
+          if (health) {
+            const zone = health.targetMonthZone;
+            if (zone === 'Critical' || zone === 'Negative' || zone === 'Out of Stock') stockAlert = 'critical';
+            else if (zone === 'Overstock') stockAlert = 'overstock';
+            else if (zone === 'Healthy') stockAlert = 'healthy';
+          }
+
+          let primaryDriver = 'historical_share';
+          if (health) {
+            const driverZone = health.targetMonthZone ?? health.currentZone;
+            if (driverZone === 'Critical' || driverZone === 'Negative' || driverZone === 'Out of Stock') primaryDriver = 'stock_critical';
+            else if (driverZone === 'Overstock') primaryDriver = 'stock_overstock';
+          }
+          if (isRamadanMonth && sk.name.toLowerCase().includes('double apple')) primaryDriver = 'ramadan_uplift';
+          if (targetMonth >= 6 && targetMonth <= 8 && primaryDriver === 'historical_share') primaryDriver = 'summer_peak';
+          if ((targetMonth === 12 || targetMonth <= 2) && primaryDriver === 'historical_share') primaryDriver = 'winter_dip';
+          if (!isNaN(rt) && rt > 10 && primaryDriver === 'historical_share') primaryDriver = 'trend_growth';
+          if (!isNaN(rt) && rt < -10 && primaryDriver === 'historical_share') primaryDriver = 'trend_decline';
+
+          const si = parseFloat(String(sk.seasonalityIndex));
+          const seasonalityNote = `Seasonality index for ${monthName}: ${isNaN(si) ? 'N/A' : si.toFixed(2)}. ${isRamadanMonth ? `Ramadan effect applies (+${ramadanBoostPct}%).` : currentSeasonalInfo.effect}`;
+
+          return {
+            skuId: sk.skuId,
+            skuName: sk.rawName,
+            weight: sk.rawWeight,
+            category: sk.category,
+            packagingType: sk.packagingType,
+            recommendedMastercases: mc,
+            sharePercent: Math.round(allocPct * 10) / 10,
+            reasoning: `${reasoningPrefix}Based on ${sk.monthsOfData} months of IMS data. Average monthly: ${sk.avgMonthly}. Rolling trend: ${sk.rollingTrend}%. ${health ? `Stock health: ${health.currentWeeks}wks [${health.currentZone}].` : ''}`,
+            trend,
+            seasonalityNote,
+            stockAlert,
+            confidenceScore: conf,
+            primaryDriver,
+            marketIntelligenceNote: `${sk.category} SKU in ${country}. YoY growth: ${sk.yoyGrowth}%.`,
+          };
+        };
 
         if (hasLlmKey) {
           try {
@@ -2636,6 +2700,7 @@ REQUIRED OUTPUT FORMAT (valid JSON only, no markdown):
             const content = typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent);
             try {
               parsed = JSON.parse(content);
+              cameFromLlm = true;
             } catch {
               throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'LLM returned invalid JSON' });
             }
@@ -2646,59 +2711,7 @@ REQUIRED OUTPUT FORMAT (valid JSON only, no markdown):
         }
 
         if (!parsed) {
-          const algorithmicRecs = skuSummaries.map(sk => {
-            const allocPct = skuBaseAllocPct[sk.name] ?? 0;
-            const mc = Math.round(totalMastercases * allocPct / 100);
-            const skuObj = skus.find(s => s.id === sk.skuId);
-            const health = skuObj ? stockHealthBySku[skuObj.id] : null;
-            const conf = skuConfidenceScores[sk.name] ?? 50;
-
-            let trend: string = 'stable';
-            const rt = parseFloat(String(sk.rollingTrend));
-            if (!isNaN(rt)) { if (rt > 10) trend = 'growing'; else if (rt < -10) trend = 'declining'; }
-            if (sk.monthsOfData < 3) trend = 'new';
-            if (sk.isNewSkuWithOrders) trend = 'new';
-
-            let stockAlert = 'unknown';
-            if (health) {
-              const zone = health.targetMonthZone;
-              if (zone === 'Critical' || zone === 'Negative' || zone === 'Out of Stock') stockAlert = 'critical';
-              else if (zone === 'Overstock') stockAlert = 'overstock';
-              else if (zone === 'Healthy') stockAlert = 'healthy';
-            }
-
-            let primaryDriver = 'historical_share';
-            if (health) {
-              const driverZone = health.targetMonthZone ?? health.currentZone;
-              if (driverZone === 'Critical' || driverZone === 'Negative' || driverZone === 'Out of Stock') primaryDriver = 'stock_critical';
-              else if (driverZone === 'Overstock') primaryDriver = 'stock_overstock';
-            }
-            if (isRamadanMonth && sk.name.toLowerCase().includes('double apple')) primaryDriver = 'ramadan_uplift';
-            if (targetMonth >= 6 && targetMonth <= 8 && primaryDriver === 'historical_share') primaryDriver = 'summer_peak';
-            if ((targetMonth === 12 || targetMonth <= 2) && primaryDriver === 'historical_share') primaryDriver = 'winter_dip';
-            if (!isNaN(rt) && rt > 10 && primaryDriver === 'historical_share') primaryDriver = 'trend_growth';
-            if (!isNaN(rt) && rt < -10 && primaryDriver === 'historical_share') primaryDriver = 'trend_decline';
-
-            const si = parseFloat(String(sk.seasonalityIndex));
-            const seasonalityNote = `Seasonality index for ${monthName}: ${isNaN(si) ? 'N/A' : si.toFixed(2)}. ${isRamadanMonth ? `Ramadan effect applies (+${ramadanBoostPct}%).` : currentSeasonalInfo.effect}`;
-
-            return {
-              skuId: sk.skuId,
-              skuName: sk.rawName,
-              weight: sk.rawWeight,
-              category: sk.category,
-              packagingType: sk.packagingType,
-              recommendedMastercases: mc,
-              sharePercent: Math.round(allocPct * 10) / 10,
-              reasoning: `Based on ${sk.monthsOfData} months of IMS data. Average monthly: ${sk.avgMonthly}. Rolling trend: ${sk.rollingTrend}%. ${health ? `Stock health: ${health.currentWeeks}wks [${health.currentZone}].` : ''}`,
-              trend,
-              seasonalityNote,
-              stockAlert,
-              confidenceScore: conf,
-              primaryDriver,
-              marketIntelligenceNote: `${sk.category} SKU in ${country}. YoY growth: ${sk.yoyGrowth}%.`,
-            };
-          });
+          const algorithmicRecs = skuSummaries.map(sk => buildAlgoRecForSku(sk));
 
           let allocated = algorithmicRecs.reduce((s, r) => s + r.recommendedMastercases, 0);
           let diff = totalMastercases - allocated;
@@ -2768,6 +2781,239 @@ REQUIRED OUTPUT FORMAT (valid JSON only, no markdown):
           overallInsight = overallInsight
             .replace(/[Rr]amadan[\s-]*(related|driven|uplift|boost|spike|effect|demand|adjustment|month|period|season)?/gi, 'seasonal')
             .replace(/\s+/g, ' ').trim();
+        }
+
+        // ────────────────────────────────────────────────────────────────────
+        // COVERAGE VALIDATOR — guarantees one rec per active SKU.
+        // Production logs showed the LLM sometimes returns ~16 recs even when the
+        // country has 25+ active SKUs, so any directive ("increase"/"reduce") on a
+        // missing SKU was applied to a synthetic 0-MC row, producing odd results.
+        //
+        // Step 1: resolve every rec back to a known SKU id (echoing rec.skuId when
+        //         present, otherwise fuzzy-matching by name+weight+packaging).
+        // Step 2: if any active SKU is uncovered AND the response came from the LLM,
+        //         do ONE focused retry asking the LLM to fill ONLY the missing SKUs.
+        // Step 3: any SKU still missing gets an algorithmic-generator row appended.
+        // Step 4: rebalance so the sum still equals totalMastercases.
+        // ────────────────────────────────────────────────────────────────────
+        {
+          const skuById = new Map(skus.map(s => [s.id, s] as const));
+          const normLowCov = (s: any) => String(s ?? '').toLowerCase().replace(/\s+/g, '').trim();
+          const resolveRecToSkuId = (rec: any): number | null => {
+            if (typeof rec.skuId === 'number' && skuById.has(rec.skuId)) return rec.skuId;
+            const recName = normLowCov(rec.skuName);
+            const recWeight = normLowCov(rec.weight);
+            const recPack = normLowCov(rec.packagingType ?? 'New');
+            let m = skus.find(s => normLowCov(s.name) === recName && normLowCov(s.weight) === recWeight && normLowCov((s as any).packagingType ?? 'New') === recPack);
+            if (!m) m = skus.find(s => normLowCov(s.name) === recName && normLowCov(s.weight) === recWeight);
+            if (!m && recName) {
+              // The LLM occasionally concatenates name+weight into skuName ("Blueberry 250g")
+              const trailing = recName.match(/(\d+\.?\d*)(g|kg)$/i);
+              if (trailing) {
+                const stripped = recName.replace(/(\d+\.?\d*)(g|kg)$/i, '');
+                const weightGuess = `${trailing[1]}${trailing[2]}`.toLowerCase();
+                if (stripped) m = skus.find(s => normLowCov(s.name) === stripped && normLowCov(s.weight) === weightGuess);
+              }
+            }
+            if (m) {
+              rec.skuId = m.id;
+              return m.id;
+            }
+            return null;
+          };
+
+          // Step 1a: canonicalize to AT MOST one row per active SKU id.
+          // - Resolve each rec to a SKU id (using rec.skuId then fuzzy match).
+          // - For unresolved rows: DROP (LLM hallucinated a SKU not in our catalog).
+          // - For duplicate rows mapped to the same SKU id: keep the one with the
+          //   highest recommendedMastercases (most informative), drop the others.
+          // This guarantees the output schema "one row per active SKU".
+          const canonical = new Map<number, any>();
+          let droppedUnmatched = 0;
+          let droppedDuplicates = 0;
+          for (const rec of recommendations) {
+            const id = resolveRecToSkuId(rec);
+            if (id === null) { droppedUnmatched++; continue; }
+            const existing = canonical.get(id);
+            if (!existing) {
+              canonical.set(id, rec);
+            } else {
+              const exMc = Math.max(0, Math.round(existing.recommendedMastercases ?? 0));
+              const newMc = Math.max(0, Math.round(rec.recommendedMastercases ?? 0));
+              if (newMc > exMc) canonical.set(id, rec);
+              droppedDuplicates++;
+            }
+          }
+          // Mutate the recommendations array in place to hold the canonical set.
+          recommendations.length = 0;
+          canonical.forEach(rec => recommendations.push(rec));
+          const coveredIds = new Set<number>(canonical.keys());
+
+          let missingIds = skus.filter(s => !coveredIds.has(s.id)).map(s => s.id);
+          console.log(`[ForecastSplit] Coverage check: ${skus.length} SKUs in DB, ${recommendations.length} recs returned (${droppedDuplicates} duplicates merged, ${droppedUnmatched} unmatched dropped), ${coveredIds.size} resolved, ${missingIds.length} missing.`);
+
+          // Step 2: focused retry to the LLM for the missing SKUs only.
+          if (missingIds.length > 0 && cameFromLlm && hasLlmKey) {
+            const missingSkuObjs = missingIds.map(id => skus.find(s => s.id === id)!).filter(Boolean);
+            const missingLines = missingSkuObjs.map(s => {
+              const summary = skuSummaries.find(x => x.skuId === s.id);
+              const baseAllocPct = summary ? (skuBaseAllocPct[summary.name] ?? 0) : 0;
+              const baseMc = Math.round(totalMastercases * baseAllocPct / 100);
+              return `  ${s.id} | ${s.name} ${s.weight} (${(s as any).packagingType ?? 'New'}) — base alloc ${baseAllocPct.toFixed(1)}% (~${baseMc} MC)`;
+            }).join('\n');
+            const retryPrompt = `Your previous forecast-split response for ${monthName} ${targetYear} in ${country} was missing recommendations for ${missingSkuObjs.length} active SKU(s). Return JSON ONLY in this shape:
+{
+  "recommendations": [
+    {
+      "skuId": number,
+      "skuName": string,
+      "weight": string,
+      "category": string,
+      "packagingType": "Old"|"New",
+      "recommendedMastercases": number,
+      "sharePercent": number,
+      "reasoning": string,
+      "trend": "growing"|"stable"|"declining"|"new",
+      "seasonalityNote": string,
+      "stockAlert": "critical"|"healthy"|"overstock"|"unknown",
+      "confidenceScore": number,
+      "primaryDriver": string,
+      "marketIntelligenceNote": string
+    }
+  ]
+}
+
+Cover EXACTLY these ${missingSkuObjs.length} SKU(s) — one row per id, no duplicates, no other SKUs:
+${missingLines}
+
+Use the base allocation hints above as a starting point; you may adjust ±25% based on stock health, seasonality, and trend if you wish. Do NOT re-emit any other SKU. Do NOT exceed reasonable totals — these will be rebalanced into the master split.`;
+            try {
+              const retryResp = await invokeLLM({
+                messages: [
+                  { role: 'system', content: 'You are a senior FMCG demand planner. Respond with valid JSON only, no markdown.' },
+                  { role: 'user', content: retryPrompt },
+                ],
+                response_format: { type: 'json_object' },
+              });
+              const rawRetry = retryResp.choices[0].message.content;
+              const txtRetry = typeof rawRetry === 'string' ? rawRetry : JSON.stringify(rawRetry);
+              const retryParsed = JSON.parse(txtRetry);
+              const retryRecs: any[] = Array.isArray(retryParsed?.recommendations) ? retryParsed.recommendations : [];
+              let added = 0;
+              for (const rec of retryRecs) {
+                const id = resolveRecToSkuId(rec);
+                // Only accept recs that map to a still-missing active SKU id.
+                if (id !== null && missingIds.includes(id) && !coveredIds.has(id)) {
+                  recommendations.push(rec);
+                  coveredIds.add(id);
+                  added++;
+                }
+              }
+              missingIds = skus.filter(s => !coveredIds.has(s.id)).map(s => s.id);
+              console.log(`[ForecastSplit] Coverage retry added ${added} rec(s) from LLM; ${missingIds.length} still missing.`);
+            } catch (retryErr: any) {
+              console.warn('[ForecastSplit] Coverage retry LLM call failed:', retryErr?.message);
+            }
+          }
+
+          // Step 3: algorithmic fill for any SKU the LLM still failed to return.
+          if (missingIds.length > 0) {
+            const filled = missingIds.length;
+            for (const id of missingIds) {
+              const sk = skuSummaries.find(s => s.skuId === id);
+              if (!sk) continue;
+              recommendations.push(buildAlgoRecForSku(sk, 'Algorithmic fallback (LLM omitted this SKU). '));
+              coveredIds.add(id);
+            }
+            missingIds = skus.filter(s => !coveredIds.has(s.id)).map(s => s.id);
+            console.log(`[ForecastSplit] Coverage filled ${filled} SKU(s) via algorithmic fallback.`);
+          }
+
+          // Step 3b: hard schema gate — at this point, every active SKU MUST appear
+          // exactly once. If anything is still off, log loudly so it's visible.
+          if (recommendations.length !== skus.length || coveredIds.size !== skus.length || missingIds.length !== 0) {
+            console.error(`[ForecastSplit] Coverage GATE failed: ${skus.length} SKUs in DB, ${recommendations.length} recs, ${coveredIds.size} unique covered, ${missingIds.length} missing. Dropping any orphan rows.`);
+            // Last-resort dedup: keep at most one row per active SKU id, drop everything else.
+            const finalCanonical = new Map<number, any>();
+            for (const rec of recommendations) {
+              const id = typeof rec.skuId === 'number' && skus.some(s => s.id === rec.skuId) ? rec.skuId : null;
+              if (id !== null && !finalCanonical.has(id)) finalCanonical.set(id, rec);
+            }
+            // Fill any still-missing SKUs with algorithmic rows.
+            for (const s of skus) {
+              if (!finalCanonical.has(s.id)) {
+                const sk = skuSummaries.find(x => x.skuId === s.id);
+                if (sk) finalCanonical.set(s.id, buildAlgoRecForSku(sk, 'Algorithmic fallback (coverage gate). '));
+              }
+            }
+            recommendations.length = 0;
+            finalCanonical.forEach(rec => recommendations.push(rec));
+          }
+
+          // Step 4: rebalance so the sum still equals totalMastercases EXACTLY.
+          // Newly-added rows usually push the total above totalMastercases.
+          const sumNow = recommendations.reduce((s: number, r: any) => s + Math.max(0, Math.round(r.recommendedMastercases ?? 0)), 0);
+          let diffCov = totalMastercases - sumNow;
+          if (diffCov !== 0 && recommendations.length > 0) {
+            const sortable: { idx: number; mc: number }[] = recommendations
+              .map((r: any, idx: number) => ({ idx, mc: Math.max(0, Math.round(r.recommendedMastercases ?? 0)) }))
+              .sort((a: { idx: number; mc: number }, b: { idx: number; mc: number }) => b.mc - a.mc);
+            let i = 0;
+            const maxIter = sortable.length * Math.abs(diffCov) + sortable.length + 1;
+            let iter = 0;
+            // Pass 1: prefer trimming rows with mc > 1 to keep small allocations alive.
+            while (diffCov !== 0 && iter < maxIter && sortable.length > 0) {
+              const t = sortable[i % sortable.length];
+              const cur = Math.max(0, Math.round(recommendations[t.idx].recommendedMastercases ?? 0));
+              if (diffCov > 0) {
+                recommendations[t.idx].recommendedMastercases = cur + 1;
+                diffCov -= 1;
+              } else if (cur > 1) {
+                recommendations[t.idx].recommendedMastercases = cur - 1;
+                diffCov += 1;
+              }
+              i++;
+              iter++;
+            }
+            // Pass 2 (hard fallback): if we still need to remove MC, allow taking
+            // from rows with cur > 0 (will zero them). Required to guarantee the
+            // total exactly matches totalMastercases.
+            if (diffCov < 0) {
+              const sortable2: { idx: number; mc: number }[] = recommendations
+                .map((r: any, idx: number) => ({ idx, mc: Math.max(0, Math.round(r.recommendedMastercases ?? 0)) }))
+                .filter((d: { idx: number; mc: number }) => d.mc > 0)
+                .sort((a: { idx: number; mc: number }, b: { idx: number; mc: number }) => b.mc - a.mc);
+              let j = 0;
+              let it2 = 0;
+              const maxIt2 = sortable2.length * Math.abs(diffCov) + sortable2.length + 1;
+              while (diffCov < 0 && it2 < maxIt2 && sortable2.length > 0) {
+                const t = sortable2[j % sortable2.length];
+                const cur = Math.max(0, Math.round(recommendations[t.idx].recommendedMastercases ?? 0));
+                if (cur > 0) {
+                  recommendations[t.idx].recommendedMastercases = cur - 1;
+                  diffCov += 1;
+                }
+                j++;
+                it2++;
+              }
+              if (diffCov !== 0) {
+                console.error(`[ForecastSplit] Coverage rebalance could not reach totalMastercases (residual ${diffCov} MC). Total may be off — investigate.`);
+              }
+            }
+            const finalT = recommendations.reduce((s: number, r: any) => s + Math.max(0, Math.round(r.recommendedMastercases ?? 0)), 0);
+            recommendations.forEach((r: any) => {
+              r.sharePercent = finalT > 0 ? Math.round((r.recommendedMastercases / finalT) * 1000) / 10 : 0;
+            });
+          }
+
+          // Recompute unique-coverage from the current recommendations array so the
+          // metric reflects any post-gate rewrite, not the pre-gate coveredIds set.
+          const finalCoveredIds = new Set<number>();
+          for (const rec of recommendations) {
+            const id = typeof rec.skuId === 'number' ? rec.skuId : null;
+            if (id !== null && skus.some(s => s.id === id)) finalCoveredIds.add(id);
+          }
+          console.log(`[ForecastSplit] Final coverage: ${skus.length} SKUs in DB, ${recommendations.length} recs returned (${finalCoveredIds.size} unique SKUs covered).`);
         }
 
         // Deterministic post-processing: enforce non-zero allocation for any flagged
