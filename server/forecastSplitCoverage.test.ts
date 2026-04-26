@@ -259,6 +259,130 @@ describe("forecastSplit.recommend — coverage validator", () => {
     }
   });
 
+  it("drops a hallucinated SKU row that does not match any active SKU", async () => {
+    // LLM returns valid rows for all 4 active SKUs PLUS a hallucinated 5th row
+    // whose name/weight/packaging do not match anything in the catalog and
+    // whose skuId is invalid. Step 1a must DROP the hallucinated row entirely
+    // so the final response only contains the 4 real SKUs and the total still
+    // equals totalMastercases.
+    const hallucinatedRow = {
+      skuId: 9999, // not in catalog
+      skuName: "Dragonfruit Surprise", // no fuzzy match either
+      weight: "999g",
+      category: "Core" as const,
+      packagingType: "New" as const,
+      recommendedMastercases: 100,
+      sharePercent: 0,
+      reasoning: "LLM hallucinated this SKU",
+      trend: "stable",
+      seasonalityNote: "n/a",
+      stockAlert: "unknown",
+      confidenceScore: 70,
+      primaryDriver: "historical_share",
+      marketIntelligenceNote: "n/a",
+    };
+    setLlmResponses([
+      makeLlmJsonResponse({
+        recommendations: [
+          makeLlmRec(FIXTURE_SKUS[0], 250),
+          makeLlmRec(FIXTURE_SKUS[1], 250),
+          makeLlmRec(FIXTURE_SKUS[2], 250),
+          makeLlmRec(FIXTURE_SKUS[3], 250),
+          hallucinatedRow,
+        ],
+        overallInsight: "with hallucinated row",
+        warnings: [],
+        marketSummary: "test",
+      }),
+    ]);
+
+    const caller = appRouter.createCaller(makeCtx());
+    const result = await caller.forecastSplit.recommend(RECOMMEND_INPUT);
+
+    // No retry should be needed (all 4 active SKUs are covered by valid rows).
+    expect(llmCalls).toHaveLength(1);
+
+    // Exactly one row per active SKU, hallucinated row is gone.
+    expect(result.recommendations).toHaveLength(FIXTURE_SKUS.length);
+    const coveredIds = result.recommendations
+      .map((r: any) => r.skuId)
+      .sort((a: number, b: number) => a - b);
+    expect(coveredIds).toEqual(FIXTURE_SKUS.map(s => s.id).sort((a, b) => a - b));
+    expect(new Set(coveredIds).size).toBe(FIXTURE_SKUS.length);
+
+    // No row carries the hallucinated SKU's signature.
+    for (const rec of result.recommendations) {
+      expect(rec.skuId).not.toBe(9999);
+      expect(String(rec.skuName ?? "").toLowerCase()).not.toContain("dragonfruit");
+      expect(String(rec.reasoning ?? "")).not.toContain("hallucinated");
+    }
+
+    // Total mastercases preserved exactly.
+    const sumMc = result.recommendations.reduce(
+      (s: number, r: any) => s + r.recommendedMastercases,
+      0,
+    );
+    expect(sumMc).toBe(EXPECTED_TOTAL_MC);
+    expect(result.totalMastercases).toBe(EXPECTED_TOTAL_MC);
+  });
+
+  it("collapses duplicate rows for the same SKU and keeps the higher-MC one", async () => {
+    // LLM returns TWO rows that both resolve to FIXTURE_SKUS[0] (skuId 101) with
+    // different MC values, plus one row each for the other 3 SKUs. Step 1a must
+    // collapse the duplicates to a single row for SKU 101, and the survivor must
+    // be the higher-MC duplicate.
+    const highDup = {
+      ...makeLlmRec(FIXTURE_SKUS[0], 600),
+      reasoning: "HIGH-MC duplicate for SKU 101",
+    };
+    const lowDup = {
+      ...makeLlmRec(FIXTURE_SKUS[0], 100),
+      reasoning: "LOW-MC duplicate for SKU 101",
+    };
+    setLlmResponses([
+      makeLlmJsonResponse({
+        recommendations: [
+          highDup,
+          lowDup,
+          makeLlmRec(FIXTURE_SKUS[1], 200),
+          makeLlmRec(FIXTURE_SKUS[2], 100),
+          makeLlmRec(FIXTURE_SKUS[3], 100),
+        ],
+        overallInsight: "with duplicates",
+        warnings: [],
+        marketSummary: "test",
+      }),
+    ]);
+
+    const caller = appRouter.createCaller(makeCtx());
+    const result = await caller.forecastSplit.recommend(RECOMMEND_INPUT);
+
+    // No retry should be needed (after collapse, all 4 active SKUs are covered).
+    expect(llmCalls).toHaveLength(1);
+
+    // Exactly one row per active SKU, no duplicates.
+    expect(result.recommendations).toHaveLength(FIXTURE_SKUS.length);
+    const coveredIds = result.recommendations
+      .map((r: any) => r.skuId)
+      .sort((a: number, b: number) => a - b);
+    expect(coveredIds).toEqual(FIXTURE_SKUS.map(s => s.id).sort((a, b) => a - b));
+    expect(new Set(coveredIds).size).toBe(FIXTURE_SKUS.length);
+
+    // The single surviving row for SKU 101 must be the HIGH-MC duplicate, not
+    // the LOW-MC one. Verified via the distinct reasoning string we attached.
+    const sku101Rows = result.recommendations.filter((r: any) => r.skuId === FIXTURE_SKUS[0].id);
+    expect(sku101Rows).toHaveLength(1);
+    expect(sku101Rows[0].reasoning).toBe("HIGH-MC duplicate for SKU 101");
+
+    // Total mastercases preserved exactly.
+    const sumMc = result.recommendations.reduce(
+      (s: number, r: any) => s + r.recommendedMastercases,
+      0,
+    );
+    expect(sumMc).toBe(EXPECTED_TOTAL_MC);
+    expect(result.totalMastercases).toBe(EXPECTED_TOTAL_MC);
+  });
+
   it("uses the pure algorithmic generator when no LLM key is configured", async () => {
     // No env key → mutation never calls invokeLLM and the algorithmic
     // generator builds the whole recommendation array.
