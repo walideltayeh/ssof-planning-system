@@ -3204,9 +3204,19 @@ Use the base allocation hints above as a starting point; you may adjust ±25% ba
           // Track which SKU ids are "locked" by a planner directive — they should not be donors/receivers
           // for redistribution caused by other directives.
           const lockedSkuIds = new Set<number>();
+          // Subset of locked SKUs that the planner explicitly zeroed/capped to 0.
+          // The hard-fallback rebalance must NEVER add MC back to these — that
+          // would silently reverse the planner's intent.
+          const zeroedSkuIds = new Set<number>();
           const directiveAppliedSummaries: string[] = [];
 
           // Helper: apply a directive's math to a single rec.
+          // CRITICAL: locks the SKU id BEFORE the no-op early return. Otherwise
+          // an explicit "zero" directive on a SKU whose row already shows 0 MC
+          // (most often a synthetic row added because the LLM omitted that SKU)
+          // produces delta=0, the row stays unlocked, and the rebalance pass
+          // happily pours mastercases BACK into it to make the total match —
+          // user sees a non-zero value on a SKU they explicitly zeroed.
           const applyDirectiveToRec = (rec: any, dir: any, skuId: number, skuLabel: string) => {
             const before = Math.max(0, Math.round(rec.recommendedMastercases ?? 0));
             let after = before;
@@ -3223,12 +3233,19 @@ Use the base allocation hints above as a starting point; you may adjust ±25% ba
             } else if (dir.action === 'prioritize') {
               after = Math.max(before + 1, Math.round(before * 1.20));
             }
+            // ALWAYS lock — the planner explicitly chose this SKU, so its value
+            // (even if unchanged) must not be touched by the rebalance pass.
+            lockedSkuIds.add(skuId);
+            // Any directive (zero, cap-to-0, reduce-100%) that drives the rec to
+            // 0 must protect that 0 from being re-filled by the rebalance.
+            if (after === 0 && (dir.action === 'zero' || dir.action === 'cap' || dir.action === 'reduce')) {
+              zeroedSkuIds.add(skuId);
+            }
             if (after === before) return false;
             rec.recommendedMastercases = after;
             rec.reasoning = `${rec.reasoning ?? ''} [Planner directive: ${dir.action}${dir.valuePct ? ` ${dir.valuePct}%` : ''}${dir.valueMC ? ` cap ${dir.valueMC}MC` : ''} → ${before} → ${after} MC]`.trim();
             rec.primaryDriver = 'market_intel';
             if (after === 0) rec.trend = 'declining';
-            lockedSkuIds.add(skuId);
             directiveAppliedSummaries.push(`${skuLabel}: ${dir.action} (${before}→${after} MC)`);
             // Health-conflict warning
             const healthInfo = stockHealthBySku[skuId];
@@ -3335,9 +3352,17 @@ Use the base allocation hints above as a starting point; you may adjust ±25% ba
             // Hard-fallback: if every SKU is locked (or all flexible rows are 0 and we still
             // need to remove MC), fall back to taking from the largest locked SKU we INCREASED
             // (or, as a last resort, any row with mc > 0). This guarantees the total is preserved.
+            // CRITICAL: SKUs the planner explicitly zeroed (or capped to 0) are NEVER eligible
+            // to receive MC back — that would silently reverse the planner's intent.
             if (diff !== 0) {
               extraWarnings.push(`Planner directives could not be balanced fully via flexible SKUs (residual ${diff} MC). Adjusting locked rows as last resort.`);
-              const allIdxs = recommendations.map((rec: any, idx: number) => ({ idx, mc: Math.max(0, Math.round(rec.recommendedMastercases ?? 0)) }));
+              const allIdxs = recommendations
+                .map((rec: any, idx: number) => ({
+                  idx,
+                  mc: Math.max(0, Math.round(rec.recommendedMastercases ?? 0)),
+                  zeroed: (() => { const id = skuIdByRecIdx.get(idx); return id !== undefined && zeroedSkuIds.has(id); })(),
+                }))
+                .filter(d => !d.zeroed); // never touch explicitly-zeroed rows
               allIdxs.sort((a, b) => b.mc - a.mc);
               let j = 0;
               let it2 = 0;
@@ -3354,6 +3379,9 @@ Use the base allocation hints above as a starting point; you may adjust ±25% ba
                 }
                 j++;
                 it2++;
+              }
+              if (diff !== 0) {
+                extraWarnings.push(`Could not perfectly balance ${Math.abs(diff)} MC because too many SKUs are zeroed/locked. Total may differ slightly from requested ${totalMastercases}.`);
               }
             }
           }
