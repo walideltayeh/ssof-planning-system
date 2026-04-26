@@ -3,7 +3,6 @@ import { Eye, EyeOff } from "lucide-react";
 import { useAppAuth } from "@/contexts/AuthContext";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
-import { trpc } from "@/lib/trpc";
 
 export default function LandingPage() {
   const { login } = useAppAuth();
@@ -14,8 +13,6 @@ export default function LandingPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
-
-  const logAction = trpc.audit.logAction.useMutation();
 
   useEffect(() => {
     const t = setTimeout(() => setMounted(true), 50);
@@ -33,22 +30,12 @@ export default function LandingPage() {
     if (err) {
       setError(err);
       setIsLoading(false);
-      logAction.mutate({
-        username: username || "unknown",
-        action: "login_failed",
-        details: `Failed login attempt for username: ${username}`,
-      });
       return;
     }
 
     setIsLoading(false);
     navigate("/");
     toast.success(`Welcome back, ${username}!`);
-    logAction.mutate({
-      username: username.toLowerCase(),
-      action: "login",
-      details: `User logged in`,
-    });
   };
 
   return (

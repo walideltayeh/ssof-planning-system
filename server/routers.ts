@@ -29,7 +29,7 @@ export const appRouter = router({
         }
         return db.getAllPeriods();
       }),
-    init: publicProcedure.mutation(async () => {
+    init: adminProcedure.mutation(async () => {
       return db.ensurePeriods();
     }),
     existingYears: publicProcedure
@@ -37,7 +37,7 @@ export const appRouter = router({
       .query(async ({ input }) => {
         return db.getExistingYearsForFilter(input?.country as import('../drizzle/schema').Country | undefined);
       }),
-    addYear: publicProcedure
+    addYear: adminProcedure
       .input(z.object({ year: z.number().min(2024).max(2040), username: z.string().optional() }))
       .mutation(async ({ input }) => {
         const result = await db.addYear(input.year);
@@ -56,7 +56,7 @@ export const appRouter = router({
     list: publicProcedure.query(async () => {
       return db.getAllSkus();
     }),
-    create: publicProcedure
+    create: adminProcedure
       .input(z.object({
         name: z.string().min(1),
         weight: z.string(),
@@ -75,7 +75,7 @@ export const appRouter = router({
         });
         return result;
       }),
-    delete: publicProcedure
+    delete: adminProcedure
       .input(z.object({ id: z.number(), username: z.string().optional() }))
       .mutation(async ({ input }) => {
         const allSkus = await db.getAllSkus();
@@ -90,7 +90,7 @@ export const appRouter = router({
         });
         return { success: true };
       }),
-    updateCategory: publicProcedure
+    updateCategory: adminProcedure
       .input(z.object({ id: z.number(), category: z.enum(["Core", "NPI"]), username: z.string().optional() }))
       .mutation(async ({ input }) => {
         const allSkus = await db.getAllSkus();
@@ -108,7 +108,7 @@ export const appRouter = router({
         });
         return { success: true };
       }),
-    reorder: publicProcedure
+    reorder: adminProcedure
       .input(z.object({ orderedIds: z.array(z.number()), username: z.string().optional() }))
       .mutation(async ({ input }) => {
         await db.reorderLebanonSkus(input.orderedIds);
@@ -171,7 +171,7 @@ export const appRouter = router({
 
   // ==================== DATA UPDATE ====================
   update: router({
-    forecastCell: publicProcedure
+    forecastCell: protectedProcedure
       .input(z.object({ skuId: z.number(), periodId: z.number(), value: z.string(), username: z.string().optional(), skuName: z.string().optional(), periodLabel: z.string().optional(), oldValue: z.string().optional() }))
       .mutation(async ({ input }) => {
         // Clamp to non-negative
@@ -190,7 +190,7 @@ export const appRouter = router({
         });
         return { success: true };
       }),
-    imsCell: publicProcedure
+    imsCell: protectedProcedure
       .input(z.object({ skuId: z.number(), periodId: z.number(), value: z.string(), isActual: z.boolean(), username: z.string().optional(), skuName: z.string().optional(), periodLabel: z.string().optional(), oldValue: z.string().optional() }))
       .mutation(async ({ input }) => {
         await db.upsertImsData(input.skuId, input.periodId, input.value, input.isActual);
@@ -207,7 +207,7 @@ export const appRouter = router({
         });
         return { success: true };
       }),
-    shipmentCell: publicProcedure
+    shipmentCell: protectedProcedure
       .input(z.object({
         skuId: z.number(), periodId: z.number(),
         week1: z.string().optional(), week2: z.string().optional(),
@@ -237,7 +237,7 @@ export const appRouter = router({
         });
         return { success: true };
       }),
-    arrivalCell: publicProcedure
+    arrivalCell: protectedProcedure
       .input(z.object({
         skuId: z.number(), periodId: z.number(),
         week1: z.string().optional(), week2: z.string().optional(),
@@ -267,7 +267,7 @@ export const appRouter = router({
         });
         return { success: true };
       }),
-    syncImsAndForecast: publicProcedure
+    syncImsAndForecast: protectedProcedure
       .input(z.object({
         skuId: z.number(), periodId: z.number(), value: z.string(),
         username: z.string().optional(), skuName: z.string().optional(),
@@ -293,7 +293,7 @@ export const appRouter = router({
         });
         return { success: true };
       }),
-    applyRecommendation: publicProcedure
+    applyRecommendation: protectedProcedure
       .input(z.object({
         skuId: z.number(), periodId: z.number(), newForecast: z.string(), oldForecast: z.string(),
         username: z.string().optional(), skuName: z.string().optional(),
@@ -316,7 +316,7 @@ export const appRouter = router({
         });
         return { success: true };
       }),
-    rollbackRecommendation: publicProcedure
+    rollbackRecommendation: protectedProcedure
       .input(z.object({
         skuId: z.number(), periodId: z.number(), oldForecast: z.string(), appliedForecast: z.string(),
         username: z.string().optional(), skuName: z.string().optional(),
@@ -339,7 +339,7 @@ export const appRouter = router({
         });
         return { success: true };
       }),
-    invoicedSHP: publicProcedure
+    invoicedSHP: protectedProcedure
       .input(z.object({
         skuId: z.number(), periodId: z.number(),
         week1: z.number().default(0), week2: z.number().default(0),
@@ -400,7 +400,7 @@ export const appRouter = router({
         });
         return { success: true, invoicedTotal, nextPeriodId: nextPeriod?.id };
       }),
-    planningFgCell: publicProcedure
+    planningFgCell: protectedProcedure
       .input(z.object({
         skuId: z.number(), periodId: z.number(),
         openingStock: z.string().optional(), adjustments: z.string().optional(),
@@ -431,7 +431,7 @@ export const appRouter = router({
         return { success: true };
       }),
     // Sync Planning FG arrival to arrivalData source table
-    syncPlanningFgArrival: publicProcedure
+    syncPlanningFgArrival: protectedProcedure
       .input(z.object({
         skuId: z.number(), periodId: z.number(), value: z.string(),
         username: z.string().optional(), skuName: z.string().optional(),
@@ -455,7 +455,7 @@ export const appRouter = router({
         return { success: true };
       }),
     // Auto-fill IMS from Forecast for a given period
-    autoFillImsFromForecast: publicProcedure
+    autoFillImsFromForecast: protectedProcedure
       .input(z.object({
         periodId: z.number(),
         username: z.string().optional(),
@@ -497,7 +497,7 @@ export const appRouter = router({
 
   // ==================== BULK UPLOAD ====================
   upload: router({
-    forecast: publicProcedure
+    forecast: adminProcedure
       .input(z.object({
         records: z.array(z.object({
           skuName: z.string(),
@@ -545,7 +545,7 @@ export const appRouter = router({
         return { success: true, processed: bulkRecords.length };
       }),
 
-    imsActuals: publicProcedure
+    imsActuals: adminProcedure
       .input(z.object({
         records: z.array(z.object({
           skuName: z.string(),
@@ -584,7 +584,7 @@ export const appRouter = router({
         return { success: true, processed: bulkRecords.length };
       }),
 
-    openingStock: publicProcedure
+    openingStock: adminProcedure
       .input(z.object({
         records: z.array(z.object({
           skuName: z.string(),
@@ -617,7 +617,7 @@ export const appRouter = router({
         return { success: true, processed };
       }),
 
-    shipment: publicProcedure
+    shipment: adminProcedure
       .input(z.object({
         records: z.array(z.object({
           skuName: z.string(),
@@ -663,7 +663,7 @@ export const appRouter = router({
         return { success: true, processed: bulkRecords.length };
       }),
 
-    arrival: publicProcedure
+    arrival: adminProcedure
       .input(z.object({
         records: z.array(z.object({
           skuName: z.string(),
@@ -709,7 +709,7 @@ export const appRouter = router({
         return { success: true, processed: bulkRecords.length };
       }),
 
-    planningFgBulk: publicProcedure
+    planningFgBulk: adminProcedure
       .input(z.object({
         records: z.array(z.object({
           skuName: z.string(),
@@ -780,7 +780,7 @@ export const appRouter = router({
       .query(async ({ input }) => {
         return db.getAuditLogs(input || {});
       }),
-    logAction: publicProcedure
+    logAction: protectedProcedure
       .input(z.object({
         username: z.string(),
         action: z.string(),
@@ -806,7 +806,7 @@ export const appRouter = router({
         return db.listVersions(input?.country as any);
       }),
 
-    save: publicProcedure
+    save: protectedProcedure
       .input(z.object({
         name: z.string().min(1).max(255),
         description: z.string().optional(),
@@ -885,7 +885,7 @@ export const appRouter = router({
         return { success: true, id: result.id, docUrl };
       }),
 
-    load: publicProcedure
+    load: adminProcedure
       .input(z.object({ id: z.number(), username: z.string() }))
       .mutation(async ({ input }) => {
         const version = await db.getVersionById(input.id);
@@ -901,7 +901,7 @@ export const appRouter = router({
         return { success: true, name: version.name };
       }),
 
-    delete: publicProcedure
+    delete: adminProcedure
       .input(z.object({ id: z.number(), username: z.string() }))
       .mutation(async ({ input }) => {
         const version = await db.getVersionById(input.id);
@@ -931,7 +931,7 @@ export const appRouter = router({
         };
       }),
 
-    import: publicProcedure
+    import: adminProcedure
       .input(z.object({
         versionData: z.any(), // The full version JSON from file
         username: z.string(),
@@ -972,14 +972,14 @@ export const appRouter = router({
         return db.getVersionComments(input.versionId);
       }),
 
-    addComment: publicProcedure
+    addComment: protectedProcedure
       .input(z.object({ versionId: z.number(), username: z.string(), comment: z.string().min(1) }))
       .mutation(async ({ input }) => {
         const result = await db.addVersionComment(input);
         return { success: true, id: result.id };
       }),
 
-    deleteComment: publicProcedure
+    deleteComment: protectedProcedure
       .input(z.object({ id: z.number(), username: z.string() }))
       .mutation(async ({ input }) => {
         await db.deleteVersionComment(input.id);
@@ -1024,7 +1024,7 @@ export const appRouter = router({
   // ==================== COUNTRY-SCOPED DATA ====================
   country: router({
     // Initialize a country's periods
-    init: publicProcedure
+    init: adminProcedure
       .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya"]) }))
       .mutation(async ({ input }) => {
         await db.ensurePeriodsForCountry(input.country);
@@ -1054,7 +1054,7 @@ export const appRouter = router({
         return db.getSkusForCountry(input.country, input.includeInactive ?? false);
       }),
     // Create SKU for a country
-    createSku: publicProcedure
+    createSku: adminProcedure
       .input(z.object({
         country: z.enum(["Lebanon", "Syria", "Libya"]),
         name: z.string().min(1),
@@ -1083,7 +1083,7 @@ export const appRouter = router({
         return result;
       }),
     // Update SKU packaging type
-    updateSkuPackaging: publicProcedure
+    updateSkuPackaging: adminProcedure
       .input(z.object({
         skuId: z.number(),
         packagingType: z.enum(["Old", "New"]),
@@ -1105,7 +1105,7 @@ export const appRouter = router({
         return { success: true };
       }),
     // Delete SKU
-    deleteSku: publicProcedure
+    deleteSku: adminProcedure
       .input(z.object({
         skuId: z.number(),
         username: z.string().optional(),
@@ -1146,7 +1146,7 @@ export const appRouter = router({
         return { success: true };
       }),
     // Update forecast cell
-    updateForecast: publicProcedure
+    updateForecast: protectedProcedure
       .input(z.object({
         skuId: z.number(), periodId: z.number(), value: z.string(),
         country: z.enum(["Lebanon", "Syria", "Libya"]),
@@ -1167,7 +1167,7 @@ export const appRouter = router({
         return { success: true };
       }),
     // Update only the targetWeek for a forecast cell (without changing the value)
-    updateForecastWeek: publicProcedure
+    updateForecastWeek: protectedProcedure
       .input(z.object({
         skuId: z.number(), periodId: z.number(),
         targetWeek: z.string(), // "week1" | "week2" | "week3" | "week4"
@@ -1187,7 +1187,7 @@ export const appRouter = router({
         return { success: true };
       }),
     // Update revised forecast cell (Syria/Libya Forecast vs Forecast)
-    updateRevisedForecast: publicProcedure
+    updateRevisedForecast: protectedProcedure
       .input(z.object({
         skuId: z.number(), periodId: z.number(), value: z.string(),
         country: z.enum(["Lebanon", "Syria", "Libya"]),
@@ -1207,7 +1207,7 @@ export const appRouter = router({
         return { success: true };
       }),
     // Update production (shipment) cell
-    updateProduction: publicProcedure
+    updateProduction: protectedProcedure
       .input(z.object({
         skuId: z.number(), periodId: z.number(),
         week1: z.string(), week2: z.string(), week3: z.string(), week4: z.string(),
@@ -1236,7 +1236,7 @@ export const appRouter = router({
         });
         return { success: true };
       }),
-    updateProductionRefs: publicProcedure
+    updateProductionRefs: protectedProcedure
       .input(z.object({
         skuId: z.number(), periodId: z.number(),
         invoiceRef: z.string().nullable().optional(),
@@ -1258,7 +1258,7 @@ export const appRouter = router({
         return { success: true };
       }),
     // Update arrival cell
-    updateArrival: publicProcedure
+    updateArrival: protectedProcedure
       .input(z.object({
         skuId: z.number(), periodId: z.number(),
         week1: z.string(), week2: z.string(), week3: z.string(), week4: z.string(),
@@ -1279,7 +1279,7 @@ export const appRouter = router({
         return { success: true };
       }),
     // Add year for a country
-    addYear: publicProcedure
+    addYear: adminProcedure
       .input(z.object({
         country: z.enum(["Lebanon", "Syria", "Libya"]),
         year: z.number().min(2024).max(2040),
@@ -1301,7 +1301,7 @@ export const appRouter = router({
         return db.getExistingYearsForCountry(input.country);
       }),
     // Update SKU details (name, weight, category, packagingType)
-    updateSku: publicProcedure
+    updateSku: adminProcedure
       .input(z.object({
         skuId: z.number(),
         name: z.string().min(1).optional(),
@@ -1330,7 +1330,7 @@ export const appRouter = router({
         return { success: true };
       }),
     // Update arrival status for a production batch (Syria/Libya)
-    updateArrivalStatus: publicProcedure
+    updateArrivalStatus: protectedProcedure
       .input(z.object({
         skuId: z.number(),
         periodId: z.number(),
@@ -1355,7 +1355,7 @@ export const appRouter = router({
       }),
 
     // Update cleared qty for a production batch (Syria/Libya) - supports partial clearance
-    updateClearedQty: publicProcedure
+    updateClearedQty: protectedProcedure
       .input(z.object({
         skuId: z.number(),
         periodId: z.number(),
@@ -1388,7 +1388,7 @@ export const appRouter = router({
       }),
 
     // Update cleared date for a production batch (Syria/Libya)
-    updateClearedDate: publicProcedure
+    updateClearedDate: protectedProcedure
       .input(z.object({
         skuId: z.number(),
         periodId: z.number(),
@@ -1415,7 +1415,7 @@ export const appRouter = router({
       }),
 
     // Update pending clear date for a production batch (Syria/Libya)
-    updatePendingClearDate: publicProcedure
+    updatePendingClearDate: protectedProcedure
       .input(z.object({
         skuId: z.number(),
         periodId: z.number(),
@@ -1449,7 +1449,7 @@ export const appRouter = router({
       }),
 
     // Add a new clearance event for a batch
-    addClearanceEvent: publicProcedure
+    addClearanceEvent: protectedProcedure
       .input(z.object({
         skuId: z.number(),
         periodId: z.number(),
@@ -1479,7 +1479,7 @@ export const appRouter = router({
       }),
 
     // Update an existing clearance event
-    updateClearanceEvent: publicProcedure
+    updateClearanceEvent: protectedProcedure
       .input(z.object({
         eventId: z.number(),
         skuId: z.number(),
@@ -1511,7 +1511,7 @@ export const appRouter = router({
       }),
 
     // Delete a clearance event
-    deleteClearanceEvent: publicProcedure
+    deleteClearanceEvent: protectedProcedure
       .input(z.object({
         eventId: z.number(),
         skuId: z.number(),
@@ -1542,7 +1542,7 @@ export const appRouter = router({
       }),
 
     // Update IMS cell for Syria/Libya
-    updateIms: publicProcedure
+    updateIms: protectedProcedure
       .input(z.object({
         skuId: z.number(),
         periodId: z.number(),
@@ -1613,7 +1613,7 @@ export const appRouter = router({
         };
       }),
 
-    updatePlanningFgCell: publicProcedure
+    updatePlanningFgCell: protectedProcedure
       .input(z.object({
         skuId: z.number(),
         periodId: z.number(),
@@ -1657,7 +1657,7 @@ export const appRouter = router({
         return db.getExpiryDashboard(input.country);
       }),
 
-    reorderSkus: publicProcedure
+    reorderSkus: adminProcedure
       .input(z.object({
         country: z.enum(["Syria", "Libya"]),
         orderedIds: z.array(z.number()),
@@ -1685,12 +1685,30 @@ export const appRouter = router({
       }))
       .mutation(async ({ input }) => {
         await db.ensureOwnerExists("walid", "Walid El Tayeh");
+        const logFailure = async () => {
+          await db.logAudit({
+            username: input.username || "unknown",
+            action: "login_failed",
+            details: input.country
+              ? `Failed login attempt for username: ${input.username} (country: ${input.country})`
+              : `Failed login attempt for username: ${input.username}`,
+          });
+        };
+        const logSuccess = async (displayUsername: string) => {
+          await db.logAudit({
+            username: displayUsername,
+            action: "login",
+            details: input.country ? `User logged in to ${input.country}` : `User logged in`,
+          });
+        };
         if (input.country) {
           const result = await db.verifyAppUserLogin(input.username, input.password, input.country);
           if (!result.success || !result.user) {
+            await logFailure();
             return { success: false, error: result.error ?? "Invalid credentials" };
           }
           const u = result.user;
+          await logSuccess(u.username.toLowerCase());
           return {
             success: true,
             user: {
@@ -1705,9 +1723,11 @@ export const appRouter = router({
         }
         const result = await db.verifyAppUserLoginNoCountry(input.username, input.password);
         if (!result.success || !result.user) {
+          await logFailure();
           return { success: false, error: result.error ?? "Invalid credentials" };
         }
         const u = result.user;
+        await logSuccess(u.username.toLowerCase());
         return {
           success: true,
           user: {
@@ -1721,7 +1741,7 @@ export const appRouter = router({
         };
       }),
     // Change own password - any authenticated user
-    changePassword: publicProcedure
+    changePassword: protectedProcedure
       .input(z.object({
         userId: z.number(),
         currentPassword: z.string(),
@@ -1753,7 +1773,7 @@ export const appRouter = router({
         }));
       }),
     // Create user - owner only
-    create: publicProcedure
+    create: adminProcedure
       .input(z.object({
         requestingUsername: z.string(),
         username: z.string().min(2),
@@ -1777,7 +1797,7 @@ export const appRouter = router({
         return { success: true };
       }),
     // Update user - owner only
-    update: publicProcedure
+    update: adminProcedure
       .input(z.object({
         requestingUsername: z.string(),
         id: z.number(),
@@ -1798,7 +1818,7 @@ export const appRouter = router({
         return { success: true };
       }),
     // Delete user - owner only, cannot delete self
-    delete: publicProcedure
+    delete: adminProcedure
       .input(z.object({
         requestingUsername: z.string(),
         id: z.number(),
@@ -1815,7 +1835,7 @@ export const appRouter = router({
   // ==================== PRESENCE ====================
   presence: router({
     // Heartbeat: called every 30s by logged-in clients to stay "online"
-    heartbeat: publicProcedure
+    heartbeat: protectedProcedure
       .input(z.object({
         username: z.string(),
         displayName: z.string(),
@@ -1831,7 +1851,7 @@ export const appRouter = router({
       return db.getOnlineUsers();
     }),
     // Remove presence on logout
-    leave: publicProcedure
+    leave: protectedProcedure
       .input(z.object({ username: z.string() }))
       .mutation(async ({ input }) => {
         await db.removePresence(input.username);
@@ -1844,7 +1864,7 @@ export const appRouter = router({
      * Given a total tonnage, mastercase weight (kg), target month/year, and country,
      * analyse historical IMS data and return per-SKU mastercase recommendations.
      */
-    recommend: publicProcedure
+    recommend: protectedProcedure
       .input(z.object({
         country: z.string(),
         totalTons: z.number().positive(),

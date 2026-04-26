@@ -9,7 +9,6 @@ import { toast } from "sonner";
 import { useAppAuth } from "@/contexts/AuthContext";
 import { useCountry, COUNTRY_CONFIG } from "@/contexts/CountryContext";
 import type { Country } from "@/contexts/CountryContext";
-import { trpc } from "@/lib/trpc";
 import { useLocation } from "wouter";
 
 export default function LoginPage() {
@@ -23,8 +22,6 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-
-  const logAction = trpc.audit.logAction.useMutation();
 
   // Detect super admin mode from URL query param
   const isSuperAdminMode = typeof window !== "undefined" && window.location.search.includes("superadmin=1");
@@ -48,11 +45,6 @@ export default function LoginPage() {
     if (err) {
       setError(err);
       setIsLoading(false);
-      logAction.mutate({
-        username: username || "unknown",
-        action: "login_failed",
-        details: `Failed login attempt for username: ${username}`,
-      });
       return;
     }
 
@@ -62,11 +54,6 @@ export default function LoginPage() {
     setIsLoading(false);
     navigate("/");
     toast.success(`Welcome back, ${userKey}!`);
-    logAction.mutate({
-      username: userKey,
-      action: "login",
-      details: `User logged in to ${loginCountry}`,
-    });
   };
 
   const handleBackToLanding = () => {
