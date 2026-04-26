@@ -2,7 +2,7 @@ import { COOKIE_NAME } from "@shared/const";
 import { invokeLLM } from "./_core/llm";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
-import { publicProcedure, protectedProcedure, router } from "./_core/trpc";
+import { publicProcedure, protectedProcedure, adminProcedure, router } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import * as db from "./db";
@@ -1125,7 +1125,7 @@ export const appRouter = router({
         return { success: true };
       }),
     // Toggle SKU active/inactive
-    toggleSkuActive: publicProcedure
+    toggleSkuActive: adminProcedure
       .input(z.object({
         skuId: z.number(),
         isActive: z.boolean(),

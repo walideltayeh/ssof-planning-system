@@ -159,7 +159,7 @@ function exportSkusToExcel(skus: any[], country: string) {
 function LebanonSkuManagement() {
   const { user: appUser } = useAppAuth();
   const utils = trpc.useUtils();
-  const isAdmin = (appUser as any)?.role === "admin" || true;
+  const isAdmin = (appUser as any)?.role === "admin";
 
   const { data: skusData, isLoading } = trpc.country.skus.useQuery(
     { country: "Lebanon", includeInactive: true }
@@ -642,7 +642,7 @@ function IntlSkuManagement() {
   const { user: appUser } = useAppAuth();
   const utils = trpc.useUtils();
   const intlCountry = country as "Syria" | "Libya";
-  const isAdmin = (appUser as any)?.role === "admin" || true;
+  const isAdmin = (appUser as any)?.role === "admin";
 
   const { data: skusData, isLoading } = trpc.country.skus.useQuery(
     { country: intlCountry, includeInactive: true },
