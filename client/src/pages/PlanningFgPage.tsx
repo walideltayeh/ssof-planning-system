@@ -2,7 +2,6 @@ import { Fragment, useMemo, useState, useCallback, useRef, useEffect } from "rea
 import { trpc } from "@/lib/trpc";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import { useGridNav } from "@/hooks/useGridNav";
-import { useAppAuth } from "@/contexts/AuthContext";
 import { useCountry } from "@/contexts/CountryContext";
 import { useUnit } from "@/contexts/UnitContext";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -61,7 +60,6 @@ function getClosingStockStyle(val: number): string {
 }
 
 export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
-  const { user: appUser } = useAppAuth();
   const { country } = useCountry();
   const { formatVal, unitLabel } = useUnit();
   const { data, isLoading } = trpc.data.planningFg.useQuery({ weight });
@@ -675,7 +673,6 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
     const updateData: any = { skuId, periodId };
     if (label === "Opening Stock")  updateData.openingStock = numVal.toString();
     else if (label === "Adjustments") updateData.adjustments = numVal.toString();
-    updateData.username = appUser?.displayName;
     updateData.skuName = sku?.name;
     updateData.periodLabel = period?.label;
     updateData.oldValue = oldValue;

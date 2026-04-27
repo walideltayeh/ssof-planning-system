@@ -3564,7 +3564,7 @@ Use the base allocation hints above as a starting point; you may adjust ±25% ba
           totalApplied += applied;
           monthResults.push({ month, year, applied });
           await db.logAudit({
-            username: ctx.user?.name || 'System',
+            username: getAuditActor(ctx),
             action: 'edit',
             country: typedCountry,
             sheet: 'Forecast',
