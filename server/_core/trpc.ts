@@ -27,10 +27,15 @@ const requireUser = t.middleware(async opts => {
 
 export const protectedProcedure = t.procedure.use(requireUser);
 
-export const adminProcedure = t.procedure.use(
+// Admin procedures build on top of `protectedProcedure` so that unauthenticated
+// callers always receive UNAUTHORIZED (from `requireUser`) and only signed-in
+// callers without the admin role get FORBIDDEN.
+export const adminProcedure = protectedProcedure.use(
   t.middleware(async opts => {
     const { ctx, next } = opts;
 
+    // `ctx.user` is guaranteed non-null here by `protectedProcedure`, but the
+    // generic middleware factory can't infer that, so re-check defensively.
     if (!ctx.user || ctx.user.role !== 'admin') {
       throw new TRPCError({ code: "FORBIDDEN", message: NOT_ADMIN_ERR_MSG });
     }
