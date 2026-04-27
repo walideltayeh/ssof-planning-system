@@ -49,3 +49,8 @@ build = ["sh", "-c", "pnpm run build"]
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 120000
+
+[userenv]
+
+[userenv.shared]
+JWT_SECRET = "RbYGqhGVt/std4S/rgmGPZntSfek2g9rQAbQJEx48CL/6GdujAzEdV2q1MNW8AXw"

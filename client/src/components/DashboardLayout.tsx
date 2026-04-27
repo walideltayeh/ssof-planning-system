@@ -287,6 +287,7 @@ function DashboardLayoutContent({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location, appUser?.username, user?.openId, country]);
 
+  const serverLogout = trpc.auth.logout.useMutation();
   const handleLogout = () => {
     const username = appUser?.username || user?.openId;
     if (appUser) {
@@ -295,6 +296,11 @@ function DashboardLayoutContent({
     if (username) {
       leavePresence.mutate({ username });
     }
+    // Clear the server session cookie established by appUsers.verifyLogin so
+    // protected procedures stop accepting this browser after logout. Without
+    // this, the cookie would survive until its 1-year expiry and any stale
+    // localStorage rehydration could resume making authenticated calls.
+    serverLogout.mutate();
     setTimeout(() => {
       appLogout();
       oauthLogout();

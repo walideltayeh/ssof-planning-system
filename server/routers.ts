@@ -1,12 +1,68 @@
-import { COOKIE_NAME } from "@shared/const";
+import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { invokeLLM } from "./_core/llm";
 import { getSessionCookieOptions } from "./_core/cookies";
+import { sdk } from "./_core/sdk";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, adminProcedure, router } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import * as db from "./db";
 import type { User } from "../drizzle/schema";
+
+/**
+ * Bridges an AppUser (username/password login) into a server session that
+ * `protectedProcedure` recognizes. Without this, the auth lockdown
+ * (Tasks #5/#6/#9/#10 — protectedProcedure on every mutation, ctx.user-derived
+ * audit identity) would 401 every call from app-user logins, because
+ * `appUsers.verifyLogin` historically only returned the user payload to the
+ * client and never established a server-side session cookie.
+ *
+ * Implementation notes:
+ * - We reuse the existing OAuth session infrastructure (signed JWT in
+ *   `COOKIE_NAME`, verified by `sdk.authenticateRequest` and looked up via
+ *   `db.getUserByOpenId`) by upserting a `users` row, then issuing a session
+ *   token with that openId.
+ * - `users.openId` is namespaced with the `APP_USER_OPEN_ID_PREFIX` to avoid
+ *   colliding with real OAuth `openId` values; the bare lowercase username is
+ *   stored in `users.name`, which is what `getAuditActor(ctx)` returns and
+ *   what `requireAppOwner(ctx)` uses to re-validate against the `appUsers`
+ *   table. Helpers should always read identity from `ctx.user.name`, not
+ *   `ctx.user.openId`.
+ * - `users.role` is set to `'admin'` for AppUser admins/owners so that
+ *   `adminProcedure` (which checks `ctx.user.role === 'admin'`) accepts them.
+ *   For non-admin AppUser viewers we leave the default `'user'` role.
+ */
+const APP_USER_OPEN_ID_PREFIX = "appuser:";
+
+async function establishAppUserSession(
+  ctx: { req: import("express").Request; res: import("express").Response },
+  appUser: { username: string; role: "admin" | "viewer"; isOwner: boolean },
+): Promise<void> {
+  const trustedName = appUser.username.toLowerCase();
+  const namespacedOpenId = `${APP_USER_OPEN_ID_PREFIX}${trustedName}`;
+  const isPlatformAdmin = appUser.isOwner || appUser.role === "admin";
+  await db.upsertUser({
+    openId: namespacedOpenId,
+    name: trustedName,
+    loginMethod: "app-user",
+    role: isPlatformAdmin ? "admin" : "user",
+    lastSignedIn: new Date(),
+  });
+  // Sign the session manually so we control every field. `createSessionToken`
+  // would default `appId` to `ENV.appId` (VITE_APP_ID), which is unset in this
+  // deployment — and `verifySession` rejects payloads with any empty required
+  // field, causing every subsequent request to come back as 401. Using a
+  // stable literal keeps the session valid regardless of OAuth env config.
+  const sessionToken = await sdk.signSession(
+    { openId: namespacedOpenId, appId: "ssof-app-user", name: trustedName },
+    { expiresInMs: ONE_YEAR_MS },
+  );
+  const cookieOptions = getSessionCookieOptions(ctx.req);
+  ctx.res.cookie(COOKIE_NAME, sessionToken, {
+    ...cookieOptions,
+    maxAge: ONE_YEAR_MS,
+  });
+}
 
 /**
  * Returns the trusted username for audit-log attribution, derived from the
@@ -1682,7 +1738,7 @@ export const appRouter = router({
         password: z.string(),
         country: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         await db.ensureOwnerExists("walid", "Walid El Tayeh");
         const logFailure = async () => {
           await db.logAudit({
@@ -1708,6 +1764,7 @@ export const appRouter = router({
           }
           const u = result.user;
           await logSuccess(u.username.toLowerCase());
+          await establishAppUserSession(ctx, { username: u.username, role: u.role, isOwner: u.isOwner });
           return {
             success: true,
             user: {
@@ -1727,6 +1784,7 @@ export const appRouter = router({
         }
         const u = result.user;
         await logSuccess(u.username.toLowerCase());
+        await establishAppUserSession(ctx, { username: u.username, role: u.role, isOwner: u.isOwner });
         return {
           success: true,
           user: {
