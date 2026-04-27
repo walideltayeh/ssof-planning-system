@@ -1,7 +1,7 @@
 import { eq, and, asc, inArray, sql, desc, gt } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { InsertUser, users, skus, periods, forecastData, imsData, shipmentData, arrivalData, planningFgData, uploadHistory, auditTrail, ssofVersions, versionComments, revisedForecastData, clearanceEvents, appUsers, competitorData } from "../drizzle/schema";
+import { InsertUser, users, skus, periods, forecastData, imsData, shipmentData, arrivalData, planningFgData, uploadHistory, auditTrail, ssofVersions, versionComments, revisedForecastData, clearanceEvents, appUsers, competitorData, appSettings } from "../drizzle/schema";
 import type { AuditTrail, InsertAuditTrail, InsertSsofVersion, Country, ClearanceEvent, AppUserRow, InsertAppUser } from "../drizzle/schema";
 import type { Sku, InsertSku, Period, ForecastData, ImsData, ShipmentData, ArrivalData, PlanningFgData, SsofVersion } from "../drizzle/schema";
 import { ENV } from './_core/env';
@@ -68,6 +68,31 @@ export async function getUserByOpenId(openId: string) {
   if (!db) return undefined;
   const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
   return result.length > 0 ? result[0] : undefined;
+}
+
+/**
+ * Returns the persisted JWT signing secret, generating and storing one on
+ * first call when none exists. Lives in the `app_settings` table specifically
+ * so it survives container restarts WITHOUT ever being committed to source
+ * control (`.replit` userenv) or exposed via env-var listings. The caller
+ * should still prefer `process.env.JWT_SECRET` when set, so ops can rotate
+ * via the secrets manager without a DB write.
+ */
+export async function getOrCreateJwtSecret(): Promise<string> {
+  const db = await getDb();
+  if (!db) throw new Error("Cannot provision JWT secret: database not available");
+  const KEY = "jwt_secret";
+  const existing = await db.select().from(appSettings).where(eq(appSettings.key, KEY)).limit(1);
+  if (existing.length > 0 && existing[0].value) return existing[0].value;
+  const { randomBytes } = await import("crypto");
+  const generated = randomBytes(48).toString("base64");
+  await db.insert(appSettings)
+    .values({ key: KEY, value: generated })
+    .onConflictDoNothing({ target: appSettings.key });
+  // Re-read in case of race with another worker that inserted concurrently.
+  const finalRow = await db.select().from(appSettings).where(eq(appSettings.key, KEY)).limit(1);
+  if (!finalRow.length) throw new Error("Failed to persist JWT secret");
+  return finalRow[0].value;
 }
 
 // ==================== PERIODS ====================

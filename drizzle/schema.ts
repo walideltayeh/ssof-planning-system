@@ -236,6 +236,18 @@ export const userPresence = pgTable("user_presence", {
 });
 export type UserPresence = typeof userPresence.$inferSelect;
 
+// Persistent server-side configuration that must survive restarts but must
+// NEVER appear in source-controlled files like .replit. Currently used to
+// auto-provision the JWT signing secret on first boot when JWT_SECRET is
+// not provided as an environment variable. Keep this table tiny and
+// owner-only — never expose it to client routers.
+export const appSettings = pgTable("app_settings", {
+  key: varchar("key", { length: 64 }).primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+export type AppSetting = typeof appSettings.$inferSelect;
+
 export const competitorData = pgTable("competitor_data", {
   id: serial("id").primaryKey(),
   country: varchar("country", { length: 50 }).notNull().default("Lebanon"),

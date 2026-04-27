@@ -154,8 +154,22 @@ class SDKServer {
     return new Map(Object.entries(parsed));
   }
 
+  // Optional runtime override for the JWT signing secret. Set at server boot
+  // by `provisionRuntimeSessionSecret()` (server/_core/index.ts) using the
+  // value persisted in `app_settings.jwt_secret`. We prefer
+  // `process.env.JWT_SECRET` whenever it is non-empty so that operators can
+  // rotate via the platform secrets manager without a database write.
+  private _runtimeSecret: string | null = null;
+
+  setRuntimeSessionSecret(secret: string) {
+    this._runtimeSecret = secret;
+  }
+
   private getSessionSecret() {
-    const secret = ENV.cookieSecret;
+    const envSecret = ENV.cookieSecret;
+    const secret = envSecret && envSecret.length > 0
+      ? envSecret
+      : (this._runtimeSecret ?? "");
     return new TextEncoder().encode(secret);
   }
 

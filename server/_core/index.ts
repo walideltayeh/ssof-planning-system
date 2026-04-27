@@ -600,8 +600,32 @@ async function startServer() {
   // Run startup migration (seeds DB from seed-data.json if empty)
   await runStartupMigration();
   
-  const { ensureDataIndexes } = await import("../db");
+  const { ensureDataIndexes, getOrCreateJwtSecret } = await import("../db");
   await ensureDataIndexes();
+
+  // Provision the JWT signing secret used by AppUser session cookies. We store
+  // it in `app_settings` (not `.replit` userenv, which would commit it to the
+  // repo, and not env-vars, which the platform exposes via listings) and
+  // override it onto the SDK at boot. If JWT_SECRET is set in the real env,
+  // sdk.getSessionSecret prefers it and this DB value is ignored — but having
+  // it always provisioned means username/password logins work out of the box.
+  //
+  // Fail-fast: if neither the env var nor a DB-loaded secret is available,
+  // every login would silently produce zero-length-key crashes (the exact
+  // class of outage we are fixing), so we abort startup instead of logging
+  // and serving traffic with broken auth.
+  try {
+    const persistedSecret = await getOrCreateJwtSecret();
+    const { sdk } = await import("./sdk");
+    sdk.setRuntimeSessionSecret(persistedSecret);
+  } catch (err) {
+    if (process.env.JWT_SECRET && process.env.JWT_SECRET.length > 0) {
+      console.error("[Auth] Failed to provision DB session secret; continuing with env JWT_SECRET:", err);
+    } else {
+      console.error("[Auth] Failed to provision session secret and no JWT_SECRET env var set. Aborting startup to avoid serving with broken auth.", err);
+      throw err;
+    }
+  }
 
   const preferredPort = parseInt(process.env.PORT || "5000");
   const port = await findAvailablePort(preferredPort);

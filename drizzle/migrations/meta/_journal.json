@@ -43,6 +43,13 @@
       "when": 1775133217741,
       "tag": "0005_sticky_silver_fox",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1777296505690,
+      "tag": "0006_far_cardiac",
+      "breakpoints": true
     }
   ]
 }
