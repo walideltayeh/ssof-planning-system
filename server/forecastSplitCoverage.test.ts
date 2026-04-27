@@ -106,11 +106,23 @@ function makeLlmJsonResponse(payload: unknown) {
 // Imported AFTER vi.mock declarations so the mocked modules are wired in.
 const { appRouter } = await import("./routers");
 
+// `forecastSplit.recommend` is a `protectedProcedure`, so the test context
+// needs an authenticated user. A plain (non-admin) user is enough.
 function makeCtx(): any {
   return {
-    user: null,
+    user: {
+      id: 1,
+      openId: "test-planner",
+      email: "planner@example.com",
+      name: "Test Planner",
+      loginMethod: "manus",
+      role: "user",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      lastSignedIn: new Date(),
+    },
     req: { protocol: "https", headers: {} },
-    res: {},
+    res: { clearCookie: vi.fn() },
   };
 }
 

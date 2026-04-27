@@ -172,6 +172,20 @@ function createAuthContext(): TrpcContext {
   };
 }
 
+// Admin context — satisfies both `protectedProcedure` and `adminProcedure`.
+// Used for tests that exercise admin-only mutations (skus.create/delete,
+// periods.init, upload.*) as well as protected mutations (update.*Cell).
+function createAdminContext(): TrpcContext {
+  return {
+    user: {
+      id: 2, openId: "test-admin", email: "admin@example.com", name: "Test Admin",
+      loginMethod: "manus", role: "admin", createdAt: new Date(), updatedAt: new Date(), lastSignedIn: new Date(),
+    },
+    req: { protocol: "https", headers: {} } as TrpcContext["req"],
+    res: { clearCookie: vi.fn() } as unknown as TrpcContext["res"],
+  };
+}
+
 describe("SSOF Planning System", () => {
   beforeEach(() => {
     (dbModule as any)._reset();
@@ -200,7 +214,7 @@ describe("SSOF Planning System", () => {
 
   describe("SKU management", () => {
     it("creates a new SKU with correct weight", async () => {
-      const caller = appRouter.createCaller(createPublicContext());
+      const caller = appRouter.createCaller(createAdminContext());
       await caller.periods.init();
       const result = await caller.skus.create({ name: "Test Apple 50g", weight: "50g" });
       expect(result.id).toBeDefined();
@@ -212,7 +226,7 @@ describe("SSOF Planning System", () => {
     });
 
     it("creates SKUs with different weights", async () => {
-      const caller = appRouter.createCaller(createPublicContext());
+      const caller = appRouter.createCaller(createAdminContext());
       await caller.periods.init();
       await caller.skus.create({ name: "Apple 50g", weight: "50g" });
       await caller.skus.create({ name: "Apple 250g", weight: "250g" });
@@ -224,7 +238,7 @@ describe("SSOF Planning System", () => {
     });
 
     it("deletes a SKU and all associated data", async () => {
-      const caller = appRouter.createCaller(createPublicContext());
+      const caller = appRouter.createCaller(createAdminContext());
       await caller.periods.init();
       const created = await caller.skus.create({ name: "To Delete", weight: "50g" });
       
@@ -238,7 +252,7 @@ describe("SSOF Planning System", () => {
 
   describe("data retrieval", () => {
     it("returns forecast data with skus and periods", async () => {
-      const caller = appRouter.createCaller(createPublicContext());
+      const caller = appRouter.createCaller(createAdminContext());
       await caller.periods.init();
       await caller.skus.create({ name: "Test SKU", weight: "50g" });
 
@@ -249,7 +263,7 @@ describe("SSOF Planning System", () => {
     });
 
     it("returns IMS vs Forecast comparison data", async () => {
-      const caller = appRouter.createCaller(createPublicContext());
+      const caller = appRouter.createCaller(createAdminContext());
       await caller.periods.init();
       await caller.skus.create({ name: "Test SKU", weight: "50g" });
 
@@ -260,7 +274,7 @@ describe("SSOF Planning System", () => {
     });
 
     it("returns shipment data with weekly breakdown", async () => {
-      const caller = appRouter.createCaller(createPublicContext());
+      const caller = appRouter.createCaller(createAdminContext());
       await caller.periods.init();
       await caller.skus.create({ name: "Test SKU", weight: "50g" });
 
@@ -274,7 +288,7 @@ describe("SSOF Planning System", () => {
     });
 
     it("returns arrival data with weekly breakdown", async () => {
-      const caller = appRouter.createCaller(createPublicContext());
+      const caller = appRouter.createCaller(createAdminContext());
       await caller.periods.init();
       await caller.skus.create({ name: "Test SKU", weight: "50g" });
 
@@ -286,7 +300,7 @@ describe("SSOF Planning System", () => {
 
   describe("weight-based routing (Planning FG)", () => {
     it("filters SKUs by weight for Planning FG 50g", async () => {
-      const caller = appRouter.createCaller(createPublicContext());
+      const caller = appRouter.createCaller(createAdminContext());
       await caller.periods.init();
       await caller.skus.create({ name: "Apple 50g", weight: "50g" });
       await caller.skus.create({ name: "Apple 250g", weight: "250g" });
@@ -298,7 +312,7 @@ describe("SSOF Planning System", () => {
     });
 
     it("filters SKUs by weight for Planning FG 250g", async () => {
-      const caller = appRouter.createCaller(createPublicContext());
+      const caller = appRouter.createCaller(createAdminContext());
       await caller.periods.init();
       await caller.skus.create({ name: "Apple 50g", weight: "50g" });
       await caller.skus.create({ name: "Apple 250g", weight: "250g" });
@@ -309,7 +323,7 @@ describe("SSOF Planning System", () => {
     });
 
     it("filters SKUs by weight for Planning FG 1kg", async () => {
-      const caller = appRouter.createCaller(createPublicContext());
+      const caller = appRouter.createCaller(createAdminContext());
       await caller.periods.init();
       await caller.skus.create({ name: "Apple 50g", weight: "50g" });
       await caller.skus.create({ name: "Apple 1kg", weight: "1kg" });
@@ -320,7 +334,7 @@ describe("SSOF Planning System", () => {
     });
 
     it("returns all SKUs when no weight filter is applied", async () => {
-      const caller = appRouter.createCaller(createPublicContext());
+      const caller = appRouter.createCaller(createAdminContext());
       await caller.periods.init();
       await caller.skus.create({ name: "Apple 50g", weight: "50g" });
       await caller.skus.create({ name: "Apple 250g", weight: "250g" });
@@ -331,7 +345,7 @@ describe("SSOF Planning System", () => {
     });
 
     it("returns full planning data including cross-sheet references", async () => {
-      const caller = appRouter.createCaller(createPublicContext());
+      const caller = appRouter.createCaller(createAdminContext());
       await caller.periods.init();
       await caller.skus.create({ name: "Apple 50g", weight: "50g" });
 
@@ -345,30 +359,37 @@ describe("SSOF Planning System", () => {
   });
 
   describe("cell updates", () => {
+    // `update.*Cell` endpoints are `protectedProcedure` (any signed-in user
+    // can edit cells), so exercise them with a regular auth caller — the
+    // admin caller is only used for the admin-only setup (periods.init,
+    // skus.create). This preserves the role-boundary fidelity of the test.
     it("updates a forecast cell value", async () => {
-      const caller = appRouter.createCaller(createPublicContext());
-      await caller.periods.init();
-      await caller.skus.create({ name: "Test SKU", weight: "50g" });
+      const adminCaller = appRouter.createCaller(createAdminContext());
+      await adminCaller.periods.init();
+      await adminCaller.skus.create({ name: "Test SKU", weight: "50g" });
 
-      const result = await caller.update.forecastCell({ skuId: 1, periodId: 1, value: "5000" });
+      const userCaller = appRouter.createCaller(createAuthContext());
+      const result = await userCaller.update.forecastCell({ skuId: 1, periodId: 1, value: "5000" });
       expect(result.success).toBe(true);
     });
 
     it("updates an IMS cell with actual flag", async () => {
-      const caller = appRouter.createCaller(createPublicContext());
-      await caller.periods.init();
-      await caller.skus.create({ name: "Test SKU", weight: "50g" });
+      const adminCaller = appRouter.createCaller(createAdminContext());
+      await adminCaller.periods.init();
+      await adminCaller.skus.create({ name: "Test SKU", weight: "50g" });
 
-      const result = await caller.update.imsCell({ skuId: 1, periodId: 1, value: "4500", isActual: true });
+      const userCaller = appRouter.createCaller(createAuthContext());
+      const result = await userCaller.update.imsCell({ skuId: 1, periodId: 1, value: "4500", isActual: true });
       expect(result.success).toBe(true);
     });
 
     it("updates shipment weekly data", async () => {
-      const caller = appRouter.createCaller(createPublicContext());
-      await caller.periods.init();
-      await caller.skus.create({ name: "Test SKU", weight: "50g" });
+      const adminCaller = appRouter.createCaller(createAdminContext());
+      await adminCaller.periods.init();
+      await adminCaller.skus.create({ name: "Test SKU", weight: "50g" });
 
-      const result = await caller.update.shipmentCell({
+      const userCaller = appRouter.createCaller(createAuthContext());
+      const result = await userCaller.update.shipmentCell({
         skuId: 1, periodId: 1,
         week1: "1000", week2: "1500", week3: "2000", week4: "500",
       });
@@ -376,11 +397,12 @@ describe("SSOF Planning System", () => {
     });
 
     it("updates arrival weekly data", async () => {
-      const caller = appRouter.createCaller(createPublicContext());
-      await caller.periods.init();
-      await caller.skus.create({ name: "Test SKU", weight: "50g" });
+      const adminCaller = appRouter.createCaller(createAdminContext());
+      await adminCaller.periods.init();
+      await adminCaller.skus.create({ name: "Test SKU", weight: "50g" });
 
-      const result = await caller.update.arrivalCell({
+      const userCaller = appRouter.createCaller(createAuthContext());
+      const result = await userCaller.update.arrivalCell({
         skuId: 1, periodId: 1,
         week1: "1000", week2: "1500", week3: "2000", week4: "500",
       });
@@ -388,11 +410,12 @@ describe("SSOF Planning System", () => {
     });
 
     it("updates planning FG opening stock and adjustments", async () => {
-      const caller = appRouter.createCaller(createPublicContext());
-      await caller.periods.init();
-      await caller.skus.create({ name: "Test SKU", weight: "50g" });
+      const adminCaller = appRouter.createCaller(createAdminContext());
+      await adminCaller.periods.init();
+      await adminCaller.skus.create({ name: "Test SKU", weight: "50g" });
 
-      const result = await caller.update.planningFgCell({
+      const userCaller = appRouter.createCaller(createAuthContext());
+      const result = await userCaller.update.planningFgCell({
         skuId: 1, periodId: 1,
         openingStock: "3000", adjustments: "100",
       });
@@ -402,7 +425,7 @@ describe("SSOF Planning System", () => {
 
   describe("bulk upload", () => {
     it("uploads forecast data for multiple SKUs", async () => {
-      const caller = appRouter.createCaller(createPublicContext());
+      const caller = appRouter.createCaller(createAdminContext());
       await caller.periods.init();
 
       const result = await caller.upload.forecast({
@@ -428,7 +451,7 @@ describe("SSOF Planning System", () => {
     });
 
     it("uploads IMS actuals for existing SKUs", async () => {
-      const caller = appRouter.createCaller(createPublicContext());
+      const caller = appRouter.createCaller(createAdminContext());
       await caller.periods.init();
       await caller.skus.create({ name: "Test SKU", weight: "50g" });
 
@@ -448,7 +471,7 @@ describe("SSOF Planning System", () => {
     });
 
     it("uploads opening stock data", async () => {
-      const caller = appRouter.createCaller(createPublicContext());
+      const caller = appRouter.createCaller(createAdminContext());
       await caller.periods.init();
       await caller.skus.create({ name: "Test SKU", weight: "50g" });
 
@@ -464,7 +487,7 @@ describe("SSOF Planning System", () => {
 
   describe("cross-sheet data integrity", () => {
     it("creating a SKU initializes data across all tables", async () => {
-      const caller = appRouter.createCaller(createPublicContext());
+      const caller = appRouter.createCaller(createAdminContext());
       await caller.periods.init();
       await caller.skus.create({ name: "Cross Sheet Test", weight: "250g" });
 
@@ -481,7 +504,7 @@ describe("SSOF Planning System", () => {
     });
 
     it("deleting a SKU removes data from all tables", async () => {
-      const caller = appRouter.createCaller(createPublicContext());
+      const caller = appRouter.createCaller(createAdminContext());
       await caller.periods.init();
       const created = await caller.skus.create({ name: "To Delete", weight: "50g" });
 
