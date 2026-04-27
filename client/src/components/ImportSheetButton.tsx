@@ -2,7 +2,6 @@ import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Upload, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { useAppAuth } from "@/contexts/AuthContext";
 import { trpc } from "@/lib/trpc";
 
 interface ImportSheetButtonProps {
@@ -15,7 +14,6 @@ interface ImportSheetButtonProps {
 export default function ImportSheetButton({ sheet, country, label, onSuccess }: ImportSheetButtonProps) {
   const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { user } = useAppAuth();
   const utils = trpc.useUtils();
 
   const handleClick = () => {
@@ -39,11 +37,11 @@ export default function ImportSheetButton({ sheet, country, label, onSuccess }: 
 
       const params = new URLSearchParams({ sheet });
       if (country && country !== "Lebanon") params.set("country", country);
-      params.set("username", user?.displayName || "unknown");
 
       const response = await fetch(`/api/import-sheet?${params}`, {
         method: "POST",
         body: formData,
+        credentials: "same-origin",
       });
 
       const result = await response.json();

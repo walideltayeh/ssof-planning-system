@@ -8,7 +8,6 @@ import { TrendingUp, TrendingDown, Minus, Crown, BarChart3, Download, Upload, Lo
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { useCountry } from "@/contexts/CountryContext";
-import { useAppAuth } from "@/contexts/AuthContext";
 import { useUnit } from "@/contexts/UnitContext";
 
 const BRAND_MONTHLY_KG: Record<string, Record<number, number[]>> = {
@@ -323,7 +322,6 @@ function TwoAppleComparison({ selectedYear, comparisonYear, flavorData, otherBra
 
 export default function CompetitorAnalysisPage() {
   const { country } = useCountry();
-  const { user } = useAppAuth();
   const { unitLabel, unit } = useUnit();
   const fmtNum = (n: number, decimals?: number) => {
     const d = decimals ?? (unit === "Tons" ? 2 : 0);
@@ -473,10 +471,10 @@ export default function CompetitorAnalysisPage() {
       const formData = new FormData();
       formData.append("file", file);
       const c = country ?? "Lebanon";
-      const u = user?.username ?? "unknown";
-      const res = await fetch(`/api/import-competitor?country=${encodeURIComponent(c)}&username=${encodeURIComponent(u)}`, {
+      const res = await fetch(`/api/import-competitor?country=${encodeURIComponent(c)}`, {
         method: "POST",
         body: formData,
+        credentials: "same-origin",
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Upload failed");

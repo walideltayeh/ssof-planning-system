@@ -1,13 +1,30 @@
 import "dotenv/config";
-import express from "express";
+import express, { type Request, type Response } from "express";
 import { createServer } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
+import { sdk } from "./sdk";
 import { serveStatic, setupVite } from "./vite";
 import { runStartupMigration } from "../startup-migration";
+
+async function authenticateHttpRequest(req: Request, res: Response) {
+  try {
+    const user = await sdk.authenticateRequest(req);
+    // Mirror the tRPC `getAuditActor` fallback: a successfully authenticated
+    // user without a stored display name still gets through; we just label the
+    // audit row "System" rather than rejecting the upload. The important
+    // guarantee — that the actor is not a browser-supplied query string — is
+    // preserved either way.
+    const trustedName = user.name?.trim() || "System";
+    return { user, trustedName };
+  } catch {
+    res.status(401).json({ error: "Unauthenticated" });
+    return null;
+  }
+}
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -93,6 +110,11 @@ async function startServer() {
 
   app.post("/api/import-sheet", async (req, res) => {
     try {
+      // Authenticate via the same session cookie tRPC uses. The audit
+      // username is derived from the verified session — never from the
+      // browser-supplied `username` query string, which is ignored.
+      const auth = await authenticateHttpRequest(req, res);
+      if (!auth) return;
       const multer = (await import("multer")).default;
       const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
       await new Promise<void>((resolve, reject) => {
@@ -107,13 +129,12 @@ async function startServer() {
       }
       const sheet = req.query.sheet as string;
       const country = (req.query.country as string) || "Lebanon";
-      const username = (req.query.username as string) || "unknown";
       if (!sheet) {
         res.status(400).json({ error: "Missing 'sheet' query parameter" });
         return;
       }
       const { handleImportSheet } = await import("../excelImport");
-      const result = await handleImportSheet(file.buffer, sheet, country, username);
+      const result = await handleImportSheet(file.buffer, sheet, country, auth.trustedName);
       res.json({ success: true, ...result });
     } catch (err: any) {
       console.error("[Sheet Import] Error:", err);
@@ -350,6 +371,11 @@ async function startServer() {
   // Competitor Analysis upload
   app.post("/api/import-competitor", async (req, res) => {
     try {
+      // Authenticate via the same session cookie tRPC uses. The audit
+      // username is derived from the verified session — never from the
+      // browser-supplied `username` query string, which is ignored.
+      const auth = await authenticateHttpRequest(req, res);
+      if (!auth) return;
       const multer = (await import("multer")).default;
       const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
       await new Promise<void>((resolve, reject) => {
@@ -361,7 +387,7 @@ async function startServer() {
       if (!file) { res.status(400).json({ error: "No file uploaded" }); return; }
 
       const country = (req.query.country as string) || "Lebanon";
-      const username = (req.query.username as string) || "unknown";
+      const username = auth.trustedName;
       const ExcelJS = (await import("exceljs")).default;
       const wb = new ExcelJS.Workbook();
       await wb.xlsx.load(file.buffer);
