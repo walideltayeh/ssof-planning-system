@@ -270,17 +270,18 @@ function DashboardLayoutContent({
   useEffect(() => {
     const currentUser = appUser || (user ? { username: user.openId, displayName: user.name || user.openId } : null);
     if (!currentUser) return;
-    const username = appUser?.username || user?.openId || "";
-    const displayNameVal = appUser?.displayName || user?.name || username;
     const countryVal = country || "Unknown";
     const pageVal = PAGE_LABELS[location] || location;
 
+    // Identity (username/displayName) is derived server-side from `ctx.user`,
+    // so we only send navigation context here. See `presence.heartbeat` in
+    // server/routers.ts.
     // Send heartbeat immediately on mount/page change
-    heartbeat.mutate({ username, displayName: displayNameVal, country: countryVal, currentPage: pageVal });
+    heartbeat.mutate({ country: countryVal, currentPage: pageVal });
 
     // Then every 30s
     const interval = setInterval(() => {
-      heartbeat.mutate({ username, displayName: displayNameVal, country: countryVal, currentPage: pageVal });
+      heartbeat.mutate({ country: countryVal, currentPage: pageVal });
     }, 30000);
 
     return () => clearInterval(interval);
@@ -294,7 +295,8 @@ function DashboardLayoutContent({
       logAction.mutate({ action: "logout", details: `User logged out` });
     }
     if (username) {
-      leavePresence.mutate({ username });
+      // Username is derived server-side from `ctx.user`; no input needed.
+      leavePresence.mutate();
     }
     // Clear the server session cookie established by appUsers.verifyLogin so
     // protected procedures stop accepting this browser after logout. Without

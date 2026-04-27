@@ -1906,27 +1906,45 @@ export const appRouter = router({
 
   // ==================== PRESENCE ====================
   presence: router({
-    // Heartbeat: called every 30s by logged-in clients to stay "online"
+    // Heartbeat: called every 30s by logged-in clients to stay "online".
+    //
+    // Identity (username/displayName) is derived from the authenticated session
+    // (`ctx.user`) and the linked app-user record — never from client input —
+    // so a logged-in user cannot impersonate someone else in the "online users"
+    // widget by passing a different username from the browser.
     heartbeat: protectedProcedure
       .input(z.object({
-        username: z.string(),
-        displayName: z.string(),
         country: z.string(),
         currentPage: z.string(),
       }))
-      .mutation(async ({ input }) => {
-        await db.upsertPresence(input);
+      .mutation(async ({ ctx, input }) => {
+        const username = ctx.user.name?.trim();
+        if (!username) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "No username on session" });
+        }
+        const appUser = await db.getAppUserByUsername(username);
+        const displayName = appUser?.displayName?.trim() || username;
+        await db.upsertPresence({
+          username,
+          displayName,
+          country: input.country,
+          currentPage: input.currentPage,
+        });
         return { success: true };
       }),
     // Get all users seen in the last 2 minutes
     online: publicProcedure.query(async () => {
       return db.getOnlineUsers();
     }),
-    // Remove presence on logout
+    // Remove presence on logout. The username is derived from `ctx.user` so
+    // a caller cannot evict another user from the online list.
     leave: protectedProcedure
-      .input(z.object({ username: z.string() }))
-      .mutation(async ({ input }) => {
-        await db.removePresence(input.username);
+      .mutation(async ({ ctx }) => {
+        const username = ctx.user.name?.trim();
+        if (!username) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "No username on session" });
+        }
+        await db.removePresence(username);
         return { success: true };
       }),
   }),
