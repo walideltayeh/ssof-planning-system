@@ -25,7 +25,17 @@ export function getClosingStockStyle(val: number): string {
 // composes them inside its setState callbacks.
 
 export interface UndoEntry {
-  type: "planningFgCell" | "syncIms" | "invoicedSHP" | "imsDirect" | "syncArrival";
+  type:
+    | "planningFgCell"
+    | "syncIms"
+    | "invoicedSHP"
+    | "imsDirect"
+    | "syncArrival"
+    // Syria/Libya (intl) Planning FG grid edits — same shape as Lebanon's
+    // entries but routed through the country-scoped mutations on undo/redo.
+    | "intlPlanningFgCell"
+    | "intlIms"
+    | "intlProduction";
   skuId: number;
   periodId: number;
   label: string;

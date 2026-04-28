@@ -14,6 +14,13 @@ import { toast } from "sonner";
 import ExportSheetButton from "@/components/ExportSheetButton";
 import ImportSheetButton from "@/components/ImportSheetButton";
 import { computeArrivalDate } from "./ShipmentPage";
+import {
+  pushEntry as pushUndoStackEntry,
+  clearStackForSku,
+  popEntry as popUndoStackEntry,
+  type UndoEntry,
+  type UndoStacks,
+} from "./planningFg.helpers";
 
 // Row labels for the Planning FG table (Syria/Libya)
 const ROW_LABELS = [
@@ -118,6 +125,25 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
     },
     onError: (err: any) => toast.error("Failed to save Production: " + err.message),
   });
+
+  // ── Per-SKU undo / redo stacks ─────────────────────────────────────────────
+  const [undoStacks, setUndoStacks] = useState<UndoStacks>(new Map());
+  const [redoStacks, setRedoStacks] = useState<UndoStacks>(new Map());
+  const [isUndoing, setIsUndoing] = useState(false);
+  const [isRedoing, setIsRedoing] = useState(false);
+
+  const pushUndo = useCallback((entry: UndoEntry) => {
+    setUndoStacks(prev => pushUndoStackEntry(prev, entry));
+    // A fresh edit invalidates any pending redo branch for this SKU.
+    setRedoStacks(prev => clearStackForSku(prev, entry.skuId));
+  }, []);
+
+  const pushRedo = useCallback((entry: UndoEntry) => {
+    setRedoStacks(prev => pushUndoStackEntry(prev, entry));
+  }, []);
+
+  const getSkuUndoStack = useCallback((skuId: number) => undoStacks.get(skuId) ?? [], [undoStacks]);
+  const getSkuRedoStack = useCallback((skuId: number) => redoStacks.get(skuId) ?? [], [redoStacks]);
 
   // ── Current period detection ───────────────────────────────────────────────
   const now = new Date();
@@ -347,23 +373,48 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
     const numVal = parseFloat(newVal);
     if (isNaN(numVal)) return;
 
-    const { label } = editingCell;
-    const period = allPeriods.find(p => p.id === editingCell.periodId);
-    const sku = allSkus.find(s => s.id === editingCell.skuId);
+    const { label, skuId, periodId } = editingCell;
+    const period = allPeriods.find(p => p.id === periodId);
+    const sku = allSkus.find(s => s.id === skuId);
+
+    // Compute the current (old) value for this cell so we can record an
+    // undo entry that knows how to roll the change back.
+    const key = `${skuId}-${periodId}`;
+    let oldNum = 0;
+    if (label === "IMS") {
+      oldNum = imsMap.get(key) ?? 0;
+    } else if (label === "Production") {
+      const revised = revisedMap.get(key);
+      oldNum = revised !== undefined ? revised : (forecastMap.get(key) ?? 0);
+    } else if (label === "Adjustments") {
+      oldNum = planningMap.get(key)?.adjustments ?? 0;
+    } else if (label === "Opening Stock") {
+      oldNum = planningMap.get(key)?.openingStock ?? 0;
+    }
+
+    // No-op: nothing changed, don't pollute the undo stack.
+    if (numVal === oldNum) return;
+
+    const skuName = sku?.name ?? "";
+    const periodLabel = period?.label ?? "";
+    const oldValue = oldNum.toString();
+    const newValue = numVal.toString();
 
     if (label === "IMS") {
+      pushUndo({ type: "intlIms", skuId, periodId, label, oldValue, newValue, skuName, periodLabel });
       updateImsMut.mutate({
-        skuId: editingCell.skuId,
-        periodId: editingCell.periodId,
+        skuId,
+        periodId,
         value: newVal,
         country: country as "Syria" | "Libya",
         skuName: sku?.name,
         periodLabel: period?.label,
       });
     } else if (label === "Production") {
+      pushUndo({ type: "intlProduction", skuId, periodId, label, oldValue, newValue, skuName, periodLabel });
       updateProductionMut.mutate({
-        skuId: editingCell.skuId,
-        periodId: editingCell.periodId,
+        skuId,
+        periodId,
         week1: newVal,
         week2: "0",
         week3: "0",
@@ -373,15 +424,179 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
         periodLabel: period?.label,
       });
     } else {
+      pushUndo({ type: "intlPlanningFgCell", skuId, periodId, label, oldValue, newValue, skuName, periodLabel });
       updateCell.mutate({
-        skuId: editingCell.skuId,
-        periodId: editingCell.periodId,
-        label: editingCell.label,
+        skuId,
+        periodId,
+        label,
         value: newVal,
         country: country as "Syria" | "Libya",
+        skuName: sku?.name,
+        periodLabel: period?.label,
+        oldValue,
       });
     }
   };
+
+  // ── Per-SKU undo handler ──────────────────────────────────────────────────
+  const handleUndoForSku = useCallback((skuId: number) => {
+    const stack = undoStacks.get(skuId) ?? [];
+    if (stack.length === 0) return;
+    const entry = stack[stack.length - 1];
+    setIsUndoing(true);
+
+    const onDone = () => {
+      setUndoStacks(prev => popUndoStackEntry(prev, skuId).stacks);
+      pushRedo(entry);
+      setIsUndoing(false);
+      toast.success(
+        `Undone: ${entry.label} (${entry.periodLabel}) reverted from ${entry.newValue || "0"} back to ${entry.oldValue || "0"}`,
+        { duration: 3000 }
+      );
+    };
+
+    const onErr = (err: any) => {
+      setIsUndoing(false);
+      toast.error("Undo failed: " + err.message);
+    };
+
+    const countryArg = country as "Syria" | "Libya";
+
+    if (entry.type === "intlIms") {
+      updateImsMut.mutate({
+        skuId: entry.skuId,
+        periodId: entry.periodId,
+        value: entry.oldValue,
+        country: countryArg,
+        skuName: entry.skuName,
+        periodLabel: entry.periodLabel,
+      }, { onSuccess: onDone, onError: onErr });
+    } else if (entry.type === "intlProduction") {
+      updateProductionMut.mutate({
+        skuId: entry.skuId,
+        periodId: entry.periodId,
+        week1: entry.oldValue,
+        week2: "0",
+        week3: "0",
+        week4: "0",
+        country: countryArg,
+        skuName: entry.skuName,
+        periodLabel: entry.periodLabel,
+      }, { onSuccess: onDone, onError: onErr });
+    } else if (entry.type === "intlPlanningFgCell") {
+      updateCell.mutate({
+        skuId: entry.skuId,
+        periodId: entry.periodId,
+        label: entry.label,
+        value: entry.oldValue,
+        country: countryArg,
+        skuName: entry.skuName,
+        periodLabel: entry.periodLabel,
+        oldValue: entry.newValue,
+      }, { onSuccess: onDone, onError: onErr });
+    } else {
+      // Unknown type — should never happen on this page, but guard.
+      setIsUndoing(false);
+    }
+  }, [undoStacks, country, updateImsMut, updateProductionMut, updateCell, pushRedo]);
+
+  // ── Per-SKU redo handler ──────────────────────────────────────────────────
+  const handleRedoForSku = useCallback((skuId: number) => {
+    const stack = redoStacks.get(skuId) ?? [];
+    if (stack.length === 0) return;
+    const entry = stack[stack.length - 1];
+    setIsRedoing(true);
+
+    const onDone = () => {
+      setRedoStacks(prev => popUndoStackEntry(prev, skuId).stacks);
+      // Push back to undo stack WITHOUT clearing redo — we're inside a redo.
+      setUndoStacks(prev => pushUndoStackEntry(prev, entry));
+      setIsRedoing(false);
+      toast.success(
+        `Redone: ${entry.label} (${entry.periodLabel}) re-applied ${entry.oldValue || "0"} → ${entry.newValue || "0"}`,
+        { duration: 3000 }
+      );
+    };
+
+    const onErr = (err: any) => {
+      setIsRedoing(false);
+      toast.error("Redo failed: " + err.message);
+    };
+
+    const countryArg = country as "Syria" | "Libya";
+
+    if (entry.type === "intlIms") {
+      updateImsMut.mutate({
+        skuId: entry.skuId,
+        periodId: entry.periodId,
+        value: entry.newValue,
+        country: countryArg,
+        skuName: entry.skuName,
+        periodLabel: entry.periodLabel,
+      }, { onSuccess: onDone, onError: onErr });
+    } else if (entry.type === "intlProduction") {
+      updateProductionMut.mutate({
+        skuId: entry.skuId,
+        periodId: entry.periodId,
+        week1: entry.newValue,
+        week2: "0",
+        week3: "0",
+        week4: "0",
+        country: countryArg,
+        skuName: entry.skuName,
+        periodLabel: entry.periodLabel,
+      }, { onSuccess: onDone, onError: onErr });
+    } else if (entry.type === "intlPlanningFgCell") {
+      updateCell.mutate({
+        skuId: entry.skuId,
+        periodId: entry.periodId,
+        label: entry.label,
+        value: entry.newValue,
+        country: countryArg,
+        skuName: entry.skuName,
+        periodLabel: entry.periodLabel,
+        oldValue: entry.oldValue,
+      }, { onSuccess: onDone, onError: onErr });
+    } else {
+      setIsRedoing(false);
+    }
+  }, [redoStacks, country, updateImsMut, updateProductionMut, updateCell]);
+
+  // ── Ctrl+Z / Ctrl+Shift+Z keyboard shortcuts ──────────────────────────────
+  const handleGlobalUndo = useCallback(() => {
+    let latestSkuId = 0;
+    for (const [skuId, stack] of Array.from(undoStacks)) {
+      if (stack.length > 0) latestSkuId = skuId;
+    }
+    if (latestSkuId) handleUndoForSku(latestSkuId);
+  }, [undoStacks, handleUndoForSku]);
+
+  const handleGlobalRedo = useCallback(() => {
+    let latestSkuId = 0;
+    for (const [skuId, stack] of Array.from(redoStacks)) {
+      if (stack.length > 0) latestSkuId = skuId;
+    }
+    if (latestSkuId) handleRedoForSku(latestSkuId);
+  }, [redoStacks, handleRedoForSku]);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if ((e.ctrlKey || e.metaKey) && e.key === "z" && e.shiftKey) {
+        e.preventDefault();
+        handleGlobalRedo();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        handleGlobalUndo();
+        return;
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [handleGlobalUndo, handleGlobalRedo]);
 
   const handleCellBlur = () => {
     if (skipBlurRef.current) {
@@ -682,7 +897,7 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
         return (
           <Card key={sku.id} className="overflow-hidden">
             <CardHeader className="py-3 px-4 bg-muted/30 border-b">
-              <CardTitle className="text-sm font-semibold flex items-center gap-2 justify-between">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2 justify-between flex-wrap">
                 <div className="flex items-center gap-2">
                   <span>{sku.name}</span>
                   <span className="text-xs font-normal text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
@@ -694,17 +909,78 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
                     {sku.packagingType ?? 'New'}
                   </span>
                 </div>
-                <button
-                  onClick={() => refetch()}
-                  disabled={isFetching}
-                  className="flex items-center gap-1 text-[11px] font-medium text-primary border border-primary/30 px-2 py-1 rounded hover:bg-primary/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="Sync latest data from server"
-                >
-                  <svg className={`w-3 h-3 ${isFetching ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                  {isFetching ? 'Syncing...' : 'Sync'}
-                </button>
+                <div className="ml-auto flex items-center gap-1">
+                  {/* Per-SKU Undo + Redo buttons (only shown when there's history) */}
+                  {(() => {
+                    const skuUndoStack = getSkuUndoStack(sku.id);
+                    const skuRedoStack = getSkuRedoStack(sku.id);
+                    if (skuUndoStack.length === 0 && skuRedoStack.length === 0) return null;
+
+                    const lastUndo = skuUndoStack.length > 0 ? skuUndoStack[skuUndoStack.length - 1] : null;
+                    const lastRedo = skuRedoStack.length > 0 ? skuRedoStack[skuRedoStack.length - 1] : null;
+
+                    return (
+                      <>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={isUndoing || isRedoing || skuUndoStack.length === 0}
+                          onClick={(e) => { e.stopPropagation(); handleUndoForSku(sku.id); }}
+                          className="flex items-center gap-1 text-[10px] h-6 px-2 border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 disabled:opacity-40"
+                          title={lastUndo ? `Undo: ${lastUndo.label} (${lastUndo.periodLabel}): ${lastUndo.newValue || "0"} → ${lastUndo.oldValue || "0"} (Ctrl+Z)` : "Nothing to undo"}
+                          data-testid={`button-undo-${sku.id}`}
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3">
+                            <path fillRule="evenodd" d="M7.793 2.232a.75.75 0 0 1-.025 1.06L3.622 7.25h10.003a5.375 5.375 0 0 1 0 10.75H10.75a.75.75 0 0 1 0-1.5h2.875a3.875 3.875 0 0 0 0-7.75H3.622l4.146 3.957a.75.75 0 0 1-1.036 1.085l-5.5-5.25a.75.75 0 0 1 0-1.085l5.5-5.25a.75.75 0 0 1 1.06.025Z" clipRule="evenodd" />
+                          </svg>
+                          {isUndoing ? "Undoing..." : lastUndo ? (
+                            <span>
+                              Undo {lastUndo.label} ({lastUndo.periodLabel}):{" "}
+                              <span className="font-bold">{lastUndo.newValue || "0"}</span>
+                              {" → "}
+                              <span className="font-bold">{lastUndo.oldValue || "0"}</span>
+                              {skuUndoStack.length > 1 && <span className="ml-1 opacity-70">+{skuUndoStack.length - 1} more</span>}
+                            </span>
+                          ) : "Undo"}
+                        </Button>
+
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={isUndoing || isRedoing || skuRedoStack.length === 0}
+                          onClick={(e) => { e.stopPropagation(); handleRedoForSku(sku.id); }}
+                          className="flex items-center gap-1 text-[10px] h-6 px-2 border-blue-300 bg-blue-50 hover:bg-blue-100 text-blue-800 disabled:opacity-40"
+                          title={lastRedo ? `Redo: ${lastRedo.label} (${lastRedo.periodLabel}): ${lastRedo.oldValue || "0"} → ${lastRedo.newValue || "0"} (Ctrl+Shift+Z)` : "Nothing to redo"}
+                          data-testid={`button-redo-${sku.id}`}
+                        >
+                          {isRedoing ? "Redoing..." : lastRedo ? (
+                            <span>
+                              Redo {lastRedo.label} ({lastRedo.periodLabel}):{" "}
+                              <span className="font-bold">{lastRedo.oldValue || "0"}</span>
+                              {" → "}
+                              <span className="font-bold">{lastRedo.newValue || "0"}</span>
+                              {skuRedoStack.length > 1 && <span className="ml-1 opacity-70">+{skuRedoStack.length - 1} more</span>}
+                            </span>
+                          ) : "Redo"}
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3 h-3">
+                            <path fillRule="evenodd" d="M12.207 2.232a.75.75 0 0 0 .025 1.06l4.146 3.958H6.375a5.375 5.375 0 0 0 0 10.75H9.25a.75.75 0 0 0 0-1.5H6.375a3.875 3.875 0 0 1 0-7.75h10.003l-4.146 3.957a.75.75 0 0 0 1.036 1.085l5.5-5.25a.75.75 0 0 0 0-1.085l-5.5-5.25a.75.75 0 0 0-1.06.025Z" clipRule="evenodd" />
+                          </svg>
+                        </Button>
+                      </>
+                    );
+                  })()}
+                  <button
+                    onClick={() => refetch()}
+                    disabled={isFetching}
+                    className="flex items-center gap-1 text-[11px] font-medium text-primary border border-primary/30 px-2 py-1 rounded hover:bg-primary/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Sync latest data from server"
+                  >
+                    <svg className={`w-3 h-3 ${isFetching ? 'animate-spin' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    {isFetching ? 'Syncing...' : 'Sync'}
+                  </button>
+                </div>
               </CardTitle>
             </CardHeader>
             <CardContent className="p-0 overflow-x-auto">
