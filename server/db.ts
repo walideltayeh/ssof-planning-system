@@ -904,7 +904,7 @@ export async function getAuditLogs(opts?: { limit?: number; offset?: number; use
   const limit = opts?.limit || 50;
   const offset = opts?.offset || 0;
 
-  let conditions: any[] = [];
+  const conditions: any[] = [];
   if (opts?.username) conditions.push(eq(auditTrail.username, opts.username));
   if (opts?.action) conditions.push(eq(auditTrail.action, opts.action));
   if (opts?.sheet) conditions.push(eq(auditTrail.sheet, opts.sheet));
@@ -1587,7 +1587,7 @@ export async function getAnalysisByFlavor() {
   // Extract flavor from SKU name: "Al Fakher <Flavor> <Weight>" pattern
   const extractFlavor = (name: string): string => {
     // Remove "Al Fakher " prefix and weight suffix
-    let flavor = name.replace(/^Al Fakher\s*/i, "").replace(/\s*\d+g$/i, "").replace(/\s*\d+kg$/i, "").trim();
+    const flavor = name.replace(/^Al Fakher\s*/i, "").replace(/\s*\d+g$/i, "").replace(/\s*\d+kg$/i, "").trim();
     return flavor || name;
   };
 
@@ -3577,7 +3577,7 @@ export async function getForecastIntelligence(country: "Lebanon" | "Syria" | "Li
       ? Math.round(parseFloat(fcRows.find(f => f.skuId === sku.id && f.periodId === nextPeriod.id)?.value ?? "0") || 0)
       : 0;
 
-    let baseRate = avg3m > 0 ? avg3m : avg6m > 0 ? avg6m : avgAll;
+    const baseRate = avg3m > 0 ? avg3m : avg6m > 0 ? avg6m : avgAll;
     const seasonalAdj = seasonalityIndex > 0 ? seasonalityIndex : 1;
     let recommended = baseRate * seasonalAdj;
 

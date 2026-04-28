@@ -159,7 +159,7 @@ describe("FIFO stock attribution", () => {
 
   it("shows 0 at-risk when closing stock is 0", () => {
     const batches = [{ qty: 1000, expiryMonths: -1 }];
-    let remainingStock = 0;
+    const remainingStock = 0;
     const atRisk = Math.min(remainingStock, batches[0].qty);
     expect(atRisk).toBe(0);
   });

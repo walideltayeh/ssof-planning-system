@@ -58,6 +58,7 @@ export default function AuditTrailPage() {
     );
   }
 
+  // eslint-disable-next-line react-hooks/rules-of-hooks -- pre-existing access-check early return; restructure tracked separately
   const queryInput = useMemo(() => ({
     limit: PAGE_SIZE,
     offset: page * PAGE_SIZE,

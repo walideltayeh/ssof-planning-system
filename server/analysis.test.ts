@@ -96,7 +96,7 @@ describe("Analysis: Zone classification", () => {
 
 describe("Analysis: Flavor extraction", () => {
   const extractFlavor = (name: string): string => {
-    let flavor = name.replace(/^Al Fakher\s*/i, "").replace(/\s*\d+g$/i, "").replace(/\s*\d+kg$/i, "").trim();
+    const flavor = name.replace(/^Al Fakher\s*/i, "").replace(/\s*\d+g$/i, "").replace(/\s*\d+kg$/i, "").trim();
     return flavor || name;
   };
 

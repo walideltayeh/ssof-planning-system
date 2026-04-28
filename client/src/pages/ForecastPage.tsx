@@ -273,7 +273,7 @@ export default function ForecastPage() {
   }));
 
   // Build flat ordered list of all navigable cell IDs (row-major: sku0-p0, sku0-p1, ..., sku1-p0, ...)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   const navigableCellIds = useMemo(() => {
     const visiblePeriods = periodsByYear
       .filter(({ year }) => !collapsedYears.has(year))
@@ -291,12 +291,12 @@ export default function ForecastPage() {
       }
     }
     return ids;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, [groupedSkus, periodsByYear, collapsedYears, collapsedCategories, collapsedWeights]);
 
   const visiblePeriodCount = useMemo(() =>
     periodsByYear.filter(({ year }) => !collapsedYears.has(year)).flatMap(({ periods: yp }) => yp).length,
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   [periodsByYear, collapsedYears]
   );
 

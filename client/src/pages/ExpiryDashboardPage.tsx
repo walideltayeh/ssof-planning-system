@@ -172,7 +172,7 @@ interface MonthGroup {
   totalRemaining: number;
   worstTier: AlertTier;
 }
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 const _rowTypeHelper = [] as any[];
 
 export default function ExpiryDashboardPage() {

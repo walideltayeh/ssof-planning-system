@@ -121,7 +121,7 @@ function parseSkuSplitSheet(ws: ExcelJS.Worksheet): { rows: ParsedSkuRow[]; coun
  * Main entry point: parse a Buffer containing an Excel workbook.
  * Detects single-month vs multi-month format by sheet names.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 export async function parseForecastSplitExcel(buffer: any): Promise<ParsedUploadResult> {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buffer);

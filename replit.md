@@ -59,6 +59,7 @@ Default admin user: `walid` / `walid` (owner account)
 pnpm dev          # Start development server on port 5000
 pnpm build        # Build for production
 pnpm run check    # TypeScript type check (must stay green)
+pnpm lint         # ESLint (must stay green — warnings allowed)
 pnpm db:push      # Generate + run DB migrations
 ```
 
@@ -74,6 +75,17 @@ A `test` validation step runs `pnpm test` (Vitest) on every task. The Vitest con
 - `client/**/*.{test,spec}.{ts,tsx}` runs in the `jsdom` environment with `@vitejs/plugin-react`
 
 Setup file `vitest.setup.ts` registers `@testing-library/jest-dom` matchers globally. Frontend testing uses `@testing-library/react` + `@testing-library/user-event`. Heavy-logic helpers from large pages (e.g. `client/src/pages/planningFg.helpers.ts`, `client/src/pages/forecastSplit.helpers.ts`) are extracted into sibling `.helpers.ts` files so they can be unit-tested without booting tRPC/React Query. Component tests (e.g. `CountryAccessDenied.test.tsx`) mock `@/contexts/CountryContext` and `wouter` to render in isolation.
+
+### Lint guard
+
+A `lint` validation step is registered that runs `pnpm lint` (ESLint flat config at `eslint.config.js`) on every change. The config uses `@eslint/js` recommended + `typescript-eslint` recommended + `eslint-plugin-react-hooks` recommended for the client. Configuration notes:
+
+- `@typescript-eslint/no-unused-vars` is intentionally set to `warn` (not `error`) because the codebase has a large pre-existing baseline of unused imports/locals; new code should still avoid introducing them, and follow-up cleanups can tighten this to `error` later.
+- `react-hooks/rules-of-hooks` is `error`. Two pre-existing access-check early returns (`AuditTrailPage.tsx`, `UploadPage.tsx`) carry targeted `eslint-disable-next-line` comments — restructure them rather than adding more disables.
+- `@typescript-eslint/no-explicit-any` is `off` (the codebase uses `any` extensively in Excel parsing/router glue; flipping it on would create thousands of false alarms).
+- The ignore list covers `dist/`, `drizzle/`, `attached_assets/`, `.local/`, generated artifacts, and the like.
+
+Lint failures (errors only) block task completion the same way `typecheck` and `test` do. Warnings are surfaced but do not fail the run.
 
 ## Database Migration
 

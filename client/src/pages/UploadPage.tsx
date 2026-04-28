@@ -96,6 +96,7 @@ export default function UploadPage() {
     );
   }
 
+  // eslint-disable-next-line react-hooks/rules-of-hooks -- pre-existing access-check early return; restructure tracked separately
   const handleFileUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>, type: string) => {
     const file = e.target.files?.[0];
     if (!file) return;

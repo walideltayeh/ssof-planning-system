@@ -903,7 +903,7 @@ export const appRouter = router({
         const country = (input.country || 'Lebanon') as import('../drizzle/schema').Country;
         let periodsRefreshed = await db.getPeriodsForCountry(country);
         if (periodsRefreshed.length === 0) { await db.ensurePeriods(); periodsRefreshed = await db.getPeriodsForCountry(country); }
-        let allSkus = await db.getSkusForCountry(country, true);
+        const allSkus = await db.getSkusForCountry(country, true);
         const pfgRecords: { skuId: number; periodId: number; openingStock?: string; adjustments?: string; invoiced?: string; arrivals?: string }[] = [];
         const imsRecords: { skuId: number; periodId: number; value: string; isActual: boolean }[] = [];
         const now = new Date();
@@ -2960,7 +2960,7 @@ ${skus.map(s => `  ${s.id} — ${s.name} ${s.weight} (${(s as any).packagingType
         if (!parsed) {
           const algorithmicRecs = skuSummaries.map(sk => buildAlgoRecForSku(sk));
 
-          let allocated = algorithmicRecs.reduce((s, r) => s + r.recommendedMastercases, 0);
+          const allocated = algorithmicRecs.reduce((s, r) => s + r.recommendedMastercases, 0);
           let diff = totalMastercases - allocated;
           if (diff !== 0 && algorithmicRecs.length > 0) {
             algorithmicRecs.sort((a, b) => b.recommendedMastercases - a.recommendedMastercases);
@@ -3291,7 +3291,7 @@ Use the base allocation hints above as a starting point; you may adjust ±25% ba
             const current = Math.max(0, Math.round(rec.recommendedMastercases ?? 0));
             if (proposed > current) targets.set(idx, proposed - current);
           });
-          let needed = Array.from(targets.values()).reduce((s, v) => s + v, 0);
+          const needed = Array.from(targets.values()).reduce((s, v) => s + v, 0);
           if (needed > 0) {
             // Donors: non-flagged SKUs with current allocation > 1, sorted by allocation desc
             const donors = recommendations
