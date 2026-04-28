@@ -26,6 +26,20 @@ async function authenticateHttpRequest(req: Request, res: Response) {
   }
 }
 
+// Admin-only variant. Mirrors `adminProcedure` in the tRPC router, which
+// authorizes by `users.role === 'admin'` (set for AppUser admins/owners by
+// `establishAppUserSession`). Returns null after writing a 401/403 response,
+// so callers should `if (!auth) return;`.
+async function authenticateHttpAdmin(req: Request, res: Response) {
+  const auth = await authenticateHttpRequest(req, res);
+  if (!auth) return null;
+  if (auth.user.role !== "admin") {
+    res.status(403).json({ error: "Admin privileges required" });
+    return null;
+  }
+  return auth;
+}
+
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
     const server = net.createServer();
@@ -57,6 +71,7 @@ async function startServer() {
   // Excel export endpoint (server-side with ExcelJS for live formulas)
   app.get("/api/export-excel", async (req, res) => {
     try {
+      if (!(await authenticateHttpRequest(req, res))) return;
       const country = req.query.country as string | undefined;
       let buffer: Buffer;
       let countryLabel = "Lebanon";
@@ -80,6 +95,7 @@ async function startServer() {
   });
   app.get("/api/export-sheet", async (req, res) => {
     try {
+      if (!(await authenticateHttpRequest(req, res))) return;
       const sheet = req.query.sheet as string;
       const country = req.query.country as string | undefined;
       if (!sheet) {
@@ -144,6 +160,7 @@ async function startServer() {
 
   app.get("/api/export-analysis", async (req, res) => {
     try {
+      if (!(await authenticateHttpRequest(req, res))) return;
       const { generateAnalysisExcelBuffer } = await import("../excelExport");
       const buffer = await generateAnalysisExcelBuffer();
       const now = new Date();
@@ -159,6 +176,7 @@ async function startServer() {
 
   app.get("/api/export-intl-analysis", async (req, res) => {
     try {
+      if (!(await authenticateHttpRequest(req, res))) return;
       const country = req.query.country as string;
       if (country !== "Syria" && country !== "Libya") {
         return res.status(400).json({ error: "Country must be Syria or Libya" });
@@ -178,6 +196,7 @@ async function startServer() {
 
   app.get("/api/export-ims-template", async (req, res) => {
     try {
+      if (!(await authenticateHttpRequest(req, res))) return;
       const country = (req.query.country as string) || "Lebanon";
       const { getSkusForCountry, getPeriodsForCountry, getImsDataForCountry } = await import("../db");
       const ExcelJS = (await import("exceljs")).default;
@@ -219,6 +238,7 @@ async function startServer() {
   // Forecast split Excel export endpoint
   app.post("/api/export-forecast-split", async (req, res) => {
     try {
+      if (!(await authenticateHttpRequest(req, res))) return;
       const { generateForecastSplitExcel } = await import("../forecastSplitExcel");
       const buffer = await generateForecastSplitExcel(req.body);
       const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -236,6 +256,7 @@ async function startServer() {
   // Competitor Analysis template export
   app.get("/api/export-competitor-template", async (req, res) => {
     try {
+      if (!(await authenticateHttpRequest(req, res))) return;
       const country = (req.query.country as string) || "Lebanon";
       const ExcelJS = (await import("exceljs")).default;
       const { getCompetitorData } = await import("../db");
@@ -477,6 +498,7 @@ async function startServer() {
   // Multi-month forecast split Excel export endpoint
   app.post("/api/export-forecast-split-multi", async (req, res) => {
     try {
+      if (!(await authenticateHttpRequest(req, res))) return;
       const { generateMultiMonthForecastSplitExcel } = await import("../forecastSplitExcelMulti");
       const buffer = await generateMultiMonthForecastSplitExcel(req.body);
       const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -496,6 +518,7 @@ async function startServer() {
   // Forecast split Excel upload endpoint — parses uploaded (modified) Excel and returns structured SKU rows
   app.post("/api/upload-forecast-split", async (req, res) => {
     try {
+      if (!(await authenticateHttpRequest(req, res))) return;
       const multer = (await import("multer")).default;
       const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
       await new Promise<void>((resolve, reject) => {
@@ -517,9 +540,13 @@ async function startServer() {
     }
   });
 
-  // Temporary full-database export endpoint (for data migration)
+  // Temporary full-database export endpoint (for data migration).
+  // Admin-only: returns the entire SSOF dataset (all snapshots, clearance
+  // events, and version history for every country), so anonymous or
+  // viewer-level access would let any caller exfiltrate the full database.
   app.get("/api/export-db", async (req, res) => {
     try {
+      if (!(await authenticateHttpAdmin(req, res))) return;
       const db = await import("../db");
       const [lebanon, syria, libya, syriaEvents, libyaEvents, lebaEvents, versions] = await Promise.all([
         db.getFullSnapshot("Lebanon"),
@@ -553,9 +580,12 @@ async function startServer() {
     }
   });
 
-  // Temporary full-database import endpoint (for data migration)
+  // Temporary full-database import endpoint (for data migration).
+  // Admin-only: this clears every data table before reinserting the supplied
+  // payload, so anonymous access would let any caller wipe production data.
   app.post("/api/import-db", async (req, res) => {
     try {
+      if (!(await authenticateHttpAdmin(req, res))) return;
       const db = await import("../db");
       const payload = req.body;
       if (!payload?.snapshots) {
