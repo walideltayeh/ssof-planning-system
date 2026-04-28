@@ -132,6 +132,30 @@ describe("CountrySelectorPage", () => {
     expect(setCountry).not.toHaveBeenCalled();
   });
 
+  it("shows a friendly empty-state message when a non-owner has no countries", () => {
+    mockUser = {
+      displayName: "Stranger",
+      countries: [],
+      isOwner: false,
+    };
+
+    render(<CountrySelectorPage />);
+
+    expect(
+      screen.getByText(/no countries are available for your account/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/you don't have access to any countries yet/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/ask your workspace owner to grant you access/i),
+    ).toBeInTheDocument();
+
+    const contactLink = screen.getByTestId("link-contact-owner");
+    expect(contactLink).toBeInTheDocument();
+    expect(contactLink.getAttribute("href")).toMatch(/^mailto:/);
+  });
+
   it("calls logout when the 'Sign out' link is clicked", async () => {
     mockUser = {
       displayName: "Walid",

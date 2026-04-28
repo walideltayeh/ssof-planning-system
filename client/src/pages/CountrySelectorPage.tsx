@@ -109,10 +109,36 @@ export default function CountrySelectorPage() {
             className={`text-sm text-gray-500 mt-1 landing-fade-up ${mounted ? "visible" : ""}`}
             style={{ transitionDelay: "180ms" }}
           >
-            Select a country to continue
+            {userCountries.length === 0
+              ? "No countries are available for your account"
+              : "Select a country to continue"}
           </p>
         </div>
 
+        {userCountries.length === 0 ? (
+          <div
+            className={`landing-scale-in ${mounted ? "visible" : ""} w-full max-w-md rounded-2xl border border-amber-200 bg-amber-50/80 backdrop-blur-sm shadow-lg p-7 text-center`}
+            style={{ transitionDelay: "300ms" }}
+            role="status"
+            data-testid="no-countries-empty-state"
+          >
+            <div className="text-4xl mb-3 leading-none">🔒</div>
+            <h2 className="text-lg font-semibold text-gray-800 mb-2">
+              You don't have access to any countries yet
+            </h2>
+            <p className="text-sm text-gray-600 mb-4">
+              Ask your workspace owner to grant you access to a country before
+              you can continue.
+            </p>
+            <a
+              href="mailto:?subject=Requesting%20country%20access%20for%20SSOF%20Planning&body=Hi%2C%0A%0ACould%20you%20please%20grant%20me%20access%20to%20a%20country%20in%20the%20SSOF%20Planning%20app%3F%20Thanks!"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200 hover:bg-amber-200 transition-all"
+              data-testid="link-contact-owner"
+            >
+              Contact the workspace owner
+            </a>
+          </div>
+        ) : (
         <div className={`grid grid-cols-1 ${gridCols} gap-5 w-full max-w-3xl`}>
           {userCountries.map((country, idx) => {
             const config = COUNTRY_CONFIG[country];
@@ -143,6 +169,7 @@ export default function CountrySelectorPage() {
             );
           })}
         </div>
+        )}
 
         <div
           className={`mt-8 landing-fade-up ${mounted ? "visible" : ""}`}
