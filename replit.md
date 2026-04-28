@@ -66,6 +66,15 @@ pnpm db:push      # Generate + run DB migrations
 
 A `typecheck` validation step is registered that runs `pnpm run check` automatically (see the validation skill). It runs after every task to catch new TypeScript regressions before they accumulate. Keep the baseline clean — if `pnpm run check` reports new errors, fix them in the same change that introduced them rather than letting them pile up.
 
+### Test guard (server + client)
+
+A `test` validation step runs `pnpm test` (Vitest) on every task. The Vitest config (`vitest.config.ts`) uses `environmentMatchGlobs` so:
+
+- `server/**/*.{test,spec}.ts` runs in the `node` environment (default)
+- `client/**/*.{test,spec}.{ts,tsx}` runs in the `jsdom` environment with `@vitejs/plugin-react`
+
+Setup file `vitest.setup.ts` registers `@testing-library/jest-dom` matchers globally. Frontend testing uses `@testing-library/react` + `@testing-library/user-event`. Heavy-logic helpers from large pages (e.g. `client/src/pages/planningFg.helpers.ts`, `client/src/pages/forecastSplit.helpers.ts`) are extracted into sibling `.helpers.ts` files so they can be unit-tested without booting tRPC/React Query. Component tests (e.g. `CountryAccessDenied.test.tsx`) mock `@/contexts/CountryContext` and `wouter` to render in isolation.
+
 ## Database Migration
 
 Schema was converted from MySQL to PostgreSQL during Replit import. Uses Drizzle ORM with `drizzle-orm/pg-core` and `pg` driver. Migration generated at `drizzle/migrations/0000_illegal_black_knight.sql`.
