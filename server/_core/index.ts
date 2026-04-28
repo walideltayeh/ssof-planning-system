@@ -8,7 +8,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { runStartupMigration } from "../startup-migration";
-import { authenticateHttpRequest, authenticateHttpAdmin } from "./httpAuth";
+import { authenticateHttpRequest } from "./httpAuth";
 import { registerSpreadsheetUploadRoutes } from "./spreadsheetUploadRoutes";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -373,104 +373,6 @@ async function startServer() {
     } catch (err: any) {
       console.error("[Forecast Upload] Error:", err);
       res.status(400).json({ error: err?.message || "Failed to parse uploaded file" });
-    }
-  });
-
-  // Temporary full-database export endpoint (for data migration).
-  // Admin-only: returns the entire SSOF dataset (all snapshots, clearance
-  // events, and version history for every country), so anonymous or
-  // viewer-level access would let any caller exfiltrate the full database.
-  app.get("/api/export-db", async (req, res) => {
-    try {
-      if (!(await authenticateHttpAdmin(req, res))) return;
-      const db = await import("../db");
-      const [lebanon, syria, libya, syriaEvents, libyaEvents, lebaEvents, versions] = await Promise.all([
-        db.getFullSnapshot("Lebanon"),
-        db.getFullSnapshot("Syria"),
-        db.getFullSnapshot("Libya"),
-        db.getClearanceEventsForCountry("Syria"),
-        db.getClearanceEventsForCountry("Libya"),
-        db.getClearanceEventsForCountry("Lebanon"),
-        Promise.all([
-          db.listVersions("Lebanon"),
-          db.listVersions("Syria"),
-          db.listVersions("Libya"),
-        ]),
-      ]);
-      const payload = {
-        exportedAt: new Date().toISOString(),
-        snapshots: { Lebanon: lebanon, Syria: syria, Libya: libya },
-        clearanceEvents: { Lebanon: lebaEvents, Syria: syriaEvents, Libya: libyaEvents },
-        versions: {
-          Lebanon: versions[0],
-          Syria: versions[1],
-          Libya: versions[2],
-        },
-      };
-      res.setHeader("Content-Type", "application/json");
-      res.setHeader("Content-Disposition", `attachment; filename=ssof-full-export-${Date.now()}.json`);
-      res.json(payload);
-    } catch (err: any) {
-      console.error("[DB Export] Error:", err);
-      res.status(500).json({ error: err?.message || "Export failed" });
-    }
-  });
-
-  // Temporary full-database import endpoint (for data migration).
-  // Admin-only: this clears every data table before reinserting the supplied
-  // payload, so anonymous access would let any caller wipe production data.
-  app.post("/api/import-db", async (req, res) => {
-    try {
-      if (!(await authenticateHttpAdmin(req, res))) return;
-      const db = await import("../db");
-      const payload = req.body;
-      if (!payload?.snapshots) {
-        res.status(400).json({ error: "Invalid payload: missing snapshots" });
-        return;
-      }
-      const countries = ["Lebanon", "Syria", "Libya"] as const;
-      const results: Record<string, string> = {};
-
-      // Merge all country snapshots into one combined snapshot, then do a single
-      // global restore (clears everything first to avoid PK conflicts).
-      const combined: any = { skus: [], periods: [], forecast: [], ims: [], shipment: [], arrival: [], planningFg: [] };
-      for (const country of countries) {
-        const snap = payload.snapshots[country];
-        if (snap) {
-          combined.skus.push(...(snap.skus ?? []));
-          combined.periods.push(...(snap.periods ?? []));
-          combined.forecast.push(...(snap.forecast ?? []));
-          combined.ims.push(...(snap.ims ?? []));
-          combined.shipment.push(...(snap.shipment ?? []));
-          combined.arrival.push(...(snap.arrival ?? []));
-          combined.planningFg.push(...(snap.planningFg ?? []));
-          results[country] = `${(snap.skus ?? []).length} skus`;
-        } else {
-          results[country] = "no data";
-        }
-      }
-      // Global restore: clears all tables first, then inserts combined data
-      await db.restoreSnapshot(combined);
-
-      // Import clearance events if present
-      if (payload.clearanceEvents) {
-        for (const country of countries) {
-          const events = payload.clearanceEvents[country];
-          if (!events?.length) continue;
-          for (const ev of events) {
-            try {
-              await db.importClearanceEvent(ev);
-            } catch (e: any) {
-              console.warn(`[Import] clearance event ${ev.id} skip: ${e.message}`);
-            }
-          }
-          results[`clearanceEvents_${country}`] = `${events.length} events`;
-        }
-      }
-      res.json({ success: true, results });
-    } catch (err: any) {
-      console.error("[DB Import] Error:", err);
-      res.status(500).json({ error: err?.message || "Import failed" });
     }
   });
 
