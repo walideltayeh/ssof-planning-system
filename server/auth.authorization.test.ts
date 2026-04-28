@@ -90,6 +90,7 @@ vi.mock("./db", () => {
     ]),
     createAppUser: vi.fn(async () => undefined),
     updateAppUser: vi.fn(async () => undefined),
+    changeAppUserPassword: vi.fn(async () => ({ success: true })),
 
     // Bulk upload (forecast)
     getPeriodsForCountry: vi.fn(async () => [
@@ -472,6 +473,118 @@ describe("authorization lockdown", () => {
             password: "secret123",
           }),
         );
+      });
+    });
+
+    // Self-service Change Password dialog (DashboardLayout sidebar) hits
+    // `appUsers.changePassword` instead of the owner-only `appUsers.update`,
+    // so it needs its own server-side coverage. The Zod schema must reject
+    // weak `newPassword` values with BAD_REQUEST + the shared requirements
+    // message, even when the client-side check is bypassed (see Task #55).
+    describe("appUsers.changePassword (self-service dialog backstop)", () => {
+      const baseChange = {
+        userId: 1,
+        currentPassword: "oldsecret1",
+        confirmPassword: "secret123",
+      };
+
+      it("rejects unauthenticated callers with UNAUTHORIZED", async () => {
+        await expectTrpcCode(
+          anonCaller().appUsers.changePassword({
+            ...baseChange,
+            newPassword: "secret123",
+          }),
+          "UNAUTHORIZED",
+        );
+      });
+
+      it("rejects a too-short newPassword with BAD_REQUEST and never writes to the db", async () => {
+        const db = await import("./db");
+        await expectTrpcCode(
+          viewerCaller().appUsers.changePassword({
+            ...baseChange,
+            newPassword: "a1b2",
+            confirmPassword: "a1b2",
+          }),
+          "BAD_REQUEST",
+        );
+        expect(db.changeAppUserPassword).not.toHaveBeenCalled();
+      });
+
+      it("rejects a long newPassword with no letters with BAD_REQUEST", async () => {
+        const db = await import("./db");
+        await expectTrpcCode(
+          viewerCaller().appUsers.changePassword({
+            ...baseChange,
+            newPassword: "12345678",
+            confirmPassword: "12345678",
+          }),
+          "BAD_REQUEST",
+        );
+        expect(db.changeAppUserPassword).not.toHaveBeenCalled();
+      });
+
+      it("rejects a long newPassword with no digits with BAD_REQUEST", async () => {
+        const db = await import("./db");
+        await expectTrpcCode(
+          viewerCaller().appUsers.changePassword({
+            ...baseChange,
+            newPassword: "abcdefgh",
+            confirmPassword: "abcdefgh",
+          }),
+          "BAD_REQUEST",
+        );
+        expect(db.changeAppUserPassword).not.toHaveBeenCalled();
+      });
+
+      it("surfaces the shared PASSWORD_REQUIREMENTS_MESSAGE for a weak newPassword", async () => {
+        const { PASSWORD_REQUIREMENTS_MESSAGE } = await import(
+          "@shared/passwordStrength"
+        );
+        await expect(
+          viewerCaller().appUsers.changePassword({
+            ...baseChange,
+            newPassword: "abcdefgh",
+            confirmPassword: "abcdefgh",
+          }),
+        ).rejects.toThrow(
+          new RegExp(
+            PASSWORD_REQUIREMENTS_MESSAGE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+          ),
+        );
+      });
+
+      it("accepts a strong newPassword and forwards it to db.changeAppUserPassword", async () => {
+        const db = await import("./db");
+        const result = await viewerCaller().appUsers.changePassword({
+          ...baseChange,
+          newPassword: "secret123",
+          confirmPassword: "secret123",
+        });
+        expect(result).toEqual({ success: true });
+        expect(db.changeAppUserPassword).toHaveBeenCalledTimes(1);
+        expect(db.changeAppUserPassword).toHaveBeenCalledWith(
+          baseChange.userId,
+          baseChange.currentPassword,
+          "secret123",
+        );
+      });
+
+      it("blocks the db write before mismatch handling when newPassword is weak", async () => {
+        // Even when newPassword !== confirmPassword (which the handler
+        // would normally surface as a friendly { success:false } error),
+        // a weak newPassword must short-circuit at the Zod layer with
+        // BAD_REQUEST so the db never sees the call at all.
+        const db = await import("./db");
+        await expectTrpcCode(
+          viewerCaller().appUsers.changePassword({
+            ...baseChange,
+            newPassword: "a1b2",
+            confirmPassword: "totally-different",
+          }),
+          "BAD_REQUEST",
+        );
+        expect(db.changeAppUserPassword).not.toHaveBeenCalled();
       });
     });
 

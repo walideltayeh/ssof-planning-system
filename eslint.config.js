@@ -20,6 +20,12 @@ export default [
       "client/public/**",
       "server/seed-data.json",
       "**/*.tsbuildinfo",
+      // Vitest writes a transient `*.config.ts.timestamp-*.mjs` shim next to
+      // its config when resolving the user config. If `lint` runs while that
+      // file is mid-flight, ESLint tries to read a path that has already been
+      // unlinked and fails the run. Ignoring the pattern keeps lint robust to
+      // overlapping test/lint invocations.
+      "**/*.timestamp-*.mjs",
     ],
   },
   js.configs.recommended,
