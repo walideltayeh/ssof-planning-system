@@ -363,7 +363,7 @@ describe("authorization lockdown", () => {
     const input = {
       username: "newuser",
       displayName: "New User",
-      password: "secret",
+      password: "secret123",
       role: "viewer" as const,
       countries: ["Lebanon"],
     };

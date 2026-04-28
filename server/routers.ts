@@ -1,4 +1,5 @@
 import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
+import { checkPasswordStrength, PASSWORD_MIN_LENGTH, PASSWORD_REQUIREMENTS_MESSAGE } from "@shared/passwordStrength";
 import { invokeLLM } from "./_core/llm";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { sdk } from "./_core/sdk";
@@ -1992,7 +1993,10 @@ export const appRouter = router({
       .input(z.object({
         username: z.string().min(2),
         displayName: z.string().min(1),
-        password: z.string().min(1),
+        password: z.string().min(PASSWORD_MIN_LENGTH).refine(
+          (v) => checkPasswordStrength(v).ok,
+          { message: PASSWORD_REQUIREMENTS_MESSAGE },
+        ),
         role: z.enum(["admin", "viewer"]),
         countries: z.array(z.string()),
         email: z.string().email().nullable().optional(),
@@ -2022,7 +2026,10 @@ export const appRouter = router({
       .input(z.object({
         id: z.number(),
         displayName: z.string().optional(),
-        password: z.string().optional(),
+        password: z.string().min(PASSWORD_MIN_LENGTH).refine(
+          (v) => checkPasswordStrength(v).ok,
+          { message: PASSWORD_REQUIREMENTS_MESSAGE },
+        ).optional(),
         role: z.enum(["admin", "viewer"]).optional(),
         countries: z.array(z.string()).optional(),
         email: z.union([z.string().email(), z.literal("")]).nullable().optional(),

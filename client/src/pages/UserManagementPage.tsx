@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { Eye, EyeOff, Pencil, Trash2, Plus, ShieldCheck, User, ChevronDown, ChevronRight, History } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { checkPasswordStrength, PASSWORD_MIN_LENGTH, PASSWORD_REQUIREMENTS_MESSAGE } from "@shared/passwordStrength";
 
 const ACTION_LABELS: Record<string, string> = {
   create_user: "created",
@@ -98,6 +99,10 @@ export default function UserManagementPage() {
   }
 
   const emailValid = isEmailFormatValid(form.email);
+  const passwordRequired = !editingId;
+  const passwordStrength = checkPasswordStrength(form.password);
+  const passwordTouched = form.password.length > 0;
+  const passwordBlocksSave = passwordTouched && !passwordStrength.ok;
 
   if (!isOwner) return null;
 
@@ -137,6 +142,9 @@ export default function UserManagementPage() {
     if (!form.username.trim()) return setFormError("Username is required");
     if (!form.displayName.trim()) return setFormError("Display name is required");
     if (!editingId && !form.password.trim()) return setFormError("Password is required for new users");
+    if (form.password.length > 0 && !checkPasswordStrength(form.password).ok) {
+      return setFormError(PASSWORD_REQUIREMENTS_MESSAGE);
+    }
     if (form.countries.length === 0) return setFormError("Assign at least one country");
     if (!isEmailFormatValid(form.email)) return setFormError("Contact email is not a valid email address");
 
@@ -227,7 +235,9 @@ export default function UserManagementPage() {
                       value={form.password}
                       onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
                       placeholder={editingId ? "New password (optional)" : "Set password"}
-                      className="pr-9"
+                      aria-invalid={passwordBlocksSave}
+                      className={`pr-9 ${passwordBlocksSave ? "border-destructive focus-visible:ring-destructive" : ""}`}
+                      data-testid="input-password"
                     />
                     <button
                       type="button"
@@ -238,6 +248,29 @@ export default function UserManagementPage() {
                       {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                     </button>
                   </div>
+                  {passwordTouched ? (
+                    passwordStrength.ok ? (
+                      <p
+                        className="text-xs text-emerald-600 font-medium"
+                        data-testid="text-password-strength-ok"
+                      >
+                        Strong password.
+                      </p>
+                    ) : (
+                      <p
+                        className="text-xs text-destructive font-medium"
+                        data-testid="text-password-strength-hint"
+                      >
+                        {passwordStrength.message}
+                      </p>
+                    )
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      {passwordRequired
+                        ? `Use at least ${PASSWORD_MIN_LENGTH} characters with a letter and a number.`
+                        : `Leave blank to keep the current password, or use at least ${PASSWORD_MIN_LENGTH} characters with a letter and a number.`}
+                    </p>
+                  )}
                 </div>
                 <div className="grid gap-1.5">
                   <label className="text-sm font-medium">Role</label>
@@ -309,7 +342,7 @@ export default function UserManagementPage() {
               )}
 
               <div className="flex gap-2 pt-1">
-                <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending || !emailValid}>
+                <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending || !emailValid || passwordBlocksSave}>
                   {editingId ? "Save Changes" : "Create User"}
                 </Button>
                 <Button
