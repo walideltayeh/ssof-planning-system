@@ -161,6 +161,17 @@ export async function createSkuForCountry(country: Country, data: { name: string
   return result;
 }
 
+export async function getSkuCountry(skuId: number): Promise<Country | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const [row] = await db
+    .select({ country: skus.country })
+    .from(skus)
+    .where(eq(skus.id, skuId))
+    .limit(1);
+  return row?.country ?? null;
+}
+
 export async function updateSkuPackagingType(skuId: number, packagingType: "Old" | "New") {
   const db = await getDb();
   if (!db) throw new Error("Database not available");

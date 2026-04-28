@@ -84,6 +84,20 @@ vi.mock("./db", () => {
     createSkuForCountry: vi.fn(async () => ({ id: 7 })),
     bulkUpsertForecast: vi.fn(async () => undefined),
 
+    // Per-SKU country lookup used by `requireSkuCountryAccess` for the
+    // country.* mutations whose `country` field is optional. SKU id 7 is
+    // owned by Syria here so a Lebanon-only caller must be rejected when
+    // they try to mutate it without supplying a country.
+    getSkuCountry: vi.fn(async (skuId: number) => {
+      if (skuId === 7) return "Syria";
+      if (skuId === 8) return "Lebanon";
+      return null;
+    }),
+    deleteSku: vi.fn(async () => undefined),
+    updateSkuPackagingType: vi.fn(async () => undefined),
+    toggleSkuActive: vi.fn(async () => undefined),
+    updateSkuDetails: vi.fn(async () => undefined),
+
     // Country-scoped read endpoints (Task #20). Stubbed so handlers reach
     // the `requireCountryAccess` gate without needing a real DB.
     getForecastDataForCountry: vi.fn(async () => []),
@@ -417,6 +431,49 @@ describe("authorization lockdown", () => {
           periods: expect.any(Array),
         });
       }
+    });
+  });
+
+  // ---------- 4b. Per-SKU country gating (Task #23) ----------
+  // The country.deleteSku mutation (and its sibling SKU mutations) used to
+  // accept an optional `country` field that was only used for audit-log
+  // attribution. When the field was omitted the per-country gate was
+  // skipped, so an admin with access to Lebanon only could delete a SKU
+  // that actually belongs to Syria. After Task #23 the handler resolves
+  // the SKU's true country from the database and enforces
+  // `requireCountryAccess` against it, regardless of what the caller
+  // passes in.
+  describe("country.deleteSku (resolves SKU's real country before gating)", () => {
+    it("rejects a non-owner admin with FORBIDDEN when they omit `country` and the SKU belongs to a different country", async () => {
+      // SKU id 7 is mocked as belonging to Syria. The non-owner admin only
+      // has access to Lebanon, so this must fail even though `country` is
+      // not provided in the input.
+      await expectTrpcCode(
+        nonOwnerAdminCaller().country.deleteSku({ skuId: 7 }),
+        "FORBIDDEN",
+      );
+    });
+
+    it("rejects a non-owner admin with FORBIDDEN when they pass a country they do have access to but the SKU belongs to another country", async () => {
+      // The Lebanon-only admin tries to mask the cross-country mutation by
+      // passing `country: "Lebanon"`. The handler resolves the SKU's real
+      // country (Syria) and rejects.
+      await expectTrpcCode(
+        nonOwnerAdminCaller().country.deleteSku({ skuId: 7, country: "Lebanon" }),
+        "FORBIDDEN",
+      );
+    });
+
+    it("allows a non-owner admin to delete a SKU that actually belongs to their assigned country", async () => {
+      // SKU id 8 is mocked as belonging to Lebanon, which the non-owner
+      // admin does have access to.
+      const result = await nonOwnerAdminCaller().country.deleteSku({ skuId: 8 });
+      expect(result).toEqual({ success: true });
+    });
+
+    it("allows the owner-admin to delete any SKU regardless of country", async () => {
+      const result = await adminCaller().country.deleteSku({ skuId: 7 });
+      expect(result).toEqual({ success: true });
     });
   });
 

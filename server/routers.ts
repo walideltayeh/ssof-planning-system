@@ -7,7 +7,7 @@ import { publicProcedure, protectedProcedure, adminProcedure, router } from "./_
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import * as db from "./db";
-import type { User } from "../drizzle/schema";
+import type { Country, User } from "../drizzle/schema";
 
 /**
  * Bridges an AppUser (username/password login) into a server session that
@@ -134,6 +134,45 @@ async function requireCountryAccess(
       message: `You do not have access to ${country}`,
     });
   }
+}
+
+/**
+ * Resolve the country a SKU belongs to and enforce per-country access.
+ *
+ * Several `country.*` mutations only take a `skuId` and historically treated
+ * `input.country` as optional audit-log metadata, which meant a non-owner
+ * with access to (say) Lebanon could call them with the field omitted and
+ * mutate a SKU in another country. This helper looks up the SKU's actual
+ * country and enforces `requireCountryAccess` against it. If the caller
+ * supplied an `input.country` that disagrees with the SKU's true country, we
+ * reject — otherwise an attacker could pass a country they have access to
+ * while editing a SKU they do not.
+ *
+ * Returns the SKU's resolved country so callers can use it for audit logging.
+ */
+async function requireSkuCountryAccess(
+  ctx: { user: User },
+  skuId: number,
+  providedCountry?: string,
+): Promise<Country> {
+  const country = await db.getSkuCountry(skuId);
+  if (!country) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: `SKU ${skuId} not found`,
+    });
+  }
+  await requireCountryAccess(ctx, country);
+  if (
+    providedCountry &&
+    providedCountry.toLowerCase() !== country.toLowerCase()
+  ) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: `SKU ${skuId} does not belong to ${providedCountry}`,
+    });
+  }
+  return country;
 }
 
 export const appRouter = router({
@@ -1228,10 +1267,10 @@ export const appRouter = router({
         country: z.enum(["Lebanon", "Syria", "Libya"]).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
-        if (input.country) await requireCountryAccess(ctx, input.country);
+        const country = await requireSkuCountryAccess(ctx, input.skuId, input.country);
         await db.updateSkuPackagingType(input.skuId, input.packagingType);
         await db.logAudit({
-          country: input.country,
+          country,
           username: getAuditActor(ctx),
           action: "update_sku",
           sheet: "SKU Management",
@@ -1249,10 +1288,10 @@ export const appRouter = router({
         country: z.enum(["Lebanon", "Syria", "Libya"]).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
-        if (input.country) await requireCountryAccess(ctx, input.country);
+        const country = await requireSkuCountryAccess(ctx, input.skuId, input.country);
         await db.deleteSku(input.skuId);
         await db.logAudit({
-          country: input.country,
+          country,
           username: getAuditActor(ctx),
           action: "delete_sku",
           sheet: "SKU Management",
@@ -1270,10 +1309,10 @@ export const appRouter = router({
         country: z.enum(["Lebanon", "Syria", "Libya"]).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
-        if (input.country) await requireCountryAccess(ctx, input.country);
+        const country = await requireSkuCountryAccess(ctx, input.skuId, input.country);
         await db.toggleSkuActive(input.skuId, input.isActive);
         await db.logAudit({
-          country: input.country,
+          country,
           username: getAuditActor(ctx),
           action: "edit",
           sheet: "SKU Management",
@@ -1456,7 +1495,7 @@ export const appRouter = router({
         country: z.enum(["Lebanon", "Syria", "Libya"]).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
-        if (input.country) await requireCountryAccess(ctx, input.country);
+        const country = await requireSkuCountryAccess(ctx, input.skuId, input.country);
         await db.updateSkuDetails(input.skuId, {
           name: input.name,
           weight: input.weight,
@@ -1464,7 +1503,7 @@ export const appRouter = router({
           packagingType: input.packagingType,
         });
         await db.logAudit({
-          country: input.country,
+          country,
           username: getAuditActor(ctx),
           action: "update_sku",
           sheet: "SKU Management",
