@@ -12,7 +12,15 @@ import BestStrategy from "@/components/BestStrategy";
 import { InvoicedSHPDialog } from "@/components/InvoicedSHPDialog";
 import ExportSheetButton from "@/components/ExportSheetButton";
 import ImportSheetButton from "@/components/ImportSheetButton";
-import { getWeeksStyle, getClosingStockStyle } from "./planningFg.helpers";
+import {
+  getWeeksStyle,
+  getClosingStockStyle,
+  pushEntry as pushUndoStackEntry,
+  clearStackForSku,
+  popEntry as popUndoStackEntry,
+  type UndoEntry,
+  type UndoStacks,
+} from "./planningFg.helpers";
 
 interface PlanningFgPageProps {
   weight: string;
@@ -30,20 +38,6 @@ const ROW_LABELS = [
 
 type RowLabel = typeof ROW_LABELS[number];
 
-// ── Undo/Redo history entry ──────────────────────────────────────────────────
-interface UndoEntry {
-  type: "planningFgCell" | "syncIms" | "invoicedSHP" | "imsDirect" | "syncArrival";
-  skuId: number;
-  periodId: number;
-  label: string;
-  oldValue: string;
-  newValue: string;
-  skuName: string;
-  periodLabel: string;
-  // For invoicedSHP undo, store the old weekly breakdown
-  oldWeeks?: { week1: number; week2: number; week3: number; week4: number };
-}
-
 export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
   const { country } = useCountry();
   const { formatVal, unitLabel } = useUnit();
@@ -51,9 +45,9 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
   const utils = trpc.useUtils();
 
   // ── Per-SKU undo stacks ────────────────────────────────────────────────────
-  const [undoStacks, setUndoStacks] = useState<Map<number, UndoEntry[]>>(new Map());
+  const [undoStacks, setUndoStacks] = useState<UndoStacks>(new Map());
   // ── Per-SKU redo stacks ────────────────────────────────────────────────────
-  const [redoStacks, setRedoStacks] = useState<Map<number, UndoEntry[]>>(new Map());
+  const [redoStacks, setRedoStacks] = useState<UndoStacks>(new Map());
   const [isUndoing, setIsUndoing] = useState(false);
   const [isRedoing, setIsRedoing] = useState(false);
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
@@ -78,27 +72,13 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
   }, []);
 
   const pushUndo = useCallback((entry: UndoEntry) => {
-    setUndoStacks(prev => {
-      const next = new Map(prev);
-      const stack = [...(next.get(entry.skuId) ?? []), entry];
-      next.set(entry.skuId, stack);
-      return next;
-    });
+    setUndoStacks(prev => pushUndoStackEntry(prev, entry));
     // Clear redo stack for this SKU when a new edit is made (standard undo/redo behavior)
-    setRedoStacks(prev => {
-      const next = new Map(prev);
-      next.delete(entry.skuId);
-      return next;
-    });
+    setRedoStacks(prev => clearStackForSku(prev, entry.skuId));
   }, []);
 
   const pushRedo = useCallback((entry: UndoEntry) => {
-    setRedoStacks(prev => {
-      const next = new Map(prev);
-      const stack = [...(next.get(entry.skuId) ?? []), entry];
-      next.set(entry.skuId, stack);
-      return next;
-    });
+    setRedoStacks(prev => pushUndoStackEntry(prev, entry));
   }, []);
 
   const getSkuUndoStack = useCallback((skuId: number) => {
@@ -178,14 +158,7 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
 
     const onDone = () => {
       // Remove from undo stack
-      setUndoStacks(prev => {
-        const next = new Map(prev);
-        const s = [...(next.get(skuId) ?? [])];
-        s.pop();
-        if (s.length === 0) next.delete(skuId);
-        else next.set(skuId, s);
-        return next;
-      });
+      setUndoStacks(prev => popUndoStackEntry(prev, skuId).stacks);
       // Push to redo stack
       pushRedo(entry);
       setIsUndoing(false);
@@ -259,21 +232,9 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
 
     const onDone = () => {
       // Remove from redo stack
-      setRedoStacks(prev => {
-        const next = new Map(prev);
-        const s = [...(next.get(skuId) ?? [])];
-        s.pop();
-        if (s.length === 0) next.delete(skuId);
-        else next.set(skuId, s);
-        return next;
-      });
+      setRedoStacks(prev => popUndoStackEntry(prev, skuId).stacks);
       // Push back to undo stack (without clearing redo — we're inside a redo operation)
-      setUndoStacks(prev => {
-        const next = new Map(prev);
-        const s = [...(next.get(entry.skuId) ?? []), entry];
-        next.set(entry.skuId, s);
-        return next;
-      });
+      setUndoStacks(prev => pushUndoStackEntry(prev, entry));
       setIsRedoing(false);
       toast.success(`Redone: ${entry.label} (${entry.periodLabel}) re-applied ${entry.oldValue || "0"} → ${entry.newValue || "0"}`, { duration: 3000 });
     };
