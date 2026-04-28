@@ -18,10 +18,12 @@ vi.mock("./db", () => {
       weight: data.weight,
     })),
 
-    // App user delete (owner-gated). The "admin-owner" username resolves to
-    // an owner record so the admin caller can pass `requireAppOwner`. The
-    // viewer never reaches this lookup because adminProcedure / requireAppOwner
-    // rejects them first.
+    // App user management (owner-gated). The "admin-owner" username resolves
+    // to an owner record so the admin caller can pass `requireAppOwner`. The
+    // "admin-nonowner" username resolves to an admin record that is NOT an
+    // owner, so it must be rejected by `requireAppOwner` even though it has
+    // the admin role on the OAuth/session side. The viewer never reaches this
+    // lookup because requireAppOwner rejects it on the isOwner check.
     getAppUserByUsername: vi.fn(async (username: string) => {
       if (username === "admin-owner") {
         return {
@@ -31,6 +33,16 @@ vi.mock("./db", () => {
           role: "admin" as const,
           countries: JSON.stringify(["Lebanon"]),
           isOwner: true,
+        };
+      }
+      if (username === "admin-nonowner") {
+        return {
+          id: 3,
+          username: "admin-nonowner",
+          displayName: "Admin Non-Owner",
+          role: "admin" as const,
+          countries: JSON.stringify(["Lebanon"]),
+          isOwner: false,
         };
       }
       if (username === "viewer-user") {
@@ -46,6 +58,19 @@ vi.mock("./db", () => {
       return null;
     }),
     deleteAppUser: vi.fn(async () => undefined),
+    listAppUsers: vi.fn(async () => [
+      {
+        id: 1,
+        username: "admin-owner",
+        displayName: "Admin Owner",
+        role: "admin" as const,
+        countries: JSON.stringify(["Lebanon"]),
+        isOwner: true,
+        createdAt: new Date(),
+      },
+    ]),
+    createAppUser: vi.fn(async () => undefined),
+    updateAppUser: vi.fn(async () => undefined),
 
     // Bulk upload (forecast)
     getPeriodsForCountry: vi.fn(async () => [
@@ -114,6 +139,20 @@ function adminUser(): AuthenticatedUser {
   };
 }
 
+function nonOwnerAdminUser(): AuthenticatedUser {
+  return {
+    id: 3,
+    openId: "admin-nonowner-openid",
+    email: "nonowner@example.com",
+    name: "admin-nonowner",
+    loginMethod: "manus",
+    role: "admin",
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    lastSignedIn: new Date(),
+  };
+}
+
 function viewerUser(): AuthenticatedUser {
   return {
     id: 2,
@@ -131,6 +170,8 @@ function viewerUser(): AuthenticatedUser {
 const anonCaller = () => appRouter.createCaller(makeContext(null));
 const viewerCaller = () => appRouter.createCaller(makeContext(viewerUser()));
 const adminCaller = () => appRouter.createCaller(makeContext(adminUser()));
+const nonOwnerAdminCaller = () =>
+  appRouter.createCaller(makeContext(nonOwnerAdminUser()));
 
 async function expectTrpcCode(promise: Promise<unknown>, code: TRPCError["code"]) {
   await expect(promise).rejects.toMatchObject({ code });
@@ -197,8 +238,97 @@ describe("authorization lockdown", () => {
       await expectTrpcCode(viewerCaller().appUsers.delete(input), "FORBIDDEN");
     });
 
+    it("rejects non-owner admins with FORBIDDEN", async () => {
+      await expectTrpcCode(
+        nonOwnerAdminCaller().appUsers.delete(input),
+        "FORBIDDEN",
+      );
+    });
+
     it("allows the authenticated owner-admin to delete app users", async () => {
       const result = await adminCaller().appUsers.delete(input);
+      expect(result).toEqual({ success: true });
+    });
+  });
+
+  // ---------- 3a. App user list (owner-only) ----------
+  describe("appUsers.list (owner-only)", () => {
+    it("rejects unauthenticated callers with UNAUTHORIZED", async () => {
+      await expectTrpcCode(anonCaller().appUsers.list(), "UNAUTHORIZED");
+    });
+
+    it("rejects authenticated viewers with FORBIDDEN (not an owner)", async () => {
+      await expectTrpcCode(viewerCaller().appUsers.list(), "FORBIDDEN");
+    });
+
+    it("rejects non-owner admins with FORBIDDEN", async () => {
+      await expectTrpcCode(nonOwnerAdminCaller().appUsers.list(), "FORBIDDEN");
+    });
+
+    it("allows the authenticated owner-admin to list app users", async () => {
+      const result = await adminCaller().appUsers.list();
+      expect(Array.isArray(result)).toBe(true);
+      expect(result).toHaveLength(1);
+      expect(result[0]).toMatchObject({
+        id: 1,
+        username: "admin-owner",
+        isOwner: true,
+      });
+    });
+  });
+
+  // ---------- 3b. App user create (owner-only) ----------
+  describe("appUsers.create (owner-only)", () => {
+    const input = {
+      username: "newuser",
+      displayName: "New User",
+      password: "secret",
+      role: "viewer" as const,
+      countries: ["Lebanon"],
+    };
+
+    it("rejects unauthenticated callers with UNAUTHORIZED", async () => {
+      await expectTrpcCode(anonCaller().appUsers.create(input), "UNAUTHORIZED");
+    });
+
+    it("rejects authenticated viewers with FORBIDDEN (not an owner)", async () => {
+      await expectTrpcCode(viewerCaller().appUsers.create(input), "FORBIDDEN");
+    });
+
+    it("rejects non-owner admins with FORBIDDEN", async () => {
+      await expectTrpcCode(
+        nonOwnerAdminCaller().appUsers.create(input),
+        "FORBIDDEN",
+      );
+    });
+
+    it("allows the authenticated owner-admin to create app users", async () => {
+      const result = await adminCaller().appUsers.create(input);
+      expect(result).toEqual({ success: true });
+    });
+  });
+
+  // ---------- 3c. App user update (owner-only) ----------
+  describe("appUsers.update (owner-only)", () => {
+    const input = { id: 99, displayName: "Renamed" };
+
+    it("rejects unauthenticated callers with UNAUTHORIZED", async () => {
+      await expectTrpcCode(anonCaller().appUsers.update(input), "UNAUTHORIZED");
+    });
+
+    it("rejects authenticated viewers with FORBIDDEN (not an owner)", async () => {
+      await expectTrpcCode(viewerCaller().appUsers.update(input), "FORBIDDEN");
+    });
+
+    it("rejects non-owner admins with FORBIDDEN", async () => {
+      await expectTrpcCode(
+        nonOwnerAdminCaller().appUsers.update(input),
+        "FORBIDDEN",
+      );
+    });
+
+    it("allows the authenticated owner-admin to update app users", async () => {
+      const result = await adminCaller().appUsers.update(input);
       expect(result).toEqual({ success: true });
     });
   });
