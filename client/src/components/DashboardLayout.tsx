@@ -47,6 +47,7 @@ const COUNTRY_AGNOSTIC_PATHS = new Set<string>([
   "/user-management",
   "/audit-trail",
   "/data-versions",
+  "/versions", // legacy alias for DataVersionsPage (App.tsx)
   "/add-year",
 ]);
 
