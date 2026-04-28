@@ -24,10 +24,10 @@ import { describe, it, expect, vi, beforeEach, afterAll } from "vitest";
 const mocks = vi.hoisted(() => {
   // Captures `db.update(competitorData).set(payload).where(...)`.
   const updateWhereSpy = vi.fn(async () => undefined);
-  const setSpy = vi.fn(() => ({ where: updateWhereSpy }));
+  const setSpy = vi.fn((_payload: unknown) => ({ where: updateWhereSpy }));
 
   // Captures `db.insert(competitorData).values(payload)`.
-  const valuesSpy = vi.fn(async () => undefined);
+  const valuesSpy = vi.fn(async (_payload: unknown) => undefined);
 
   // Controls what `db.select().from(competitorData).where(...)` resolves to.
   // Empty array ⇒ insert branch; non-empty ⇒ update branch.

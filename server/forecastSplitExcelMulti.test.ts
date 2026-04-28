@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { generateMultiMonthForecastSplitExcel } from "./forecastSplitExcelMulti";
 import ExcelJS from "exceljs";
+import { loadXlsxBuffer } from "./excelLoad";
 
 function makeMockRecs(count: number, totalMC: number) {
   const perSku = Math.floor(totalMC / count);
@@ -61,7 +62,7 @@ function makeMockMultiMonth(duration: number) {
 
 async function parseBuffer(buffer: Buffer) {
   const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(buffer);
+  await loadXlsxBuffer(wb, buffer);
   return wb;
 }
 

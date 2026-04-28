@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { generateForecastSplitExcel } from "./forecastSplitExcel";
+import { loadXlsxBuffer } from "./excelLoad";
 
 const sampleData = {
   totalTons: 180,
@@ -77,7 +78,7 @@ describe("generateForecastSplitExcel", () => {
     const ExcelJS = await import("exceljs");
     const buffer = await generateForecastSplitExcel(sampleData);
     const wb = new ExcelJS.Workbook();
-    await wb.xlsx.load(buffer);
+    await loadXlsxBuffer(wb, buffer);
     expect(wb.worksheets.length).toBe(2);
     expect(wb.worksheets[0].name).toBe("Summary");
     expect(wb.worksheets[1].name).toBe("SKU Split");
@@ -87,7 +88,7 @@ describe("generateForecastSplitExcel", () => {
     const ExcelJS = await import("exceljs");
     const buffer = await generateForecastSplitExcel(sampleData);
     const wb = new ExcelJS.Workbook();
-    await wb.xlsx.load(buffer);
+    await loadXlsxBuffer(wb, buffer);
     const skuSheet = wb.getWorksheet("SKU Split")!;
     const cellValues: string[] = [];
     skuSheet.eachRow((row) => {
@@ -103,7 +104,7 @@ describe("generateForecastSplitExcel", () => {
     const ExcelJS = await import("exceljs");
     const buffer = await generateForecastSplitExcel(sampleData);
     const wb = new ExcelJS.Workbook();
-    await wb.xlsx.load(buffer);
+    await loadXlsxBuffer(wb, buffer);
     const skuSheet = wb.getWorksheet("SKU Split")!;
     const cellValues: string[] = [];
     skuSheet.eachRow((row) => {
@@ -118,7 +119,7 @@ describe("generateForecastSplitExcel", () => {
     const ExcelJS = await import("exceljs");
     const buffer = await generateForecastSplitExcel(sampleData);
     const wb = new ExcelJS.Workbook();
-    await wb.xlsx.load(buffer);
+    await loadXlsxBuffer(wb, buffer);
     const skuSheet = wb.getWorksheet("SKU Split")!;
     let totalMC = 0;
     skuSheet.eachRow((row) => {
@@ -133,7 +134,7 @@ describe("generateForecastSplitExcel", () => {
     const ExcelJS = await import("exceljs");
     const buffer = await generateForecastSplitExcel(sampleData);
     const wb = new ExcelJS.Workbook();
-    await wb.xlsx.load(buffer);
+    await loadXlsxBuffer(wb, buffer);
     const summarySheet = wb.getWorksheet("Summary")!;
     const values: (string | number | null)[] = [];
     summarySheet.eachRow((row) => {
@@ -150,7 +151,7 @@ describe("generateForecastSplitExcel", () => {
     const ExcelJS = await import("exceljs");
     const buffer = await generateForecastSplitExcel(sampleData);
     const wb = new ExcelJS.Workbook();
-    await wb.xlsx.load(buffer);
+    await loadXlsxBuffer(wb, buffer);
     const summarySheet = wb.getWorksheet("Summary")!;
     const values: string[] = [];
     summarySheet.eachRow((row) => {
@@ -177,7 +178,7 @@ describe("generateForecastSplitExcel", () => {
     const ExcelJS = await import("exceljs");
     const buffer = await generateForecastSplitExcel(sampleData);
     const wb = new ExcelJS.Workbook();
-    await wb.xlsx.load(buffer);
+    await loadXlsxBuffer(wb, buffer);
     const skuSheet = wb.getWorksheet("SKU Split")!;
     let hasUnassigned = false;
     skuSheet.eachRow((row) => {
@@ -198,7 +199,7 @@ describe("generateForecastSplitExcel", () => {
     };
     const buffer = await generateForecastSplitExcel(fullyAllocated);
     const wb = new ExcelJS.Workbook();
-    await wb.xlsx.load(buffer);
+    await loadXlsxBuffer(wb, buffer);
     const skuSheet = wb.getWorksheet("SKU Split")!;
     let hasUnassigned = false;
     skuSheet.eachRow((row) => {
