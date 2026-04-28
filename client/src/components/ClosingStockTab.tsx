@@ -185,16 +185,20 @@ function ClosingStockTab({ country }: { country: "Lebanon" | "Syria" | "Libya" }
             <CardTitle className="text-sm font-semibold">Formula Reference</CardTitle>
           </CardHeader>
           <CardContent className="text-xs space-y-1.5">
-            <p><strong>Closing Stock</strong> = Opening Stock + Adjustments + Arrivals − IMS</p>
+            <p><strong>Closing Stock</strong> = Opening Stock + Σ Adjustments + Σ Arrivals − Σ IMS</p>
             {country === "Lebanon" ? (
               <p><strong>Weeks of Stock</strong> = (Closing Stock ÷ Avg next 2 months IMS) × 4.3</p>
             ) : (
               <p><strong>Weeks of Stock</strong> = (Closing Stock ÷ Current IMS) × 4</p>
             )}
             <p className="text-muted-foreground mt-2">
+              <strong>Opening</strong> = year-start opening stock (January).{" "}
+              <strong>Adjustments / Arrivals / IMS</strong> are year-to-date totals from January through {periodLabel}.
+            </p>
+            <p className="text-muted-foreground">
               {country === "Lebanon"
-                ? "Arrivals = Planning FG value if set, otherwise sum of weekly arrival data"
-                : "Arrivals = Cleared shipment mastercases by cleared date month"}
+                ? "Arrivals = Planning FG value if set, otherwise sum of weekly arrival data."
+                : "Arrivals = Cleared shipment mastercases by cleared date month."}
             </p>
             <p className="text-muted-foreground">For future periods, Forecast is used as effective IMS when actual IMS is zero.</p>
           </CardContent>
@@ -230,10 +234,10 @@ function ClosingStockTab({ country }: { country: "Lebanon" | "Syria" | "Libya" }
             <tr>
               <SortHeader field="name" label="SKU" />
               <th className="px-3 py-2.5 text-xs font-semibold text-muted-foreground text-center">Weight</th>
-              <SortHeader field="openingStock" label="Opening" align="right" />
-              <SortHeader field="adjustments" label="Adj" align="right" />
-              <SortHeader field="arrivals" label="Arrivals" align="right" />
-              <SortHeader field="ims" label="IMS" align="right" />
+              <SortHeader field="openingStock" label="Opening (Jan)" align="right" />
+              <SortHeader field="adjustments" label="Adj YTD" align="right" />
+              <SortHeader field="arrivals" label="Arrivals YTD" align="right" />
+              <SortHeader field="ims" label="IMS YTD" align="right" />
               <SortHeader field="invoiced" label="Invoiced" align="right" />
               <SortHeader field="closingStock" label="Closing Stock" align="right" />
               <SortHeader field="weeksOfStock" label="Weeks" align="right" />

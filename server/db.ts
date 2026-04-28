@@ -3457,17 +3457,40 @@ export async function getCurrentMonthClosingStock(country: "Lebanon" | "Syria" |
 
   const skuData: SkuClosingData[] = [];
 
+  // Year-to-date window starts at January of the current year. If January isn't
+  // in the dataset (rare), fall back to the first available period of curYear,
+  // and finally to period 0.
+  const yearStartIdx = (() => {
+    const jan = sortedPeriods.findIndex(p => p.year === curYear && p.month === 1);
+    if (jan >= 0) return jan;
+    const firstOfYear = sortedPeriods.findIndex(p => p.year === curYear);
+    return firstOfYear >= 0 ? firstOfYear : 0;
+  })();
+
   for (const sku of skuList) {
     let prevCS = 0;
+    let openingYtd = 0;
+    let cumAdj = 0;
+    let cumArr = 0;
+    let cumIms = 0;
     for (let i = 0; i <= currentPeriodIdx; i++) {
       const p = sortedPeriods[i];
       const plan = planMap.get(`${sku.id}-${p.id}`);
       const opening = i === 0 ? (plan?.openingStock ?? 0) : prevCS;
+      // Capture the opening that feeds into the YTD window (= closing stock
+      // entering January of the current year).
+      if (i === yearStartIdx) openingYtd = opening;
       const adj = plan?.adjustments ?? 0;
       const arr = getArrivals(sku.id, p.id);
       const ims = getEffIms(sku.id, p.id, p);
       const cs = opening + adj + arr - ims;
       prevCS = cs;
+      // Only accumulate from the YTD window start onward.
+      if (i >= yearStartIdx) {
+        cumAdj += adj;
+        cumArr += arr;
+        cumIms += ims;
+      }
 
       if (i === currentPeriodIdx) {
         let weeks = 0;
@@ -3494,10 +3517,10 @@ export async function getCurrentMonthClosingStock(country: "Lebanon" | "Syria" |
           name: sku.name,
           weight: sku.weight,
           category: sku.category ?? "Core",
-          openingStock: Math.round(opening),
-          adjustments: Math.round(adj),
-          arrivals: Math.round(arr),
-          ims: Math.round(ims),
+          openingStock: Math.round(openingYtd),
+          adjustments: Math.round(cumAdj),
+          arrivals: Math.round(cumArr),
+          ims: Math.round(cumIms),
           closingStock: Math.round(cs),
           weeksOfStock: Math.round(weeks * 10) / 10,
           zone,
