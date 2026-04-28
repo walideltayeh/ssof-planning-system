@@ -12,7 +12,10 @@ type MockUser = {
   isOwner: boolean;
 } | null;
 
+type OwnerContact = { displayName: string; email: string | null };
+
 let mockUser: MockUser = null;
+let mockOwners: OwnerContact[] = [];
 
 vi.mock("@/contexts/AuthContext", () => ({
   useAppAuth: () => ({
@@ -26,6 +29,16 @@ vi.mock("wouter", () => ({
   useLocation: () => ["/select-country", navigate],
 }));
 
+vi.mock("@/lib/trpc", () => ({
+  trpc: {
+    appUsers: {
+      listOwners: {
+        useQuery: () => ({ data: mockOwners, isLoading: false }),
+      },
+    },
+  },
+}));
+
 import CountrySelectorPage from "./CountrySelectorPage";
 
 describe("CountrySelectorPage", () => {
@@ -34,6 +47,7 @@ describe("CountrySelectorPage", () => {
     logout.mockReset();
     navigate.mockReset();
     mockUser = null;
+    mockOwners = [];
     cleanup();
   });
 
@@ -138,6 +152,7 @@ describe("CountrySelectorPage", () => {
       countries: [],
       isOwner: false,
     };
+    mockOwners = [{ displayName: "Walid El Tayeh", email: "walid@example.com" }];
 
     render(<CountrySelectorPage />);
 
@@ -154,6 +169,89 @@ describe("CountrySelectorPage", () => {
     const contactLink = screen.getByTestId("link-contact-owner");
     expect(contactLink).toBeInTheDocument();
     expect(contactLink.getAttribute("href")).toMatch(/^mailto:/);
+  });
+
+  it("shows the workspace owner's name and pre-fills their email in the contact link", () => {
+    mockUser = {
+      displayName: "Stranger",
+      countries: [],
+      isOwner: false,
+    };
+    mockOwners = [{ displayName: "Walid El Tayeh", email: "walid@example.com" }];
+
+    render(<CountrySelectorPage />);
+
+    // The owner's name and email are visible in the empty state.
+    const ownersList = screen.getByTestId("list-workspace-owners");
+    expect(ownersList).toHaveTextContent("Walid El Tayeh");
+    expect(ownersList).toHaveTextContent("walid@example.com");
+
+    // The contact link recipient is the owner's email, not blank.
+    const contactLink = screen.getByTestId("link-contact-owner");
+    const href = contactLink.getAttribute("href") ?? "";
+    expect(href.startsWith("mailto:walid@example.com?")).toBe(true);
+    expect(href).toContain(
+      `subject=${encodeURIComponent("Requesting country access for SSOF Planning")}`,
+    );
+    // Button label personalises to the single owner.
+    expect(contactLink.textContent).toMatch(/contact walid el tayeh/i);
+  });
+
+  it("lists every owner and includes all of their emails in the mailto when there are multiple", () => {
+    mockUser = {
+      displayName: "Stranger",
+      countries: [],
+      isOwner: false,
+    };
+    mockOwners = [
+      { displayName: "Walid El Tayeh", email: "walid@example.com" },
+      { displayName: "Aileen Khalil", email: "aileen@example.com" },
+    ];
+
+    render(<CountrySelectorPage />);
+
+    const ownersList = screen.getByTestId("list-workspace-owners");
+    expect(ownersList).toHaveTextContent("Walid El Tayeh");
+    expect(ownersList).toHaveTextContent("walid@example.com");
+    expect(ownersList).toHaveTextContent("Aileen Khalil");
+    expect(ownersList).toHaveTextContent("aileen@example.com");
+
+    const contactLink = screen.getByTestId("link-contact-owner");
+    const href = contactLink.getAttribute("href") ?? "";
+    expect(href.startsWith("mailto:walid@example.com,aileen@example.com?")).toBe(
+      true,
+    );
+    expect(contactLink.textContent).toMatch(/contact the workspace owners/i);
+  });
+
+  it("falls back gracefully without a broken link when no owner email is configured", () => {
+    mockUser = {
+      displayName: "Stranger",
+      countries: [],
+      isOwner: false,
+    };
+    mockOwners = [{ displayName: "Walid El Tayeh", email: null }];
+
+    render(<CountrySelectorPage />);
+
+    // Friendly copy is preserved.
+    expect(
+      screen.getByText(/you don't have access to any countries yet/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/ask your workspace owner to grant you access/i),
+    ).toBeInTheDocument();
+
+    // No broken mailto link is rendered.
+    expect(
+      screen.queryByTestId("link-contact-owner"),
+    ).not.toBeInTheDocument();
+    // A small note explains contact info is missing.
+    expect(screen.getByTestId("no-owner-contact")).toBeInTheDocument();
+    // Owner display list is not rendered when there are no usable emails.
+    expect(
+      screen.queryByTestId("list-workspace-owners"),
+    ).not.toBeInTheDocument();
   });
 
   it("calls logout when the 'Sign out' link is clicked", async () => {

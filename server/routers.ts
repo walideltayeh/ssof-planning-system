@@ -1911,6 +1911,7 @@ export const appRouter = router({
               role: u.role,
               countries: JSON.parse(u.countries) as string[],
               isOwner: u.isOwner,
+              email: u.email ?? null,
             },
           };
         }
@@ -1931,8 +1932,17 @@ export const appRouter = router({
             role: u.role,
             countries: JSON.parse(u.countries) as string[],
             isOwner: u.isOwner,
+            email: u.email ?? null,
           },
         };
+      }),
+    // List the workspace owner(s) — accessible to any signed-in caller so the
+    // empty "no country access" screen on `CountrySelectorPage` can show real
+    // contact info instead of an empty mailto. Returns only safe, non-secret
+    // fields (display name + email, never password / role / countries).
+    listOwners: protectedProcedure
+      .query(async () => {
+        return db.listAppOwners();
       }),
     // Change own password - any authenticated user
     changePassword: protectedProcedure
@@ -1961,6 +1971,7 @@ export const appRouter = router({
           role: u.role,
           countries: JSON.parse(u.countries) as string[],
           isOwner: u.isOwner,
+          email: u.email ?? null,
           createdAt: u.createdAt,
         }));
       }),
@@ -1972,6 +1983,7 @@ export const appRouter = router({
         password: z.string().min(1),
         role: z.enum(["admin", "viewer"]),
         countries: z.array(z.string()),
+        email: z.string().email().nullable().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         const requester = await requireAppOwner(ctx);
@@ -1983,6 +1995,7 @@ export const appRouter = router({
           password: input.password,
           role: input.role,
           countries: input.countries,
+          email: input.email ?? null,
         });
         await db.logAudit({
           username: requester.username,
@@ -2000,6 +2013,7 @@ export const appRouter = router({
         password: z.string().optional(),
         role: z.enum(["admin", "viewer"]).optional(),
         countries: z.array(z.string()).optional(),
+        email: z.union([z.string().email(), z.literal("")]).nullable().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         const requester = await requireAppOwner(ctx);
@@ -2008,12 +2022,14 @@ export const appRouter = router({
           password: input.password,
           role: input.role,
           countries: input.countries,
+          ...(input.email !== undefined ? { email: input.email === "" ? null : input.email } : {}),
         });
         const changes: string[] = [];
         if (input.displayName !== undefined) changes.push(`displayName=${input.displayName}`);
         if (input.password !== undefined) changes.push("password=(changed)");
         if (input.role !== undefined) changes.push(`role=${input.role}`);
         if (input.countries !== undefined) changes.push(`countries=${input.countries.join(", ")}`);
+        if (input.email !== undefined) changes.push(`email=${input.email ?? "(none)"}`);
         await db.logAudit({
           username: requester.username,
           action: "update_user",

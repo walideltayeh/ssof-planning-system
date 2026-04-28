@@ -14,6 +14,7 @@ async function ensureSchemaColumns(dbInstance: any) {
     `ALTER TABLE shipment_data ADD COLUMN IF NOT EXISTS "containerRef" varchar(200)`,
     `ALTER TABLE clearance_events ADD COLUMN IF NOT EXISTS "invoiceRef" varchar(200)`,
     `ALTER TABLE clearance_events ADD COLUMN IF NOT EXISTS "containerRef" varchar(200)`,
+    `ALTER TABLE app_users ADD COLUMN IF NOT EXISTS "email" varchar(320)`,
   ];
   for (const sql of alterStatements) {
     try {

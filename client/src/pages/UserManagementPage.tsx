@@ -30,10 +30,11 @@ interface UserFormState {
   password: string;
   role: "admin" | "viewer";
   countries: Country[];
+  email: string;
 }
 
 function emptyForm(): UserFormState {
-  return { username: "", displayName: "", password: "", role: "viewer", countries: [] };
+  return { username: "", displayName: "", password: "", role: "viewer", countries: [], email: "" };
 }
 
 export default function UserManagementPage() {
@@ -89,6 +90,7 @@ export default function UserManagementPage() {
       password: "",
       role: u.role as "admin" | "viewer",
       countries: (u.countries as string[]).filter((c): c is Country => ALL_COUNTRIES.includes(c as Country)),
+      email: u.email ?? "",
     });
     setEditingId(u.id);
     setFormError(null);
@@ -110,6 +112,9 @@ export default function UserManagementPage() {
     if (!editingId && !form.password.trim()) return setFormError("Password is required for new users");
     if (form.countries.length === 0) return setFormError("Assign at least one country");
 
+    const trimmedEmail = form.email.trim();
+    const emailValue = trimmedEmail === "" ? "" : trimmedEmail;
+
     if (editingId) {
       await updateMutation.mutateAsync({
         id: editingId,
@@ -117,6 +122,7 @@ export default function UserManagementPage() {
         ...(form.password ? { password: form.password } : {}),
         role: form.role,
         countries: form.countries,
+        email: emailValue,
       });
     } else {
       await createMutation.mutateAsync({
@@ -125,6 +131,7 @@ export default function UserManagementPage() {
         password: form.password,
         role: form.role,
         countries: form.countries,
+        ...(emailValue ? { email: emailValue } : {}),
       });
     }
   }
@@ -226,6 +233,21 @@ export default function UserManagementPage() {
               </div>
 
               <div className="grid gap-1.5">
+                <label className="text-sm font-medium">
+                  Contact Email <span className="text-muted-foreground font-normal">(optional)</span>
+                </label>
+                <Input
+                  type="email"
+                  value={form.email}
+                  onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
+                  placeholder="e.g. owner@company.com"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Shown on the no-access screen so stranded users can reach a workspace owner. Leave blank to omit.
+                </p>
+              </div>
+
+              <div className="grid gap-1.5">
                 <label className="text-sm font-medium">Country Access <span className="text-destructive">*</span></label>
                 <div className="flex gap-2 flex-wrap">
                   {ALL_COUNTRIES.map(c => (
@@ -284,6 +306,7 @@ export default function UserManagementPage() {
                   <tr className="border-b bg-muted/50">
                     <th className="text-left py-3 px-4 font-medium">User</th>
                     <th className="text-left py-3 px-4 font-medium">Username</th>
+                    <th className="text-left py-3 px-4 font-medium">Email</th>
                     <th className="text-left py-3 px-4 font-medium">Role</th>
                     <th className="text-left py-3 px-4 font-medium">Country Access</th>
                     {isOwner && <th className="text-right py-3 px-4 font-medium">Actions</th>}
@@ -315,6 +338,18 @@ export default function UserManagementPage() {
                           </div>
                         </td>
                         <td className="py-3 px-4 text-muted-foreground font-mono text-xs">{u.username}</td>
+                        <td className="py-3 px-4 text-muted-foreground text-xs">
+                          {u.email ? (
+                            <a
+                              href={`mailto:${u.email}`}
+                              className="hover:text-foreground hover:underline"
+                            >
+                              {u.email}
+                            </a>
+                          ) : (
+                            <span className="italic">—</span>
+                          )}
+                        </td>
                         <td className="py-3 px-4">
                           <Badge variant={u.role === "admin" ? "default" : "secondary"}>
                             {u.role}

@@ -2469,7 +2469,7 @@ export async function getAppUserByUsername(username: string): Promise<AppUserRow
   const rows = await db.select().from(appUsers).where(eq(appUsers.username, username.toLowerCase().trim())).limit(1);
   return rows[0] ?? null;
 }
-export async function createAppUser(data: { username: string; displayName: string; password: string; role: "admin" | "viewer"; countries: string[]; isOwner?: boolean }) {
+export async function createAppUser(data: { username: string; displayName: string; password: string; role: "admin" | "viewer"; countries: string[]; isOwner?: boolean; email?: string | null }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.insert(appUsers).values({
@@ -2479,9 +2479,10 @@ export async function createAppUser(data: { username: string; displayName: strin
     role: data.role,
     countries: JSON.stringify(data.countries),
     isOwner: data.isOwner ?? false,
+    email: normalizeEmail(data.email),
   });
 }
-export async function updateAppUser(id: number, data: Partial<{ displayName: string; password: string; role: "admin" | "viewer"; countries: string[] }>) {
+export async function updateAppUser(id: number, data: Partial<{ displayName: string; password: string; role: "admin" | "viewer"; countries: string[]; email: string | null }>) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const update: Record<string, unknown> = {};
@@ -2489,9 +2490,21 @@ export async function updateAppUser(id: number, data: Partial<{ displayName: str
   if (data.password !== undefined) update.password = data.password.toLowerCase().trim();
   if (data.role !== undefined) update.role = data.role;
   if (data.countries !== undefined) update.countries = JSON.stringify(data.countries);
+  if (data.email !== undefined) update.email = normalizeEmail(data.email);
   if (Object.keys(update).length > 0) {
     await db.update(appUsers).set(update).where(eq(appUsers.id, id));
   }
+}
+function normalizeEmail(email: string | null | undefined): string | null {
+  if (email === undefined || email === null) return null;
+  const trimmed = email.trim();
+  return trimmed.length === 0 ? null : trimmed.toLowerCase();
+}
+export async function listAppOwners(): Promise<Array<{ displayName: string; email: string | null }>> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(appUsers).where(eq(appUsers.isOwner, true)).orderBy(asc(appUsers.createdAt));
+  return rows.map(r => ({ displayName: r.displayName, email: r.email ?? null }));
 }
 export async function deleteAppUser(id: number) {
   const db = await getDb();

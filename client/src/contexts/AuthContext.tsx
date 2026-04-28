@@ -11,6 +11,7 @@ export interface AppUser {
   role: AppRole;
   countries: string[];
   isOwner: boolean;
+  email?: string | null;
 }
 
 interface AuthState {

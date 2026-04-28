@@ -1,8 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useAppAuth } from "@/contexts/AuthContext";
 import type { Country } from "@/contexts/AuthContext";
 import { COUNTRY_CONFIG } from "@/contexts/CountryContext";
 import { useLocation } from "wouter";
+import { trpc } from "@/lib/trpc";
 
 const ALL_COUNTRIES: Country[] = ["Lebanon", "Syria", "Libya"];
 
@@ -24,6 +25,32 @@ const CARD_STYLES: Record<Country, { accentClass: string; badgeClass: string; bo
   },
 };
 
+interface OwnerContact {
+  displayName: string;
+  email: string | null;
+}
+
+function buildContactHref(owners: OwnerContact[]): string | null {
+  // Dedupe recipients case-insensitively so two owner rows that share an
+  // inbox don't produce a `mailto:foo@x.com,foo@x.com` link.
+  const seen = new Set<string>();
+  const recipients: string[] = [];
+  for (const o of owners) {
+    const email = (o.email ?? "").trim();
+    if (!email) continue;
+    const key = email.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    recipients.push(email);
+  }
+  if (recipients.length === 0) return null;
+  const subject = encodeURIComponent("Requesting country access for SSOF Planning");
+  const body = encodeURIComponent(
+    "Hi,\n\nCould you please grant me access to a country in the SSOF Planning app? Thanks!",
+  );
+  return `mailto:${recipients.join(",")}?subject=${subject}&body=${body}`;
+}
+
 export default function CountrySelectorPage() {
   const { user, setCountry, logout } = useAppAuth();
   const [, navigate] = useLocation();
@@ -34,11 +61,26 @@ export default function CountrySelectorPage() {
     return () => clearTimeout(t);
   }, []);
 
-  if (!user) return null;
+  const userCountries = useMemo<Country[]>(() => {
+    if (!user) return [];
+    return user.isOwner
+      ? ALL_COUNTRIES
+      : ALL_COUNTRIES.filter(c => user.countries.includes(c));
+  }, [user]);
 
-  const userCountries = user.isOwner
-    ? ALL_COUNTRIES
-    : ALL_COUNTRIES.filter(c => user.countries.includes(c));
+  // Only fetch owner contact info when we're actually about to show the empty
+  // state (signed-in user with zero countries). Skipping the query for owners
+  // and users with country access avoids an unnecessary round-trip on every
+  // landing.
+  const shouldFetchOwners = !!user && userCountries.length === 0;
+  const { data: ownersData } = trpc.appUsers.listOwners.useQuery(undefined, {
+    enabled: shouldFetchOwners,
+  });
+  const owners: OwnerContact[] = ownersData ?? [];
+  const contactHref = buildContactHref(owners);
+  const ownersWithEmail = owners.filter(o => (o.email ?? "").trim().length > 0);
+
+  if (!user) return null;
 
   const handleSelect = (country: Country) => {
     setCountry(country);
@@ -127,16 +169,52 @@ export default function CountrySelectorPage() {
               You don't have access to any countries yet
             </h2>
             <p className="text-sm text-gray-600 mb-4">
-              Ask your workspace owner to grant you access to a country before
-              you can continue.
+              {ownersWithEmail.length > 0 ? (
+                <>
+                  Ask your workspace{" "}
+                  {ownersWithEmail.length === 1 ? "owner" : "owners"} to grant
+                  you access to a country before you can continue.
+                </>
+              ) : (
+                <>
+                  Ask your workspace owner to grant you access to a country
+                  before you can continue.
+                </>
+              )}
             </p>
-            <a
-              href="mailto:?subject=Requesting%20country%20access%20for%20SSOF%20Planning&body=Hi%2C%0A%0ACould%20you%20please%20grant%20me%20access%20to%20a%20country%20in%20the%20SSOF%20Planning%20app%3F%20Thanks!"
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200 hover:bg-amber-200 transition-all"
-              data-testid="link-contact-owner"
-            >
-              Contact the workspace owner
-            </a>
+            {ownersWithEmail.length > 0 && (
+              <ul
+                className="text-sm text-gray-700 mb-4 space-y-0.5"
+                data-testid="list-workspace-owners"
+              >
+                {ownersWithEmail.map(o => (
+                  <li key={o.email ?? o.displayName}>
+                    <span className="font-medium text-gray-800">
+                      {o.displayName}
+                    </span>
+                    <span className="text-gray-500"> — {o.email}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {contactHref ? (
+              <a
+                href={contactHref}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200 hover:bg-amber-200 transition-all"
+                data-testid="link-contact-owner"
+              >
+                {ownersWithEmail.length === 1
+                  ? `Contact ${ownersWithEmail[0].displayName}`
+                  : "Contact the workspace owners"}
+              </a>
+            ) : (
+              <p
+                className="text-xs text-gray-500 italic"
+                data-testid="no-owner-contact"
+              >
+                No workspace owner contact is configured yet.
+              </p>
+            )}
           </div>
         ) : (
         <div className={`grid grid-cols-1 ${gridCols} gap-5 w-full max-w-3xl`}>

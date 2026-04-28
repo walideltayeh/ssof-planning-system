@@ -219,6 +219,7 @@ export const appUsers = pgTable("app_users", {
   role: appRoleEnum("role").default("viewer").notNull(),
   countries: text("countries").notNull(),
   isOwner: boolean("isOwner").default(false).notNull(),
+  email: varchar("email", { length: 320 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });

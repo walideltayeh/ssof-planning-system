@@ -66,8 +66,12 @@ vi.mock("./db", () => {
         role: "admin" as const,
         countries: JSON.stringify(["Lebanon"]),
         isOwner: true,
+        email: "owner@example.com",
         createdAt: new Date(),
       },
+    ]),
+    listAppOwners: vi.fn(async () => [
+      { displayName: "Admin Owner", email: "owner@example.com" },
     ]),
     createAppUser: vi.fn(async () => undefined),
     updateAppUser: vi.fn(async () => undefined),
@@ -271,6 +275,45 @@ describe("authorization lockdown", () => {
     it("allows the authenticated owner-admin to delete app users", async () => {
       const result = await adminCaller().appUsers.delete(input);
       expect(result).toEqual({ success: true });
+    });
+  });
+
+  // ---------- 3a-pre. App user owner list (any signed-in caller) ----------
+  // `appUsers.listOwners` powers the "no country access" empty state on
+  // CountrySelectorPage, which is shown to signed-in users who have no
+  // country access — including viewers and non-owner admins. So this
+  // endpoint must accept any authenticated caller (UNAUTHORIZED for anon)
+  // but never leak passwords, role, or country lists.
+  describe("appUsers.listOwners (any signed-in caller)", () => {
+    it("rejects unauthenticated callers with UNAUTHORIZED", async () => {
+      await expectTrpcCode(anonCaller().appUsers.listOwners(), "UNAUTHORIZED");
+    });
+
+    it("allows authenticated viewers to read owner contact info", async () => {
+      const result = await viewerCaller().appUsers.listOwners();
+      expect(result).toEqual([
+        { displayName: "Admin Owner", email: "owner@example.com" },
+      ]);
+    });
+
+    it("allows authenticated admins (including non-owner admins) to read owner contact info", async () => {
+      const result = await nonOwnerAdminCaller().appUsers.listOwners();
+      expect(result).toEqual([
+        { displayName: "Admin Owner", email: "owner@example.com" },
+      ]);
+    });
+
+    it("returns only safe fields (display name + email) — no password / role / countries leak", async () => {
+      const result = await viewerCaller().appUsers.listOwners();
+      expect(result).toHaveLength(1);
+      const owner = result[0] as Record<string, unknown>;
+      expect(Object.keys(owner).sort()).toEqual(["displayName", "email"]);
+      expect(owner).not.toHaveProperty("password");
+      expect(owner).not.toHaveProperty("role");
+      expect(owner).not.toHaveProperty("countries");
+      expect(owner).not.toHaveProperty("isOwner");
+      expect(owner).not.toHaveProperty("id");
+      expect(owner).not.toHaveProperty("username");
     });
   });
 
