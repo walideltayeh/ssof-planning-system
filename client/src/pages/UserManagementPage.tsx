@@ -44,6 +44,14 @@ function emptyForm(): UserFormState {
   return { username: "", displayName: "", password: "", role: "viewer", countries: [], email: "" };
 }
 
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function isEmailFormatValid(email: string): boolean {
+  const trimmed = email.trim();
+  if (trimmed === "") return true;
+  return EMAIL_REGEX.test(trimmed);
+}
+
 export default function UserManagementPage() {
   const { isOwner, isAdmin, user: currentUser } = useAppAuth();
   const [, setLocation] = useLocation();
@@ -89,6 +97,8 @@ export default function UserManagementPage() {
     });
   }
 
+  const emailValid = isEmailFormatValid(form.email);
+
   if (!isOwner) return null;
 
   type ServerUser = typeof users[0];
@@ -128,6 +138,7 @@ export default function UserManagementPage() {
     if (!form.displayName.trim()) return setFormError("Display name is required");
     if (!editingId && !form.password.trim()) return setFormError("Password is required for new users");
     if (form.countries.length === 0) return setFormError("Assign at least one country");
+    if (!isEmailFormatValid(form.email)) return setFormError("Contact email is not a valid email address");
 
     const trimmedEmail = form.email.trim();
     const emailValue = trimmedEmail === "" ? "" : trimmedEmail;
@@ -258,10 +269,18 @@ export default function UserManagementPage() {
                   value={form.email}
                   onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
                   placeholder="e.g. owner@company.com"
+                  aria-invalid={!emailValid}
+                  className={!emailValid ? "border-destructive focus-visible:ring-destructive" : ""}
                 />
-                <p className="text-xs text-muted-foreground">
-                  Shown on the no-access screen so stranded users can reach a workspace owner. Leave blank to omit.
-                </p>
+                {!emailValid ? (
+                  <p className="text-xs text-destructive font-medium">
+                    Please enter a valid email address (e.g. name@company.com), or leave blank.
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Shown on the no-access screen so stranded users can reach a workspace owner. Leave blank to omit.
+                  </p>
+                )}
               </div>
 
               <div className="grid gap-1.5">
@@ -290,7 +309,7 @@ export default function UserManagementPage() {
               )}
 
               <div className="flex gap-2 pt-1">
-                <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
+                <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending || !emailValid}>
                   {editingId ? "Save Changes" : "Create User"}
                 </Button>
                 <Button
