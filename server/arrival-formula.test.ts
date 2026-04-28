@@ -1,6 +1,37 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
+import * as db from "./db";
+import { appUsers } from "../drizzle/schema";
+import { eq } from "drizzle-orm";
+
+// Task #20 added per-user country gating, which looks up `ctx.user.name`
+// in the `appUsers` table. The test user below isn't a real app user, so
+// we provision an owner row before the suite runs (and clean it up
+// afterwards) to mirror an OAuth admin who has been added to the app.
+const TEST_APP_USERNAME = "arrival-formula-test-user";
+
+beforeAll(async () => {
+  const handle = await db.getDb();
+  if (!handle) return;
+  await handle
+    .insert(appUsers)
+    .values({
+      username: TEST_APP_USERNAME,
+      displayName: "Arrival Formula Test User",
+      password: "test-fixture-password",
+      role: "admin",
+      isOwner: true,
+      countries: JSON.stringify(["Lebanon", "Syria", "Libya"]),
+    })
+    .onConflictDoNothing();
+});
+
+afterAll(async () => {
+  const handle = await db.getDb();
+  if (!handle) return;
+  await handle.delete(appUsers).where(eq(appUsers.username, TEST_APP_USERNAME));
+});
 
 /**
  * Tests for the Arrival to Regie API endpoint.
@@ -24,7 +55,7 @@ function createContext(): TrpcContext {
       id: 1,
       openId: "arrival-formula-test-user",
       email: "test@example.com",
-      name: "Arrival Formula Test User",
+      name: TEST_APP_USERNAME,
       loginMethod: "manus",
       role: "user",
       createdAt: new Date(),

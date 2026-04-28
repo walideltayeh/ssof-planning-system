@@ -134,6 +134,14 @@ vi.mock("./db", () => {
     getExistingYears: vi.fn(async () => [2025]),
     addYear: vi.fn(async (year: number) => ({ periodsCreated: 12, dataRowsCreated: 0 })),
     updateSkuCategory: vi.fn(async () => {}),
+    // Per-user country gating (Task #20): treat the test user as an
+    // owner so existing full-access flows keep working.
+    getAppUserByUsername: vi.fn(async () => ({
+      id: 99,
+      username: "test-user",
+      isOwner: true,
+      countries: null,
+    })),
     // Reset helper for tests
     _reset: () => {
       mockSkus = [];

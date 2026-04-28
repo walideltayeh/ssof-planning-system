@@ -85,6 +85,57 @@ async function requireAppOwner(ctx: { user: User }) {
   return requester;
 }
 
+/**
+ * Enforces per-user country access on a country-scoped endpoint (Task #20).
+ *
+ * Every signed-in caller is expected to have a matching `appUsers` row whose
+ * `countries` JSON list constrains which country datasets they may read or
+ * mutate. The owner flag short-circuits the check (owners see every country).
+ *
+ * Throws TRPCError(FORBIDDEN) when:
+ *   - the session has no username (defensive, should never happen on a
+ *     `protectedProcedure`),
+ *   - no `appUsers` row exists for that username (e.g. an OAuth-only session
+ *     that bypassed `appUsers.verifyLogin`), or
+ *   - the requested country is not in the caller's assigned-country list.
+ *
+ * Compares country names case-insensitively to match how
+ * `verifyAppUserLogin` already compares them.
+ */
+async function requireCountryAccess(
+  ctx: { user: User },
+  country: string,
+): Promise<void> {
+  const username = ctx.user.name;
+  if (!username) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "No username on session" });
+  }
+  const requester = await db.getAppUserByUsername(username);
+  if (!requester) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "No country access configured for this account",
+    });
+  }
+  if (requester.isOwner) return;
+  let allowed: string[] = [];
+  try {
+    const parsed: unknown = JSON.parse(requester.countries);
+    if (Array.isArray(parsed)) {
+      allowed = parsed.filter((c): c is string => typeof c === "string");
+    }
+  } catch {
+    allowed = [];
+  }
+  const target = country.toLowerCase();
+  if (!allowed.some(c => c.toLowerCase() === target)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: `You do not have access to ${country}`,
+    });
+  }
+}
+
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -200,26 +251,35 @@ export const appRouter = router({
   }),
 
   // ==================== DATA RETRIEVAL ====================
+  // The `data.*` queries below all return Lebanon-scoped data (SKUs, periods,
+  // forecast/ims/shipment/arrival/planning rows are pulled from the Lebanon
+  // tables). Per Task #20, gate them behind `requireCountryAccess(_, "Lebanon")`
+  // so a Syria-only or Libya-only viewer cannot pull Lebanon data via these
+  // legacy endpoints.
   data: router({
-    forecast: protectedProcedure.query(async () => {
+    forecast: protectedProcedure.query(async ({ ctx }) => {
+      await requireCountryAccess(ctx, "Lebanon");
       const allSkus = await db.getSkusForCountry('Lebanon');
       const allPeriods = await db.getPeriodsForCountry('Lebanon');
       const data = await db.getForecastData();
       return { skus: allSkus, periods: allPeriods, data };
     }),
-    ims: protectedProcedure.query(async () => {
+    ims: protectedProcedure.query(async ({ ctx }) => {
+      await requireCountryAccess(ctx, "Lebanon");
       const allSkus = await db.getSkusForCountry('Lebanon');
       const allPeriods = await db.getPeriodsForCountry('Lebanon');
       const data = await db.getImsData();
       return { skus: allSkus, periods: allPeriods, data };
     }),
-    shipment: protectedProcedure.query(async () => {
+    shipment: protectedProcedure.query(async ({ ctx }) => {
+      await requireCountryAccess(ctx, "Lebanon");
       const allSkus = await db.getSkusForCountry('Lebanon');
       const allPeriods = await db.getPeriodsForCountry('Lebanon');
       const data = await db.getShipmentData();
       return { skus: allSkus, periods: allPeriods, data };
     }),
-    arrival: protectedProcedure.query(async () => {
+    arrival: protectedProcedure.query(async ({ ctx }) => {
+      await requireCountryAccess(ctx, "Lebanon");
       const allSkus = await db.getSkusForCountry('Lebanon');
       const allPeriods = await db.getPeriodsForCountry('Lebanon');
       const data = await db.getArrivalData();
@@ -228,10 +288,12 @@ export const appRouter = router({
     }),
     planningFg: protectedProcedure
       .input(z.object({ weight: z.string().optional() }).optional())
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, "Lebanon");
         return db.getFullPlanningData(input?.weight);
       }),
-    imsVsForecast: protectedProcedure.query(async () => {
+    imsVsForecast: protectedProcedure.query(async ({ ctx }) => {
+      await requireCountryAccess(ctx, "Lebanon");
       const allSkus = await db.getSkusForCountry('Lebanon');
       const allPeriods = await db.getPeriodsForCountry('Lebanon');
       const forecast = await db.getForecastData();
@@ -241,7 +303,8 @@ export const appRouter = router({
     uploadHistory: protectedProcedure.query(async () => {
       return db.getUploadHistory();
     }),
-    exportAll: protectedProcedure.query(async () => {
+    exportAll: protectedProcedure.query(async ({ ctx }) => {
+      await requireCountryAccess(ctx, "Lebanon");
       return db.getFullPlanningData();
     }),
   }),
@@ -1097,14 +1160,16 @@ export const appRouter = router({
     // Initialize a country's periods
     init: adminProcedure
       .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya"]) }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
         await db.ensurePeriodsForCountry(input.country);
         return { success: true };
       }),
     // Fetch all data for a country
     data: protectedProcedure
       .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya"]) }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
         const c = input.country;
         await db.ensurePeriodsForCountry(c);
         const [countrySkus, countryPeriods, forecast, revisedForecast, ims, shipment, arrival] = await Promise.all([
@@ -1121,7 +1186,8 @@ export const appRouter = router({
     // Get SKUs for a country
     skus: protectedProcedure
       .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya"]), includeInactive: z.boolean().optional() }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
         return db.getSkusForCountry(input.country, input.includeInactive ?? false);
       }),
     // Create SKU for a country
@@ -1135,6 +1201,7 @@ export const appRouter = router({
         isExcludedFromTotal: z.boolean().optional(),
               }))
       .mutation(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
         const result = await db.createSkuForCountry(input.country, {
           name: input.name,
           weight: input.weight,
@@ -1161,6 +1228,7 @@ export const appRouter = router({
         country: z.enum(["Lebanon", "Syria", "Libya"]).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        if (input.country) await requireCountryAccess(ctx, input.country);
         await db.updateSkuPackagingType(input.skuId, input.packagingType);
         await db.logAudit({
           country: input.country,
@@ -1181,6 +1249,7 @@ export const appRouter = router({
         country: z.enum(["Lebanon", "Syria", "Libya"]).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        if (input.country) await requireCountryAccess(ctx, input.country);
         await db.deleteSku(input.skuId);
         await db.logAudit({
           country: input.country,
@@ -1201,6 +1270,7 @@ export const appRouter = router({
         country: z.enum(["Lebanon", "Syria", "Libya"]).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        if (input.country) await requireCountryAccess(ctx, input.country);
         await db.toggleSkuActive(input.skuId, input.isActive);
         await db.logAudit({
           country: input.country,
@@ -1222,6 +1292,7 @@ export const appRouter = router({
         periodLabel: z.string().optional(), oldValue: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
         const clamped = Math.max(0, parseFloat(input.value) || 0).toString();
         await db.upsertForecastData(input.skuId, input.periodId, clamped, input.targetWeek);
         await db.logAudit({
@@ -1242,7 +1313,8 @@ export const appRouter = router({
         skuName: z.string().optional(),
         periodLabel: z.string().optional(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
         await db.upsertForecastData(input.skuId, input.periodId, undefined as any, input.targetWeek);
         // Also update production to reflect the new week assignment
         const existing = await db.getForecastCellValue(input.skuId, input.periodId);
@@ -1262,6 +1334,7 @@ export const appRouter = router({
         periodLabel: z.string().optional(), oldValue: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
         const clamped = Math.max(0, parseFloat(input.value) || 0).toString();
         await db.upsertRevisedForecastData(input.skuId, input.periodId, clamped);
         await db.logAudit({
@@ -1287,6 +1360,7 @@ export const appRouter = router({
         skuName: z.string().optional(), periodLabel: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
         await db.upsertShipmentData(input.skuId, input.periodId, {
           week1: input.week1, week2: input.week2, week3: input.week3, week4: input.week4,
           arrivalOffsetValue: input.arrivalOffsetValue,
@@ -1312,6 +1386,7 @@ export const appRouter = router({
         skuName: z.string().optional(), periodLabel: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
         await db.upsertShipmentData(input.skuId, input.periodId, {
           invoiceRef: input.invoiceRef,
           containerRef: input.containerRef,
@@ -1334,6 +1409,7 @@ export const appRouter = router({
         skuName: z.string().optional(), periodLabel: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
         await db.upsertArrivalData(input.skuId, input.periodId, {
           week1: input.week1, week2: input.week2, week3: input.week3, week4: input.week4,
         });
@@ -1352,6 +1428,7 @@ export const appRouter = router({
         year: z.number().min(2024).max(2040),
               }))
       .mutation(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
         const result = await db.addYearForCountry(input.country, input.year);
         await db.logAudit({
           country: input.country, username: getAuditActor(ctx),
@@ -1363,7 +1440,8 @@ export const appRouter = router({
     // Get existing years for a country
     existingYears: protectedProcedure
       .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya"]) }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
         return db.getExistingYearsForCountry(input.country);
       }),
     // Update SKU details (name, weight, category, packagingType)
@@ -1378,6 +1456,7 @@ export const appRouter = router({
         country: z.enum(["Lebanon", "Syria", "Libya"]).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        if (input.country) await requireCountryAccess(ctx, input.country);
         await db.updateSkuDetails(input.skuId, {
           name: input.name,
           weight: input.weight,
@@ -1405,6 +1484,7 @@ export const appRouter = router({
         periodLabel: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
         await db.updateShipmentArrivalStatus(input.skuId, input.periodId, input.status);
         await db.logAudit({
           country: input.country,
@@ -1430,6 +1510,7 @@ export const appRouter = router({
         periodLabel: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
         const result = await db.updateShipmentClearedQty(
           input.skuId,
           input.periodId,
@@ -1461,6 +1542,7 @@ export const appRouter = router({
         periodLabel: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
         await db.updateShipmentClearedDate(input.skuId, input.periodId, input.clearedDate);
         await db.logAudit({
           country: input.country,
@@ -1487,6 +1569,7 @@ export const appRouter = router({
         periodLabel: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
         await db.updateShipmentPendingClearDate(input.skuId, input.periodId, input.pendingClearDate);
         await db.logAudit({
           country: input.country,
@@ -1505,7 +1588,8 @@ export const appRouter = router({
     // List all clearance events for a country
     clearanceEvents: protectedProcedure
       .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya"]) }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
         return db.getClearanceEventsForCountry(input.country);
       }),
 
@@ -1525,6 +1609,7 @@ export const appRouter = router({
         periodLabel: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
         const id = await db.addClearanceEvent(input);
         await db.logAudit({
           country: input.country,
@@ -1555,6 +1640,7 @@ export const appRouter = router({
         periodLabel: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
         const { eventId, skuName, periodLabel, ...rest } = input;
         await db.updateClearanceEvent(eventId, rest);
         await db.logAudit({
@@ -1580,6 +1666,7 @@ export const appRouter = router({
         periodLabel: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
         await db.deleteClearanceEvent(input.eventId, input.skuId, input.periodId, input.country);
         await db.logAudit({
           country: input.country,
@@ -1595,7 +1682,8 @@ export const appRouter = router({
 
     planningFg: protectedProcedure
       .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya"]) }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
         return db.getFullPlanningDataForCountry(input.country as "Syria" | "Libya");
       }),
 
@@ -1610,6 +1698,7 @@ export const appRouter = router({
         periodLabel: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
         await db.upsertImsData(input.skuId, input.periodId, input.value, true);
         await db.logAudit({
           country: input.country,
@@ -1627,37 +1716,43 @@ export const appRouter = router({
     // Intl Analysis query for Syria/Libya
     intlAnalysis: protectedProcedure
       .input(z.object({ country: z.enum(["Syria", "Libya"]) }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
         return db.getIntlAnalysis(input.country);
       }),
 
     runningRate: protectedProcedure
       .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya"]) }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
         return db.getRunningRateAnalysis(input.country);
       }),
 
     stockLevels: protectedProcedure
       .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya"]) }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
         return db.getStockLevelAnalysis(input.country);
       }),
 
     forecastIntelligence: protectedProcedure
       .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya"]) }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
         return db.getForecastIntelligence(input.country);
       }),
 
     currentMonthClosingStock: protectedProcedure
       .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya"]) }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
         return db.getCurrentMonthClosingStock(input.country);
       }),
 
     competitorData: protectedProcedure
       .input(z.object({ country: z.string() }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
         const data = await db.getCompetitorData(input.country);
         if (!data) return null;
         return {
@@ -1682,6 +1777,7 @@ export const appRouter = router({
         oldValue: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
         const fieldMap: Record<string, string> = {
           "Opening Stock": "openingStock",
           "Adjustments": "adjustments",
@@ -1709,7 +1805,8 @@ export const appRouter = router({
     // Product Expiry Dashboard
     expiryDashboard: protectedProcedure
       .input(z.object({ country: z.enum(["Syria", "Libya"]) }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
         return db.getExpiryDashboard(input.country);
       }),
 
@@ -1719,6 +1816,7 @@ export const appRouter = router({
         orderedIds: z.array(z.number()),
               }))
       .mutation(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
         await db.reorderCountrySkus(input.country, input.orderedIds);
         await db.logAudit({
           country: input.country,

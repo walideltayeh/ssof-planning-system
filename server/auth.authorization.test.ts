@@ -77,11 +77,20 @@ vi.mock("./db", () => {
       { id: 100, year: 2026, month: 1, label: "Jan 26", sortOrder: 0 },
     ]),
     ensurePeriods: vi.fn(async () => undefined),
+    ensurePeriodsForCountry: vi.fn(async () => undefined),
     getSkusForCountry: vi.fn(async () => [
       { id: 7, name: "Sample SKU", weight: "1kg" },
     ]),
     createSkuForCountry: vi.fn(async () => ({ id: 7 })),
     bulkUpsertForecast: vi.fn(async () => undefined),
+
+    // Country-scoped read endpoints (Task #20). Stubbed so handlers reach
+    // the `requireCountryAccess` gate without needing a real DB.
+    getForecastDataForCountry: vi.fn(async () => []),
+    getRevisedForecastDataForCountry: vi.fn(async () => []),
+    getImsDataForCountry: vi.fn(async () => []),
+    getShipmentDataForCountry: vi.fn(async () => []),
+    getArrivalDataForCountry: vi.fn(async () => []),
 
     // Audit log feed (representative read endpoint covered by Task #15).
     // Returned shape mirrors db.getAuditLogs so the router can serialize it.
@@ -357,6 +366,57 @@ describe("authorization lockdown", () => {
     it("allows authenticated admins to run bulk forecast uploads", async () => {
       const result = await adminCaller().upload.forecast(input);
       expect(result).toMatchObject({ success: true });
+    });
+  });
+
+  // ---------- 4a. Country-scoped read access (Task #20) ----------
+  // The viewer-user mock above grants access to ["Lebanon"] only and
+  // isOwner=false, so calling country.data with "Syria" or "Libya" must
+  // be rejected with FORBIDDEN, while "Lebanon" must succeed. The
+  // admin-owner mock has isOwner=true so it gets all three countries.
+  describe("country.data (per-user country scoping)", () => {
+    it("rejects unauthenticated callers with UNAUTHORIZED", async () => {
+      await expectTrpcCode(
+        anonCaller().country.data({ country: "Syria" }),
+        "UNAUTHORIZED",
+      );
+    });
+
+    it("rejects a Lebanon-only viewer asking for Syria with FORBIDDEN", async () => {
+      await expectTrpcCode(
+        viewerCaller().country.data({ country: "Syria" }),
+        "FORBIDDEN",
+      );
+      // The error message should name the country so the UI can surface a
+      // helpful "you don't have access to <country>" empty state.
+      await expect(
+        viewerCaller().country.data({ country: "Syria" }),
+      ).rejects.toThrow(/do not have access to Syria/i);
+    });
+
+    it("rejects a Lebanon-only non-owner admin asking for Libya with FORBIDDEN", async () => {
+      await expectTrpcCode(
+        nonOwnerAdminCaller().country.data({ country: "Libya" }),
+        "FORBIDDEN",
+      );
+    });
+
+    it("allows a Lebanon-only viewer to read Lebanon", async () => {
+      const result = await viewerCaller().country.data({ country: "Lebanon" });
+      expect(result).toMatchObject({
+        skus: expect.any(Array),
+        periods: expect.any(Array),
+      });
+    });
+
+    it("allows the owner-admin to read every country", async () => {
+      for (const country of ["Lebanon", "Syria", "Libya"] as const) {
+        const result = await adminCaller().country.data({ country });
+        expect(result).toMatchObject({
+          skus: expect.any(Array),
+          periods: expect.any(Array),
+        });
+      }
     });
   });
 
