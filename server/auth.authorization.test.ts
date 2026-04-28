@@ -414,6 +414,125 @@ describe("authorization lockdown", () => {
     });
   });
 
+  // ---------- 3d. Password strength on appUsers.create / update ----------
+  // The User Management form uses `checkPasswordStrength` from
+  // `shared/passwordStrength.ts`, and the same rule is wired into the
+  // `appUsers.create` and `appUsers.update` Zod schemas as a server-side
+  // backstop. These tests pin that contract: a weak password (too short,
+  // letters-only, or digits-only) must be rejected with BAD_REQUEST before
+  // any DB write happens, and a strong password must pass through.
+  describe("appUsers password strength validation (server-side backstop)", () => {
+    const baseCreate = {
+      username: "newuser",
+      displayName: "New User",
+      role: "viewer" as const,
+      countries: ["Lebanon"],
+    };
+
+    describe("appUsers.create", () => {
+      it("rejects a too-short password with BAD_REQUEST and never writes to the db", async () => {
+        const db = await import("./db");
+        await expectTrpcCode(
+          adminCaller().appUsers.create({ ...baseCreate, password: "a1b2" }),
+          "BAD_REQUEST",
+        );
+        expect(db.createAppUser).not.toHaveBeenCalled();
+        expect(db.logAudit).not.toHaveBeenCalled();
+      });
+
+      it("rejects a long password that contains no letters with BAD_REQUEST", async () => {
+        const db = await import("./db");
+        await expectTrpcCode(
+          adminCaller().appUsers.create({ ...baseCreate, password: "12345678" }),
+          "BAD_REQUEST",
+        );
+        expect(db.createAppUser).not.toHaveBeenCalled();
+      });
+
+      it("rejects a long password that contains no digits with BAD_REQUEST", async () => {
+        const db = await import("./db");
+        await expectTrpcCode(
+          adminCaller().appUsers.create({ ...baseCreate, password: "abcdefgh" }),
+          "BAD_REQUEST",
+        );
+        expect(db.createAppUser).not.toHaveBeenCalled();
+      });
+
+      it("accepts a strong password and forwards it to db.createAppUser", async () => {
+        const db = await import("./db");
+        const result = await adminCaller().appUsers.create({
+          ...baseCreate,
+          password: "secret123",
+        });
+        expect(result).toEqual({ success: true });
+        expect(db.createAppUser).toHaveBeenCalledTimes(1);
+        expect(db.createAppUser).toHaveBeenCalledWith(
+          expect.objectContaining({
+            username: "newuser",
+            password: "secret123",
+          }),
+        );
+      });
+    });
+
+    describe("appUsers.update", () => {
+      it("rejects a too-short password with BAD_REQUEST and never writes to the db", async () => {
+        const db = await import("./db");
+        await expectTrpcCode(
+          adminCaller().appUsers.update({ id: 1, password: "a1b2" }),
+          "BAD_REQUEST",
+        );
+        expect(db.updateAppUser).not.toHaveBeenCalled();
+      });
+
+      it("rejects a long password that contains no letters with BAD_REQUEST", async () => {
+        const db = await import("./db");
+        await expectTrpcCode(
+          adminCaller().appUsers.update({ id: 1, password: "12345678" }),
+          "BAD_REQUEST",
+        );
+        expect(db.updateAppUser).not.toHaveBeenCalled();
+      });
+
+      it("rejects a long password that contains no digits with BAD_REQUEST", async () => {
+        const db = await import("./db");
+        await expectTrpcCode(
+          adminCaller().appUsers.update({ id: 1, password: "abcdefgh" }),
+          "BAD_REQUEST",
+        );
+        expect(db.updateAppUser).not.toHaveBeenCalled();
+      });
+
+      it("accepts an update with no password (password remains optional)", async () => {
+        const db = await import("./db");
+        const result = await adminCaller().appUsers.update({
+          id: 1,
+          displayName: "Renamed",
+        });
+        expect(result).toEqual({ success: true });
+        expect(db.updateAppUser).toHaveBeenCalledTimes(1);
+        expect(db.updateAppUser).toHaveBeenCalledWith(
+          1,
+          expect.objectContaining({ password: undefined }),
+        );
+      });
+
+      it("accepts a strong password and forwards it to db.updateAppUser", async () => {
+        const db = await import("./db");
+        const result = await adminCaller().appUsers.update({
+          id: 1,
+          password: "secret123",
+        });
+        expect(result).toEqual({ success: true });
+        expect(db.updateAppUser).toHaveBeenCalledTimes(1);
+        expect(db.updateAppUser).toHaveBeenCalledWith(
+          1,
+          expect.objectContaining({ password: "secret123" }),
+        );
+      });
+    });
+  });
+
   // ---------- 4. Bulk upload (adminProcedure) ----------
   describe("upload.forecast (admin-only bulk upload)", () => {
     const input = {
