@@ -192,8 +192,11 @@ describe("SSOF Planning System", () => {
   });
 
   describe("periods", () => {
+    // periods.list became `protectedProcedure` in Task #15 (read endpoints
+    // require sign-in to avoid leaking internal data on the deployed URL),
+    // so these tests must use an authenticated context.
     it("initializes 36 periods (Jan 2025 - Dec 2027)", async () => {
-      const caller = appRouter.createCaller(createPublicContext());
+      const caller = appRouter.createCaller(createAuthContext());
       const result = await caller.periods.list();
       expect(result.length).toBe(36);
       expect(result[0].label).toBe("Jan 25");
@@ -205,7 +208,7 @@ describe("SSOF Planning System", () => {
     });
 
     it("does not duplicate periods on subsequent calls", async () => {
-      const caller = appRouter.createCaller(createPublicContext());
+      const caller = appRouter.createCaller(createAuthContext());
       await caller.periods.list();
       const result = await caller.periods.list();
       expect(result.length).toBe(36);

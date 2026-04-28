@@ -15,9 +15,22 @@ import type { TrpcContext } from "./_core/context";
  * - Total is always SUM(W1:W4)
  */
 
+// `data.arrival` became `protectedProcedure` in Task #15 (read endpoints
+// require sign-in to avoid leaking internal data on the deployed URL), so
+// the test caller now needs an authenticated user on the context.
 function createContext(): TrpcContext {
   return {
-    user: null,
+    user: {
+      id: 1,
+      openId: "arrival-formula-test-user",
+      email: "test@example.com",
+      name: "Arrival Formula Test User",
+      loginMethod: "manus",
+      role: "user",
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      lastSignedIn: new Date(),
+    },
     req: {
       protocol: "https",
       headers: {},

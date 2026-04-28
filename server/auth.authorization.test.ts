@@ -57,6 +57,28 @@ vi.mock("./db", () => {
     ]),
     createSkuForCountry: vi.fn(async () => ({ id: 7 })),
     bulkUpsertForecast: vi.fn(async () => undefined),
+
+    // Audit log feed (representative read endpoint covered by Task #15).
+    // Returned shape mirrors db.getAuditLogs so the router can serialize it.
+    getAuditLogs: vi.fn(async () => ({
+      logs: [
+        {
+          id: 1,
+          username: "admin-owner",
+          action: "edit_cell",
+          sheet: "Forecast",
+          skuName: "Sample SKU",
+          periodLabel: "Jan 26",
+          field: "value",
+          oldValue: "0",
+          newValue: "10",
+          details: "Changed from 0 to 10",
+          country: "Lebanon",
+          createdAt: new Date(),
+        },
+      ],
+      total: 1,
+    })),
   };
 });
 
@@ -205,6 +227,30 @@ describe("authorization lockdown", () => {
     it("allows authenticated admins to run bulk forecast uploads", async () => {
       const result = await adminCaller().upload.forecast(input);
       expect(result).toMatchObject({ success: true });
+    });
+  });
+
+  // ---------- 5. Audit log feed (Task #15: read endpoints require sign-in) ----------
+  // Representative read endpoint that exposes internal/company-confidential data.
+  // Before Task #15 this used `publicProcedure`, allowing an unauthenticated
+  // visitor to the deployed URL to pull the company's full audit trail.
+  describe("audit.logs (read endpoint: any signed-in user)", () => {
+    const input = { limit: 10 } as const;
+
+    it("rejects unauthenticated callers with UNAUTHORIZED", async () => {
+      await expectTrpcCode(anonCaller().audit.logs(input), "UNAUTHORIZED");
+    });
+
+    it("allows an authenticated viewer to read audit logs", async () => {
+      const result = await viewerCaller().audit.logs(input);
+      expect(result).toMatchObject({ total: 1 });
+      expect(result.logs).toHaveLength(1);
+    });
+
+    it("allows an authenticated admin to read audit logs", async () => {
+      const result = await adminCaller().audit.logs(input);
+      expect(result).toMatchObject({ total: 1 });
+      expect(result.logs).toHaveLength(1);
     });
   });
 });

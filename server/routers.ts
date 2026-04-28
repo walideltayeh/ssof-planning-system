@@ -98,7 +98,7 @@ export const appRouter = router({
 
   // ==================== PERIODS ====================
   periods: router({
-    list: publicProcedure
+    list: protectedProcedure
       .input(z.object({ country: z.string().optional() }).optional())
       .query(async ({ input }) => {
         await db.ensurePeriods();
@@ -110,7 +110,7 @@ export const appRouter = router({
     init: adminProcedure.mutation(async () => {
       return db.ensurePeriods();
     }),
-    existingYears: publicProcedure
+    existingYears: protectedProcedure
       .input(z.object({ country: z.string().optional() }).optional())
       .query(async ({ input }) => {
         return db.getExistingYearsForFilter(input?.country as import('../drizzle/schema').Country | undefined);
@@ -131,7 +131,7 @@ export const appRouter = router({
 
   // ==================== SKUs ====================
   skus: router({
-    list: publicProcedure.query(async () => {
+    list: protectedProcedure.query(async () => {
       return db.getAllSkus();
     }),
     create: adminProcedure
@@ -201,47 +201,47 @@ export const appRouter = router({
 
   // ==================== DATA RETRIEVAL ====================
   data: router({
-    forecast: publicProcedure.query(async () => {
+    forecast: protectedProcedure.query(async () => {
       const allSkus = await db.getSkusForCountry('Lebanon');
       const allPeriods = await db.getPeriodsForCountry('Lebanon');
       const data = await db.getForecastData();
       return { skus: allSkus, periods: allPeriods, data };
     }),
-    ims: publicProcedure.query(async () => {
+    ims: protectedProcedure.query(async () => {
       const allSkus = await db.getSkusForCountry('Lebanon');
       const allPeriods = await db.getPeriodsForCountry('Lebanon');
       const data = await db.getImsData();
       return { skus: allSkus, periods: allPeriods, data };
     }),
-    shipment: publicProcedure.query(async () => {
+    shipment: protectedProcedure.query(async () => {
       const allSkus = await db.getSkusForCountry('Lebanon');
       const allPeriods = await db.getPeriodsForCountry('Lebanon');
       const data = await db.getShipmentData();
       return { skus: allSkus, periods: allPeriods, data };
     }),
-    arrival: publicProcedure.query(async () => {
+    arrival: protectedProcedure.query(async () => {
       const allSkus = await db.getSkusForCountry('Lebanon');
       const allPeriods = await db.getPeriodsForCountry('Lebanon');
       const data = await db.getArrivalData();
       const shipmentDataAll = await db.getShipmentData();
       return { skus: allSkus, periods: allPeriods, data, shipment: shipmentDataAll };
     }),
-    planningFg: publicProcedure
+    planningFg: protectedProcedure
       .input(z.object({ weight: z.string().optional() }).optional())
       .query(async ({ input }) => {
         return db.getFullPlanningData(input?.weight);
       }),
-    imsVsForecast: publicProcedure.query(async () => {
+    imsVsForecast: protectedProcedure.query(async () => {
       const allSkus = await db.getSkusForCountry('Lebanon');
       const allPeriods = await db.getPeriodsForCountry('Lebanon');
       const forecast = await db.getForecastData();
       const ims = await db.getImsData();
       return { skus: allSkus, periods: allPeriods, forecast, ims };
     }),
-    uploadHistory: publicProcedure.query(async () => {
+    uploadHistory: protectedProcedure.query(async () => {
       return db.getUploadHistory();
     }),
-    exportAll: publicProcedure.query(async () => {
+    exportAll: protectedProcedure.query(async () => {
       return db.getFullPlanningData();
     }),
   }),
@@ -839,7 +839,7 @@ export const appRouter = router({
 
   // ==================== AUDIT TRAIL ====================
   audit: router({
-    logs: publicProcedure
+    logs: protectedProcedure
       .input(z.object({
         limit: z.number().min(1).max(200).optional(),
         offset: z.number().min(0).optional(),
@@ -868,7 +868,7 @@ export const appRouter = router({
 
   // ==================== SSOF VERSIONS ====================
   versions: router({
-    list: publicProcedure
+    list: protectedProcedure
       .input(z.object({ country: z.enum(['Lebanon', 'Syria', 'Libya']).optional() }).optional())
       .query(async ({ input }) => {
         return db.listVersions(input?.country as any);
@@ -984,7 +984,7 @@ export const appRouter = router({
         return { success: true };
       }),
 
-    export: publicProcedure
+    export: protectedProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input }) => {
         const version = await db.getVersionById(input.id);
@@ -1020,7 +1020,7 @@ export const appRouter = router({
       }),
 
     // ---- Version Comparison ----
-    compare: publicProcedure
+    compare: protectedProcedure
       .input(z.object({ versionAId: z.number(), versionBId: z.number() }))
       .query(async ({ input }) => {
         const vA = await db.getVersionById(input.versionAId);
@@ -1033,7 +1033,7 @@ export const appRouter = router({
       }),
 
     // ---- Version Comments ----
-    comments: publicProcedure
+    comments: protectedProcedure
       .input(z.object({ versionId: z.number() }))
       .query(async ({ input }) => {
         return db.getVersionComments(input.versionId);
@@ -1058,7 +1058,7 @@ export const appRouter = router({
       }),
 
     // ---- Edit Count (for auto-save reminders) ----
-    editCount: publicProcedure
+    editCount: protectedProcedure
       .input(z.object({ country: z.string().optional() }))
       .query(async ({ input }) => {
         return { count: await db.getEditCountSinceVersion(input.country) };
@@ -1067,28 +1067,28 @@ export const appRouter = router({
 
   // ==================== ANALYSIS ====================
   analysis: router({
-    overview: publicProcedure.query(async () => {
+    overview: protectedProcedure.query(async () => {
       return db.getAnalysisOverview();
     }),
-    bySku: publicProcedure.query(async () => {
+    bySku: protectedProcedure.query(async () => {
       return db.getAnalysisBySku();
     }),
-    byWeight: publicProcedure.query(async () => {
+    byWeight: protectedProcedure.query(async () => {
       return db.getAnalysisByWeight();
     }),
-    byCategory: publicProcedure.query(async () => {
+    byCategory: protectedProcedure.query(async () => {
       return db.getAnalysisByCategory();
     }),
-    byFlavor: publicProcedure.query(async () => {
+    byFlavor: protectedProcedure.query(async () => {
       return db.getAnalysisByFlavor();
     }),
-    production: publicProcedure.query(async () => {
+    production: protectedProcedure.query(async () => {
       return db.getAnalysisProduction();
     }),
-    stockHealth: publicProcedure.query(async () => {
+    stockHealth: protectedProcedure.query(async () => {
       return db.getAnalysisStockHealth();
     }),
-     stockSnapshot: publicProcedure.query(async () => {
+     stockSnapshot: protectedProcedure.query(async () => {
       return db.getStockSnapshot();
     }),
   }),
@@ -1102,7 +1102,7 @@ export const appRouter = router({
         return { success: true };
       }),
     // Fetch all data for a country
-    data: publicProcedure
+    data: protectedProcedure
       .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya"]) }))
       .query(async ({ input }) => {
         const c = input.country;
@@ -1119,7 +1119,7 @@ export const appRouter = router({
         return { skus: countrySkus, periods: countryPeriods, forecast, revisedForecast, ims, shipment, arrival };
       }),
     // Get SKUs for a country
-    skus: publicProcedure
+    skus: protectedProcedure
       .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya"]), includeInactive: z.boolean().optional() }))
       .query(async ({ input }) => {
         return db.getSkusForCountry(input.country, input.includeInactive ?? false);
@@ -1361,7 +1361,7 @@ export const appRouter = router({
         return result;
       }),
     // Get existing years for a country
-    existingYears: publicProcedure
+    existingYears: protectedProcedure
       .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya"]) }))
       .query(async ({ input }) => {
         return db.getExistingYearsForCountry(input.country);
@@ -1503,7 +1503,7 @@ export const appRouter = router({
       }),
 
     // List all clearance events for a country
-    clearanceEvents: publicProcedure
+    clearanceEvents: protectedProcedure
       .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya"]) }))
       .query(async ({ input }) => {
         return db.getClearanceEventsForCountry(input.country);
@@ -1593,7 +1593,7 @@ export const appRouter = router({
         return { success: true };
       }),
 
-    planningFg: publicProcedure
+    planningFg: protectedProcedure
       .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya"]) }))
       .query(async ({ input }) => {
         return db.getFullPlanningDataForCountry(input.country as "Syria" | "Libya");
@@ -1625,37 +1625,37 @@ export const appRouter = router({
       }),
 
     // Intl Analysis query for Syria/Libya
-    intlAnalysis: publicProcedure
+    intlAnalysis: protectedProcedure
       .input(z.object({ country: z.enum(["Syria", "Libya"]) }))
       .query(async ({ input }) => {
         return db.getIntlAnalysis(input.country);
       }),
 
-    runningRate: publicProcedure
+    runningRate: protectedProcedure
       .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya"]) }))
       .query(async ({ input }) => {
         return db.getRunningRateAnalysis(input.country);
       }),
 
-    stockLevels: publicProcedure
+    stockLevels: protectedProcedure
       .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya"]) }))
       .query(async ({ input }) => {
         return db.getStockLevelAnalysis(input.country);
       }),
 
-    forecastIntelligence: publicProcedure
+    forecastIntelligence: protectedProcedure
       .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya"]) }))
       .query(async ({ input }) => {
         return db.getForecastIntelligence(input.country);
       }),
 
-    currentMonthClosingStock: publicProcedure
+    currentMonthClosingStock: protectedProcedure
       .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya"]) }))
       .query(async ({ input }) => {
         return db.getCurrentMonthClosingStock(input.country);
       }),
 
-    competitorData: publicProcedure
+    competitorData: protectedProcedure
       .input(z.object({ country: z.string() }))
       .query(async ({ input }) => {
         const data = await db.getCompetitorData(input.country);
@@ -1707,7 +1707,7 @@ export const appRouter = router({
       }),
 
     // Product Expiry Dashboard
-    expiryDashboard: publicProcedure
+    expiryDashboard: protectedProcedure
       .input(z.object({ country: z.enum(["Syria", "Libya"]) }))
       .query(async ({ input }) => {
         return db.getExpiryDashboard(input.country);
@@ -1933,7 +1933,7 @@ export const appRouter = router({
         return { success: true };
       }),
     // Get all users seen in the last 2 minutes
-    online: publicProcedure.query(async () => {
+    online: protectedProcedure.query(async () => {
       return db.getOnlineUsers();
     }),
     // Remove presence on logout. The username is derived from `ctx.user` so
