@@ -2361,10 +2361,10 @@ export async function getIntlAnalysis(country: "Syria" | "Libya") {
     const val = parseFloat(row.value ?? '0') || 0;
     flavourForecast.set(sku.name, (flavourForecast.get(sku.name) ?? 0) + val);
   }
-  const flavourNames = [...new Set(skuList.map(s => s.name))];
-  const totalProdAll = [...flavourProd.values()].reduce((a, b) => a + b, 0);
-  const totalImsAll = [...flavourIms.values()].reduce((a, b) => a + b, 0);
-  const totalForecastAll = [...flavourForecast.values()].reduce((a, b) => a + b, 0);
+  const flavourNames = Array.from(new Set(skuList.map(s => s.name)));
+  const totalProdAll = Array.from(flavourProd.values()).reduce((a, b) => a + b, 0);
+  const totalImsAll = Array.from(flavourIms.values()).reduce((a, b) => a + b, 0);
+  const totalForecastAll = Array.from(flavourForecast.values()).reduce((a, b) => a + b, 0);
   const flavourBreakdown = flavourNames
     .map(name => ({
       name,
@@ -3676,7 +3676,7 @@ export async function getForecastIntelligence(country: "Lebanon" | "Syria" | "Li
     e.avg3m += r.avg3m;
     byFlavor.set(r.flavor, e);
   }
-  for (const [, f] of byFlavor) {
+  for (const f of Array.from(byFlavor.values())) {
     f.sharePercent = totalRecommended > 0 ? Math.round((f.recommended / totalRecommended) * 1000) / 10 : 0;
   }
 

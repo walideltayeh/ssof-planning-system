@@ -58,8 +58,13 @@ Default admin user: `walid` / `walid` (owner account)
 ```bash
 pnpm dev          # Start development server on port 5000
 pnpm build        # Build for production
+pnpm run check    # TypeScript type check (must stay green)
 pnpm db:push      # Generate + run DB migrations
 ```
+
+### Type-check guard
+
+A `typecheck` validation step is registered that runs `pnpm run check` automatically (see the validation skill). It runs after every task to catch new TypeScript regressions before they accumulate. Keep the baseline clean — if `pnpm run check` reports new errors, fix them in the same change that introduced them rather than letting them pile up.
 
 ## Database Migration
 
