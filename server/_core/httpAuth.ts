@@ -27,19 +27,3 @@ export async function authenticateHttpRequest(req: Request, res: Response) {
     return null;
   }
 }
-
-/**
- * Admin-only variant. Mirrors `adminProcedure` in the tRPC router, which
- * authorizes by `users.role === 'admin'` (set for AppUser admins/owners by
- * `establishAppUserSession`). Returns null after writing a 401/403 response,
- * so callers should `if (!auth) return;`.
- */
-export async function authenticateHttpAdmin(req: Request, res: Response) {
-  const auth = await authenticateHttpRequest(req, res);
-  if (!auth) return null;
-  if (auth.user.role !== "admin") {
-    res.status(403).json({ error: "Admin privileges required" });
-    return null;
-  }
-  return auth;
-}
