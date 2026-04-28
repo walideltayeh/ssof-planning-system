@@ -6,7 +6,7 @@ import { trpc } from "@/lib/trpc";
 
 interface ImportSheetButtonProps {
   sheet: string;
-  country?: string;
+  country?: string | null;
   label?: string;
   onSuccess?: () => void;
 }

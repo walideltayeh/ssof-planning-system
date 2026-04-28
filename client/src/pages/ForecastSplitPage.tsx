@@ -71,6 +71,7 @@ type MultiMonthResult = {
 type SnapshotEntry = {
   skuName: string;
   weight: string;
+  packagingType?: string;
   previousValue: string | null;
   previousImsValue?: string | null;
 };

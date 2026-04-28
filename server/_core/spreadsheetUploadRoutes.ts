@@ -1,5 +1,6 @@
 import type { Express, Request, Response } from "express";
 import { authenticateHttpRequest } from "./httpAuth";
+import { loadXlsxBuffer } from "../excelLoad";
 
 /**
  * Registers the two spreadsheet upload endpoints (`/api/import-sheet` and
@@ -66,7 +67,7 @@ export function registerSpreadsheetUploadRoutes(app: Express) {
       const username = auth.trustedName;
       const ExcelJS = (await import("exceljs")).default;
       const wb = new ExcelJS.Workbook();
-      await wb.xlsx.load(file.buffer);
+      await loadXlsxBuffer(wb, file.buffer);
 
       const brandMonthly: Record<string, Record<number, number[]>> = {};
       const ws1 = wb.getWorksheet("Brand Monthly Sales");

@@ -2813,7 +2813,7 @@ ${skuSummaries.map(s => {
     ? `  🆕 NEW SKU WITH ACTIVE ORDERS — zero IMS history but planner has committed ${Math.round(s.recentOrdersMC + s.upcomingOrdersMC)}MC of orders. ALLOCATE BASED ON ORDER VOLUME, NOT ZERO.`
     : '';
   return [
-    `▸ SKU [ID:${s.skuId}] name="${s.name}" weight="${s.weight}" packaging="${s.packagingType}" category="${s.category}" | Base alloc: ${baseAlloc}% | Confidence: ${conf}%`,
+    `▸ SKU [ID:${s.skuId}] name="${s.name}" weight="${s.rawWeight}" packaging="${s.packagingType}" category="${s.category}" | Base alloc: ${baseAlloc}% | Confidence: ${conf}%`,
     `  IMS: avg/month=${s.avgMonthly} | total=${s.totalIms.toFixed(0)} | months of data=${s.monthsOfData}`,
     `  Trend: 3-month rolling vs prior 3 months: ${s.rollingTrend}% | YoY same month: ${s.yoyGrowth}%`,
     `  Seasonality index for ${monthName}: ${s.seasonalityIndex} | Same month prior years: ${s.sameMonthHistory || 'no data'}`,
@@ -3296,8 +3296,8 @@ Use the base allocation hints above as a starting point; you may adjust ±25% ba
             // Donors: non-flagged SKUs with current allocation > 1, sorted by allocation desc
             const donors = recommendations
               .map((rec: any, idx: number) => ({ idx, mc: Math.max(0, Math.round(rec.recommendedMastercases ?? 0)), isFlagged: targets.has(idx) }))
-              .filter(d => !d.isFlagged && d.mc > 1)
-              .sort((a, b) => b.mc - a.mc);
+              .filter((d: { idx: number; mc: number; isFlagged: boolean }) => !d.isFlagged && d.mc > 1)
+              .sort((a: { mc: number }, b: { mc: number }) => b.mc - a.mc);
             // Apply boosts to flagged SKUs first
             for (const [idx, boost] of targets.entries()) {
               recommendations[idx].recommendedMastercases = Math.round((recommendations[idx].recommendedMastercases ?? 0)) + boost;
@@ -3554,10 +3554,10 @@ Use the base allocation hints above as a starting point; you may adjust ±25% ba
                 const id = skuIdByRecIdx.get(idx);
                 return { idx, mc: Math.max(0, Math.round(rec.recommendedMastercases ?? 0)), locked: id !== undefined && lockedSkuIds.has(id) };
               })
-              .filter(d => !d.locked);
+              .filter((d: { idx: number; mc: number; locked: boolean }) => !d.locked);
 
             // Sort donors (mc desc) and receivers (mc desc) for stability
-            flexibleIdxs.sort((a, b) => b.mc - a.mc);
+            flexibleIdxs.sort((a: { mc: number }, b: { mc: number }) => b.mc - a.mc);
 
             const maxIter = flexibleIdxs.length * Math.abs(diff) + flexibleIdxs.length + 1;
             let i = 0;
@@ -3589,8 +3589,8 @@ Use the base allocation hints above as a starting point; you may adjust ±25% ba
                   mc: Math.max(0, Math.round(rec.recommendedMastercases ?? 0)),
                   zeroed: (() => { const id = skuIdByRecIdx.get(idx); return id !== undefined && zeroedSkuIds.has(id); })(),
                 }))
-                .filter(d => !d.zeroed); // never touch explicitly-zeroed rows
-              allIdxs.sort((a, b) => b.mc - a.mc);
+                .filter((d: { idx: number; mc: number; zeroed: boolean }) => !d.zeroed); // never touch explicitly-zeroed rows
+              allIdxs.sort((a: { mc: number }, b: { mc: number }) => b.mc - a.mc);
               let j = 0;
               let it2 = 0;
               const maxIt2 = allIdxs.length * Math.abs(diff) + allIdxs.length + 1;

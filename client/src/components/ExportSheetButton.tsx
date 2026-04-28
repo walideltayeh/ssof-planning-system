@@ -5,7 +5,7 @@ import { toast } from "sonner";
 
 interface ExportSheetButtonProps {
   sheet: string;
-  country?: string;
+  country?: string | null;
   label?: string;
 }
 

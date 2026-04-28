@@ -1,10 +1,14 @@
 import ExcelJS from "exceljs";
 import * as db from "./db";
+import { loadXlsxBuffer } from "./excelLoad";
 
 interface ImportResult {
   updated: number;
   skipped: string[];
   sheet: string;
+  detectedPeriods?: string[];
+  matchedPeriods?: string[];
+  unmatchedPeriods?: string[];
 }
 
 function normalizeStr(s: any): string {
@@ -137,7 +141,7 @@ function findHeaderRow(ws: ExcelJS.Worksheet): { row: number; periodCols: Map<st
 
 export async function importForecastSheet(buffer: Buffer, country: string, username: string): Promise<ImportResult> {
   const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(buffer);
+  await loadXlsxBuffer(wb, buffer);
   const ws = findWorksheet(wb, ["Forecast", "Forecast Production"]);
 
   const skuMap = await resolveSkuMap(country);
@@ -203,7 +207,7 @@ export async function importForecastSheet(buffer: Buffer, country: string, usern
 
 export async function importImsSheet(buffer: Buffer, country: string, username: string): Promise<ImportResult> {
   const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(buffer);
+  await loadXlsxBuffer(wb, buffer);
   const ws = findWorksheet(wb, ["IMS vs FRCST", "IMS"]);
 
   const skuMap = await resolveSkuMap(country);
@@ -260,7 +264,7 @@ export async function importImsSheet(buffer: Buffer, country: string, username: 
 
 export async function importShipmentSheet(buffer: Buffer, country: string, username: string): Promise<ImportResult> {
   const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(buffer);
+  await loadXlsxBuffer(wb, buffer);
   const ws = findWorksheet(wb, ["Shipment (Production)", "Shipment"]);
 
   const skuMap = await resolveSkuMap(country);
@@ -319,7 +323,7 @@ export async function importShipmentSheet(buffer: Buffer, country: string, usern
 
 export async function importArrivalSheet(buffer: Buffer, country: string, username: string): Promise<ImportResult> {
   const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(buffer);
+  await loadXlsxBuffer(wb, buffer);
   const ws = findWorksheet(wb, ["Arrival to Regie", "Arrival"]);
 
   const skuMap = await resolveSkuMap(country);
@@ -373,7 +377,7 @@ export async function importArrivalSheet(buffer: Buffer, country: string, userna
 
 export async function importPlanningFgSheet(buffer: Buffer, weight: string, country: string, username: string): Promise<ImportResult> {
   const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(buffer);
+  await loadXlsxBuffer(wb, buffer);
   const ws = findWorksheet(wb, [`Planning FG ${weight}`]);
 
   const skuMap = await resolveSkuMap(country);
@@ -454,7 +458,7 @@ export async function importPlanningFgSheet(buffer: Buffer, weight: string, coun
 
 export async function importRevisedForecastSheet(buffer: Buffer, country: string, username: string): Promise<ImportResult> {
   const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(buffer);
+  await loadXlsxBuffer(wb, buffer);
   const ws = findWorksheet(wb, ["Forecast vs Actual", "Forecast vs Forecast", "Revised Forecast"]);
 
   const skuMap = await resolveSkuMap(country);
