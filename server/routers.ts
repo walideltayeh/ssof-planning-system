@@ -1950,7 +1950,10 @@ export const appRouter = router({
       .input(z.object({
         userId: z.number(),
         currentPassword: z.string(),
-        newPassword: z.string().min(1),
+        newPassword: z.string().min(PASSWORD_MIN_LENGTH).refine(
+          (v) => checkPasswordStrength(v).ok,
+          { message: PASSWORD_REQUIREMENTS_MESSAGE },
+        ),
         confirmPassword: z.string(),
       }))
       .mutation(async ({ input }) => {

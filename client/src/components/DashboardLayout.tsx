@@ -37,6 +37,7 @@ import { toast } from "sonner";
 import type { Country } from "@/contexts/CountryContext";
 import CountryAccessDenied from "./CountryAccessDenied";
 import { useDeniedCountry } from "@/lib/countryAccessStore";
+import { checkPasswordStrength, PASSWORD_MIN_LENGTH, PASSWORD_REQUIREMENTS_MESSAGE } from "@shared/passwordStrength";
 
 // Routes that don't depend on the currently-selected country (admin/global
 // tooling). Visiting these is fine even if the user's selected country was
@@ -213,9 +214,14 @@ function DashboardLayoutContent({
     onError: (err) => setCpError(err.message),
   });
 
+  const cpNewStrength = checkPasswordStrength(cpNew);
+  const cpNewTouched = cpNew.length > 0;
+  const cpNewBlocksSave = cpNewTouched && !cpNewStrength.ok;
+
   const handleChangePassword = useCallback(() => {
     setCpError("");
     if (!cpCurrent || !cpNew || !cpConfirm) { setCpError("All fields are required"); return; }
+    if (!checkPasswordStrength(cpNew).ok) { setCpError(PASSWORD_REQUIREMENTS_MESSAGE); return; }
     if (cpNew !== cpConfirm) { setCpError("New passwords do not match"); return; }
     if (!appUser?.id) { setCpError("Not authenticated"); return; }
     changePasswordMutation.mutate({ userId: appUser.id, currentPassword: cpCurrent, newPassword: cpNew, confirmPassword: cpConfirm });
@@ -551,12 +557,35 @@ function DashboardLayoutContent({
                     <label className="text-xs font-medium text-muted-foreground">New Password</label>
                     <input
                       type="password"
-                      className="w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                      className={`w-full border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary ${cpNewBlocksSave ? "border-destructive focus:ring-destructive" : ""}`}
                       value={cpNew}
                       onChange={e => setCpNew(e.target.value)}
                       placeholder="New password"
                       autoComplete="new-password"
+                      aria-invalid={cpNewBlocksSave}
+                      data-testid="input-change-password-new"
                     />
+                    {cpNewTouched ? (
+                      cpNewStrength.ok ? (
+                        <p
+                          className="text-xs text-emerald-600 font-medium"
+                          data-testid="text-change-password-strength-ok"
+                        >
+                          Strong password.
+                        </p>
+                      ) : (
+                        <p
+                          className="text-xs text-destructive font-medium"
+                          data-testid="text-change-password-strength-hint"
+                        >
+                          {cpNewStrength.message}
+                        </p>
+                      )
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        Use at least {PASSWORD_MIN_LENGTH} characters with a letter and a number.
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-1">
                     <label className="text-xs font-medium text-muted-foreground">Confirm New Password</label>
@@ -577,7 +606,7 @@ function DashboardLayoutContent({
                   <Button
                     size="sm"
                     onClick={handleChangePassword}
-                    disabled={changePasswordMutation.isPending}
+                    disabled={changePasswordMutation.isPending || !cpNewStrength.ok}
                   >
                     {changePasswordMutation.isPending ? "Saving..." : "Change Password"}
                   </Button>
