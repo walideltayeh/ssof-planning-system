@@ -48,6 +48,7 @@ describe("LoginPage", () => {
     navigate.mockReset();
     toastSuccess.mockReset();
     countryValue = "Lebanon";
+    window.history.replaceState({}, "", "/login");
     cleanup();
   });
 
@@ -102,5 +103,41 @@ describe("LoginPage", () => {
       await screen.findByText(/please select a country first/i),
     ).toBeInTheDocument();
     expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("renders the super admin badge and header copy when ?superadmin=1 is in the URL", () => {
+    countryValue = null;
+    window.history.replaceState({}, "", "/login?superadmin=1");
+
+    render(<LoginPage />);
+
+    expect(screen.getByText(/super admin access/i)).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: /super admin sign in/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByPlaceholderText(/super admin username/i),
+    ).toBeInTheDocument();
+  });
+
+  it("forces login to Lebanon and sets the country on success in super admin mode even without a selected country", async () => {
+    countryValue = null;
+    window.history.replaceState({}, "", "/login?superadmin=1");
+    login.mockResolvedValueOnce(null);
+    const user = userEvent.setup();
+
+    render(<LoginPage />);
+
+    await user.type(screen.getByLabelText(/username/i), "root");
+    await user.type(screen.getByLabelText(/^password$/i), "rootpass");
+    await user.click(screen.getByRole("button", { name: /sign in/i }));
+
+    expect(login).toHaveBeenCalledTimes(1);
+    expect(login).toHaveBeenCalledWith("root", "rootpass", "Lebanon");
+    expect(setCountry).toHaveBeenCalledWith("Lebanon");
+    expect(navigate).toHaveBeenCalledWith("/");
+    expect(toastSuccess).toHaveBeenCalledWith(
+      expect.stringMatching(/welcome back, root/i),
+    );
   });
 });
