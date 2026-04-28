@@ -4,8 +4,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { httpBatchLink, TRPCClientError } from "@trpc/client";
 import { createRoot } from "react-dom/client";
 import superjson from "superjson";
+import { toast } from "sonner";
 import App from "./App";
 import { getLoginUrl } from "./const";
+import { isCountryAccessError, extractCountryFromAccessError } from "./lib/countryAccessError";
 import "./index.css";
 
 const queryClient = new QueryClient();
@@ -68,10 +70,44 @@ const resetReloadGuardOnSuccess = (event: { type: string; action?: { type: strin
   }
 };
 
+// When the server says "You do not have access to <country>" mid-session
+// (e.g. an owner just revoked the user's access), surface a friendly toast
+// pointing them at who to ask. The DashboardLayout proactive guard
+// (CountryAccessDenied) already handles the in-page render; this subscriber
+// catches the case where access was revoked WHILE the user is sitting on a
+// page so they get an immediate signal instead of silent query failures.
+// We throttle per country so 5+ simultaneous country.* query failures on a
+// single dashboard load only produce one toast — but a later revocation of
+// a *different* country (or a re-grant + revoke cycle) still surfaces.
+const recentlyToastedCountries = new Map<string, number>();
+const COUNTRY_TOAST_COOLDOWN_MS = 60_000;
+const showCountryAccessToast = (error: unknown) => {
+  if (!isCountryAccessError(error)) return;
+  const country = extractCountryFromAccessError(error) ?? "this country";
+  const now = Date.now();
+  const last = recentlyToastedCountries.get(country);
+  if (last && now - last < COUNTRY_TOAST_COOLDOWN_MS) return;
+  recentlyToastedCountries.set(country, now);
+  toast.error(`You no longer have access to ${country}`, {
+    description:
+      "Ask the workspace owner to grant access if you need to view this country's data.",
+    duration: 8000,
+  });
+};
+
+// Clear the per-country toast cooldown when the app session changes (login /
+// logout / user switch) so a freshly logged-in user sees fresh notifications.
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", evt => {
+    if (evt.key === "ssof-session-v2") recentlyToastedCountries.clear();
+  });
+}
+
 queryClient.getQueryCache().subscribe(event => {
   if (event.type === "updated" && event.action.type === "error") {
     const error = event.query.state.error;
     redirectToLoginIfUnauthorized(error);
+    showCountryAccessToast(error);
     console.error("[API Query Error]", error);
   }
   resetReloadGuardOnSuccess(event);
@@ -81,6 +117,7 @@ queryClient.getMutationCache().subscribe(event => {
   if (event.type === "updated" && event.action.type === "error") {
     const error = event.mutation.state.error;
     redirectToLoginIfUnauthorized(error);
+    showCountryAccessToast(error);
     console.error("[API Mutation Error]", error);
   }
   resetReloadGuardOnSuccess(event);

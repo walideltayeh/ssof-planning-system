@@ -35,6 +35,27 @@ import { Button } from "./ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import type { Country } from "@/contexts/CountryContext";
+import CountryAccessDenied from "./CountryAccessDenied";
+
+// Routes that don't depend on the currently-selected country (admin/global
+// tooling). Visiting these is fine even if the user's selected country was
+// revoked, so we don't replace their content with the access-denied state.
+// Keep this in sync with server-side procedures that DON'T call
+// `requireCountryAccess` (e.g. `addYear`, audit/user/version admin endpoints).
+const COUNTRY_AGNOSTIC_PATHS = new Set<string>([
+  "/user-management",
+  "/audit-trail",
+  "/data-versions",
+  "/add-year",
+]);
+
+function normalizeRoutePath(loc: string): string {
+  const noQuery = loc.split("?")[0];
+  const noHash = noQuery.split("#")[0];
+  // Strip trailing slash (except for root "/") so "/audit-trail/" matches.
+  if (noHash.length > 1 && noHash.endsWith("/")) return noHash.slice(0, -1);
+  return noHash;
+}
 
 // Lebanon menu items (original)
 const LEBANON_MENU: Array<{ label: string; path: string; adminOnly: boolean; walidOnly?: boolean }> = [
@@ -578,7 +599,13 @@ function DashboardLayoutContent({
             </div>
           </div>
         )}
-        <main className="flex-1 p-4">{children}</main>
+        <main className="flex-1 p-4">
+          {country && !COUNTRY_AGNOSTIC_PATHS.has(normalizeRoutePath(location)) && !canAccessCountry(country) ? (
+            <CountryAccessDenied country={country} />
+          ) : (
+            children
+          )}
+        </main>
       </SidebarInset>
     </>
   );
