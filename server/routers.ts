@@ -1964,16 +1964,28 @@ export const appRouter = router({
       .query(async ({ ctx }) => {
         await requireAppOwner(ctx);
         const rows = await db.listAppUsers();
-        return rows.map(u => ({
-          id: u.id,
-          username: u.username,
-          displayName: u.displayName,
-          role: u.role,
-          countries: JSON.parse(u.countries) as string[],
-          isOwner: u.isOwner,
-          email: u.email ?? null,
-          createdAt: u.createdAt,
-        }));
+        const recent = await db.getRecentUserAuditChanges(
+          rows.map(u => ({ id: u.id, username: u.username }))
+        );
+        return rows.map(u => {
+          const change = recent.get(u.id);
+          return {
+            id: u.id,
+            username: u.username,
+            displayName: u.displayName,
+            role: u.role,
+            countries: JSON.parse(u.countries) as string[],
+            isOwner: u.isOwner,
+            email: u.email ?? null,
+            createdAt: u.createdAt,
+            lastChange: change ? {
+              username: change.username,
+              action: change.action,
+              details: change.details ?? null,
+              createdAt: change.createdAt,
+            } : null,
+          };
+        });
       }),
     // Create user - owner only
     create: protectedProcedure
@@ -2017,6 +2029,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         const requester = await requireAppOwner(ctx);
+        const before = await db.getAppUserById(input.id);
         await db.updateAppUser(input.id, {
           displayName: input.displayName,
           password: input.password,
@@ -2025,16 +2038,35 @@ export const appRouter = router({
           ...(input.email !== undefined ? { email: input.email === "" ? null : input.email } : {}),
         });
         const changes: string[] = [];
-        if (input.displayName !== undefined) changes.push(`displayName=${input.displayName}`);
-        if (input.password !== undefined) changes.push("password=(changed)");
-        if (input.role !== undefined) changes.push(`role=${input.role}`);
-        if (input.countries !== undefined) changes.push(`countries=${input.countries.join(", ")}`);
-        if (input.email !== undefined) changes.push(`email=${input.email ?? "(none)"}`);
+        if (input.displayName !== undefined && (!before || input.displayName !== before.displayName)) {
+          changes.push(`display name '${before?.displayName ?? ""}' → '${input.displayName}'`);
+        }
+        if (input.password !== undefined) {
+          changes.push("password (changed)");
+        }
+        if (input.role !== undefined && (!before || input.role !== before.role)) {
+          changes.push(`role '${before?.role ?? ""}' → '${input.role}'`);
+        }
+        if (input.countries !== undefined) {
+          const oldCountries = before ? (JSON.parse(before.countries) as string[]).join(", ") : "";
+          const newCountries = input.countries.join(", ");
+          if (oldCountries !== newCountries) {
+            changes.push(`countries '${oldCountries || "(none)"}' → '${newCountries || "(none)"}'`);
+          }
+        }
+        if (input.email !== undefined) {
+          const oldEmail = before?.email ?? "";
+          const newEmail = input.email === "" || input.email === null ? "" : input.email;
+          if (oldEmail !== newEmail) {
+            changes.push(`email '${oldEmail || "(none)"}' → '${newEmail || "(none)"}'`);
+          }
+        }
+        const targetTag = before ? `'${before.username}' (id=${input.id})` : `id=${input.id}`;
         await db.logAudit({
           username: requester.username,
           action: "update_user",
           sheet: "Users",
-          details: `Updated user id=${input.id}: ${changes.join("; ") || "(no changes)"}`,
+          details: `Updated user ${targetTag}: ${changes.join("; ") || "(no changes)"}`,
         });
         return { success: true };
       }),
@@ -2046,12 +2078,14 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const requester = await requireAppOwner(ctx);
         if (requester.id === input.id) throw new TRPCError({ code: "BAD_REQUEST", message: "Cannot delete yourself" });
+        const before = await db.getAppUserById(input.id);
         await db.deleteAppUser(input.id);
+        const targetTag = before ? `'${before.username}' (id=${input.id})` : `id=${input.id}`;
         await db.logAudit({
           username: requester.username,
           action: "delete_user",
           sheet: "Users",
-          details: `Deleted user id=${input.id}`,
+          details: `Deleted user ${targetTag}`,
         });
         return { success: true };
       }),

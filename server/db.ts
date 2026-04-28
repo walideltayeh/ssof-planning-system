@@ -898,6 +898,109 @@ export async function logAudit(entry: Omit<InsertAuditTrail, 'id' | 'createdAt'>
   }
 }
 
+/**
+ * Pure helper: given a newest-first list of `Users`-sheet audit logs and a
+ * roster of currently-known app users, returns a map from user id to the
+ * newest matching log entry.
+ *
+ * Matching strategy (handles both old and new audit detail formats):
+ *   - If `details` contains `id=N`, treat N as the target user id.
+ *   - Else if `details` contains `user 'username'`, resolve to that user.
+ *
+ * Exported separately from `getRecentUserAuditChanges` so it can be unit-
+ * tested without standing up a live DB.
+ */
+export function pickRecentUserAuditChanges<T extends { details: string | null }>(
+  logsNewestFirst: T[],
+  users: Array<{ id: number; username: string }>,
+): Map<number, T> {
+  const result = new Map<number, T>();
+  if (logsNewestFirst.length === 0 || users.length === 0) return result;
+
+  const idByUsername = new Map<string, number>();
+  const validIds = new Set<number>();
+  for (const u of users) {
+    idByUsername.set(u.username.toLowerCase(), u.id);
+    validIds.add(u.id);
+  }
+
+  for (const log of logsNewestFirst) {
+    const details = log.details ?? '';
+    let userId: number | undefined;
+
+    const idMatch = details.match(/id=(\d+)/);
+    if (idMatch) {
+      const id = parseInt(idMatch[1], 10);
+      if (validIds.has(id)) userId = id;
+    }
+
+    if (userId === undefined) {
+      const userMatch = details.match(/user '([^']+)'/i);
+      if (userMatch) {
+        const uname = userMatch[1].toLowerCase();
+        const id = idByUsername.get(uname);
+        if (id !== undefined) userId = id;
+      }
+    }
+
+    if (userId !== undefined && !result.has(userId)) {
+      result.set(userId, log);
+    }
+  }
+  return result;
+}
+
+/**
+ * Returns the most recent `Users` sheet audit entry for each given app-user,
+ * keyed by user id. Used by `appUsers.list` to surface "updated by X · time
+ * ago" hints in the user-management table.
+ *
+ * Pages newest-first through the audit_trail table and stops as soon as
+ * every requested user has been matched, so a single missing-user (e.g. a
+ * user who has never been edited) can't force us to scan the whole table.
+ * A hard ceiling caps the worst case so an unmatched outlier doesn't read
+ * the entire history.
+ */
+export async function getRecentUserAuditChanges(
+  users: Array<{ id: number; username: string }>
+): Promise<Map<number, AuditTrail>> {
+  const result = new Map<number, AuditTrail>();
+  if (users.length === 0) return result;
+  const db = await getDb();
+  if (!db) return result;
+
+  const PAGE_SIZE = 500;
+  const MAX_ROWS = 10_000; // hard ceiling: 20 pages
+  const remaining = new Set(users.map(u => u.id));
+  let offset = 0;
+
+  while (remaining.size > 0 && offset < MAX_ROWS) {
+    const page = await db.select().from(auditTrail)
+      .where(and(
+        eq(auditTrail.sheet, 'Users'),
+        inArray(auditTrail.action, ['create_user', 'update_user', 'delete_user']),
+      ))
+      .orderBy(desc(auditTrail.createdAt))
+      .limit(PAGE_SIZE)
+      .offset(offset);
+
+    if (page.length === 0) break;
+
+    const matched = pickRecentUserAuditChanges(page, users);
+    for (const [id, log] of matched) {
+      if (!result.has(id)) {
+        result.set(id, log);
+        remaining.delete(id);
+      }
+    }
+
+    if (page.length < PAGE_SIZE) break;
+    offset += PAGE_SIZE;
+  }
+
+  return result;
+}
+
 export async function getAuditLogs(opts?: { limit?: number; offset?: number; username?: string; action?: string; sheet?: string }) {
   const db = await getDb();
   if (!db) return { logs: [], total: 0 };
@@ -2467,6 +2570,12 @@ export async function getAppUserByUsername(username: string): Promise<AppUserRow
   const db = await getDb();
   if (!db) return null;
   const rows = await db.select().from(appUsers).where(eq(appUsers.username, username.toLowerCase().trim())).limit(1);
+  return rows[0] ?? null;
+}
+export async function getAppUserById(id: number): Promise<AppUserRow | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(appUsers).where(eq(appUsers.id, id)).limit(1);
   return rows[0] ?? null;
 }
 export async function createAppUser(data: { username: string; displayName: string; password: string; role: "admin" | "viewer"; countries: string[]; isOwner?: boolean; email?: string | null }) {

@@ -58,6 +58,21 @@ vi.mock("./db", () => {
       return null;
     }),
     deleteAppUser: vi.fn(async () => undefined),
+    getAppUserById: vi.fn(async (id: number) => {
+      if (id === 1) {
+        return {
+          id: 1,
+          username: "admin-owner",
+          displayName: "Admin Owner",
+          role: "admin" as const,
+          countries: JSON.stringify(["Lebanon"]),
+          isOwner: true,
+          email: "owner@example.com",
+        };
+      }
+      return null;
+    }),
+    getRecentUserAuditChanges: vi.fn(async () => new Map()),
     listAppUsers: vi.fn(async () => [
       {
         id: 1,

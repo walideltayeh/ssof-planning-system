@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { Fragment, useState, useEffect } from "react";
 import { useAppAuth } from "@/contexts/AuthContext";
 import type { Country } from "@/contexts/AuthContext";
 import { trpc } from "@/lib/trpc";
@@ -8,7 +8,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { Eye, EyeOff, Pencil, Trash2, Plus, ShieldCheck, User } from "lucide-react";
+import { Eye, EyeOff, Pencil, Trash2, Plus, ShieldCheck, User, ChevronDown, ChevronRight, History } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
+
+const ACTION_LABELS: Record<string, string> = {
+  create_user: "created",
+  update_user: "updated",
+  delete_user: "deleted",
+};
 
 const ALL_COUNTRIES: Country[] = ["Lebanon", "Syria", "Libya"];
 
@@ -71,6 +78,16 @@ export default function UserManagementPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [expandedHistory, setExpandedHistory] = useState<Set<number>>(new Set());
+
+  function toggleHistory(id: number) {
+    setExpandedHistory(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   if (!isOwner) return null;
 
@@ -315,8 +332,18 @@ export default function UserManagementPage() {
                 <tbody>
                   {users.map(u => {
                     const isCurrentUser = currentUser?.username === u.username;
+                    const lastChange = u.lastChange;
+                    const isExpanded = expandedHistory.has(u.id);
+                    const lastChangeAgo = lastChange
+                      ? formatDistanceToNow(new Date(lastChange.createdAt), { addSuffix: true })
+                      : null;
+                    const lastChangeTitle = lastChange
+                      ? `${ACTION_LABELS[lastChange.action] ?? lastChange.action} by ${lastChange.username} on ${new Date(lastChange.createdAt).toLocaleString()}`
+                      : "";
+                    const colSpan = isOwner ? 6 : 5;
                     return (
-                      <tr key={u.id} className="border-b last:border-b-0 hover:bg-muted/30 transition-colors">
+                      <Fragment key={u.id}>
+                      <tr className={`border-b last:border-b-0 hover:bg-muted/30 transition-colors ${isExpanded ? "bg-muted/20" : ""}`}>
                         <td className="py-3 px-4">
                           <div className="flex items-center gap-3">
                             <div className={`h-8 w-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 ${
@@ -324,7 +351,7 @@ export default function UserManagementPage() {
                             }`}>
                               {u.isOwner ? <ShieldCheck className="h-4 w-4" /> : <User className="h-4 w-4" />}
                             </div>
-                            <div>
+                            <div className="min-w-0">
                               <div className="font-medium flex items-center gap-1.5">
                                 {u.displayName}
                                 {u.isOwner && (
@@ -334,6 +361,26 @@ export default function UserManagementPage() {
                                   <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-600 border border-blue-200">You</span>
                                 )}
                               </div>
+                              {lastChange ? (
+                                <button
+                                  type="button"
+                                  onClick={() => toggleHistory(u.id)}
+                                  title={lastChangeTitle}
+                                  className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                                  data-testid={`button-toggle-history-${u.id}`}
+                                >
+                                  {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                                  <History className="h-3 w-3" />
+                                  <span>
+                                    {ACTION_LABELS[lastChange.action] ?? lastChange.action} by{" "}
+                                    <span className="font-medium">{lastChange.username}</span>
+                                    {" · "}
+                                    {lastChangeAgo}
+                                  </span>
+                                </button>
+                              ) : (
+                                <div className="mt-0.5 text-[11px] text-muted-foreground italic">No recorded changes</div>
+                              )}
                             </div>
                           </div>
                         </td>
@@ -415,6 +462,28 @@ export default function UserManagementPage() {
                           </td>
                         )}
                       </tr>
+                      {isExpanded && lastChange && (
+                        <tr className="border-b last:border-b-0 bg-muted/10" data-testid={`row-history-${u.id}`}>
+                          <td colSpan={colSpan} className="py-2 px-4">
+                            <div className="ml-11 text-xs text-muted-foreground space-y-0.5">
+                              <div>
+                                <span className="font-medium text-foreground capitalize">
+                                  {ACTION_LABELS[lastChange.action] ?? lastChange.action}
+                                </span>{" "}
+                                by <span className="font-medium text-foreground">{lastChange.username}</span>
+                                {" · "}
+                                <span title={new Date(lastChange.createdAt).toLocaleString()}>
+                                  {lastChangeAgo}
+                                </span>
+                              </div>
+                              {lastChange.details && (
+                                <div className="whitespace-pre-wrap break-words">{lastChange.details}</div>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                      </Fragment>
                     );
                   })}
                 </tbody>
