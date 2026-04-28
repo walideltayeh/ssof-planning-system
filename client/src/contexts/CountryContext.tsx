@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from "react";
 import { useAppAuth } from "./AuthContext";
 import type { Country as AuthCountry } from "./AuthContext";
+import { clearDeniedCountry } from "@/lib/countryAccessStore";
 
 export type Country = "Lebanon" | "Syria" | "Libya";
 
@@ -76,10 +77,15 @@ export function CountryProvider({ children }: { children: ReactNode }) {
   const country = (auth.country as Country) ?? null;
 
   const setCountry = useCallback((c: Country) => {
+    // Picking a (different) country invalidates any prior server-side
+    // FORBIDDEN denial — the user's about to fire fresh queries that will
+    // re-confirm or re-deny.
+    clearDeniedCountry();
     auth.setCountry(c as AuthCountry);
   }, [auth]);
 
   const clearCountry = useCallback(() => {
+    clearDeniedCountry();
     auth.clearCountry();
   }, [auth]);
 

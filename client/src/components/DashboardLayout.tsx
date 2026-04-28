@@ -36,6 +36,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { toast } from "sonner";
 import type { Country } from "@/contexts/CountryContext";
 import CountryAccessDenied from "./CountryAccessDenied";
+import { useDeniedCountry } from "@/lib/countryAccessStore";
 
 // Routes that don't depend on the currently-selected country (admin/global
 // tooling). Visiting these is fine even if the user's selected country was
@@ -182,6 +183,7 @@ function DashboardLayoutContent({
   const { user, logout: oauthLogout } = useAuth();
   const { user: appUser, logout: appLogout, canAccessCountry } = useAppAuth();
   const { country, setCountry, clearCountry } = useCountry();
+  const deniedCountry = useDeniedCountry();
   const { unit, setUnit } = useUnit();
   const [location, setLocation] = useLocation();
   const { state, toggleSidebar } = useSidebar();
@@ -600,11 +602,22 @@ function DashboardLayoutContent({
           </div>
         )}
         <main className="flex-1 p-4">
-          {country && !COUNTRY_AGNOSTIC_PATHS.has(normalizeRoutePath(location)) && !canAccessCountry(country) ? (
-            <CountryAccessDenied country={country} />
-          ) : (
-            children
-          )}
+          {(() => {
+            const isCountryRoute = !COUNTRY_AGNOSTIC_PATHS.has(normalizeRoutePath(location));
+            // Authoritative: server told us (FORBIDDEN) we don't have access
+            // to this country. This catches the mid-session revocation case
+            // where the local cache is stale and still says we do.
+            const serverDeniedCurrent =
+              !!country && !!deniedCountry && deniedCountry === country;
+            // Fallback: local access list says we shouldn't be here. Catches
+            // the common stale-localStorage case before any query even fires.
+            const localDeniedCurrent =
+              !!country && !canAccessCountry(country);
+            if (isCountryRoute && (serverDeniedCurrent || localDeniedCurrent)) {
+              return <CountryAccessDenied country={deniedCountry ?? country} />;
+            }
+            return children;
+          })()}
         </main>
       </SidebarInset>
     </>

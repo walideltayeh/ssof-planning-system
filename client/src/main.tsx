@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import App from "./App";
 import { getLoginUrl } from "./const";
 import { isCountryAccessError, extractCountryFromAccessError } from "./lib/countryAccessError";
+import { setDeniedCountry } from "./lib/countryAccessStore";
 import "./index.css";
 
 const queryClient = new QueryClient();
@@ -84,6 +85,9 @@ const COUNTRY_TOAST_COOLDOWN_MS = 60_000;
 const showCountryAccessToast = (error: unknown) => {
   if (!isCountryAccessError(error)) return;
   const country = extractCountryFromAccessError(error) ?? "this country";
+  // Persist the denial so DashboardLayout can swap in the friendly empty
+  // state authoritatively (server says no, even if local cache says yes).
+  setDeniedCountry(country);
   const now = Date.now();
   const last = recentlyToastedCountries.get(country);
   if (last && now - last < COUNTRY_TOAST_COOLDOWN_MS) return;
