@@ -482,8 +482,12 @@ describe("authorization lockdown", () => {
     // weak `newPassword` values with BAD_REQUEST + the shared requirements
     // message, even when the client-side check is bypassed (see Task #55).
     describe("appUsers.changePassword (self-service dialog backstop)", () => {
+      // The self-service dialog only ever changes the *caller's own*
+      // password (Task #59), so test inputs default to the caller's own
+      // app-user id. Tests that intentionally exercise the cross-user
+      // path override `userId` explicitly.
       const baseChange = {
-        userId: 1,
+        userId: 2, // viewer-user's own app-user id (see mocks above)
         currentPassword: "oldsecret1",
         confirmPassword: "secret123",
       };
@@ -496,6 +500,67 @@ describe("authorization lockdown", () => {
           }),
           "UNAUTHORIZED",
         );
+      });
+
+      // Task #59: the self-service Change Password dialog must only ever
+      // change the *caller's own* password. Even if the caller knows the
+      // current password of another user (e.g. a shared/temporary one),
+      // they must not be able to silently lock that user out — and the
+      // audit trail would otherwise misleadingly name the actor instead
+      // of the victim. Cross-user resets only happen through the
+      // owner-only `appUsers.update` path.
+      describe("self-service only (Task #59)", () => {
+        it("rejects a viewer trying to change another user's password with FORBIDDEN", async () => {
+          const db = await import("./db");
+          // viewer-user (id=2) tries to change admin-owner's password (id=1)
+          await expectTrpcCode(
+            viewerCaller().appUsers.changePassword({
+              ...baseChange,
+              userId: 1,
+              newPassword: "secret123",
+              confirmPassword: "secret123",
+            }),
+            "FORBIDDEN",
+          );
+          expect(db.changeAppUserPassword).not.toHaveBeenCalled();
+          expect(db.logAudit).not.toHaveBeenCalled();
+        });
+
+        it("rejects an owner-admin trying to change another user's password with FORBIDDEN", async () => {
+          const db = await import("./db");
+          // admin-owner (id=1) tries to change viewer-user's password (id=2)
+          // — even an owner must use `appUsers.update` for cross-user resets.
+          await expectTrpcCode(
+            adminCaller().appUsers.changePassword({
+              ...baseChange,
+              userId: 2,
+              newPassword: "secret123",
+              confirmPassword: "secret123",
+            }),
+            "FORBIDDEN",
+          );
+          expect(db.changeAppUserPassword).not.toHaveBeenCalled();
+          expect(db.logAudit).not.toHaveBeenCalled();
+        });
+
+        it("rejects with FORBIDDEN when the caller has no matching app-user row", async () => {
+          const db = await import("./db");
+          // A signed-in caller whose username doesn't resolve to an app-user
+          // (defensive case, e.g. an OAuth-only session) must also be
+          // rejected — they cannot prove ownership of any userId.
+          (db.getAppUserByUsername as ReturnType<typeof vi.fn>)
+            .mockResolvedValueOnce(null);
+          await expectTrpcCode(
+            viewerCaller().appUsers.changePassword({
+              ...baseChange,
+              newPassword: "secret123",
+              confirmPassword: "secret123",
+            }),
+            "FORBIDDEN",
+          );
+          expect(db.changeAppUserPassword).not.toHaveBeenCalled();
+          expect(db.logAudit).not.toHaveBeenCalled();
+        });
       });
 
       it("rejects a too-short newPassword with BAD_REQUEST and never writes to the db", async () => {
@@ -577,11 +642,14 @@ describe("authorization lockdown", () => {
       describe("audit trail logging (Task #58)", () => {
         it("writes a 'change_password' audit entry naming the actor on success", async () => {
           const db = await import("./db");
-          // Caller is "admin-owner" (id=1), and userId=1 in baseChange
-          // resolves to that same user — so the audit details should phrase
-          // it as a self-service ("Changed own password") entry.
+          // Caller is "admin-owner" (id=1) changing their *own* password,
+          // so userId must match the admin caller's id — Task #59 forbids
+          // cross-user changes through this endpoint. The audit details
+          // should phrase it as a self-service ("Changed own password")
+          // entry because actor and target are the same user.
           const result = await adminCaller().appUsers.changePassword({
             ...baseChange,
+            userId: 1,
             newPassword: "secret123",
             confirmPassword: "secret123",
           });

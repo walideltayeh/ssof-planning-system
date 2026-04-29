@@ -1960,6 +1960,24 @@ export const appRouter = router({
         if (input.newPassword !== input.confirmPassword) {
           return { success: false, error: "New passwords do not match" };
         }
+        // Self-service only: a caller may only change their own password
+        // through this endpoint. Knowing another user's current password
+        // (e.g. a shared/temporary one) must NOT be enough to lock that
+        // user out via this dialog — and it would also make the audit
+        // trail misleading by naming the actor instead of the victim.
+        // Owners who legitimately need to reset someone else's password
+        // do so through the owner-only `appUsers.update` path.
+        const callerUsername = ctx.user.name;
+        if (!callerUsername) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "No username on session" });
+        }
+        const caller = await db.getAppUserByUsername(callerUsername);
+        if (!caller || caller.id !== input.userId) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "You can only change your own password from this dialog",
+          });
+        }
         const result = await db.changeAppUserPassword(input.userId, input.currentPassword, input.newPassword);
         if (result.success) {
           // Audit successful self-service password changes so the Audit Trail
