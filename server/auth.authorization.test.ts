@@ -570,6 +570,67 @@ describe("authorization lockdown", () => {
         );
       });
 
+      // Task #58: a successful self-service password change must be written
+      // to the audit trail so the Audit Trail page can show who changed
+      // their own password and when. Failures (mismatched confirmation,
+      // wrong current password, etc.) must NOT log audit entries.
+      describe("audit trail logging (Task #58)", () => {
+        it("writes a 'change_password' audit entry naming the actor on success", async () => {
+          const db = await import("./db");
+          // Caller is "admin-owner" (id=1), and userId=1 in baseChange
+          // resolves to that same user — so the audit details should phrase
+          // it as a self-service ("Changed own password") entry.
+          const result = await adminCaller().appUsers.changePassword({
+            ...baseChange,
+            newPassword: "secret123",
+            confirmPassword: "secret123",
+          });
+          expect(result).toEqual({ success: true });
+          expect(db.logAudit).toHaveBeenCalledTimes(1);
+          expect(db.logAudit).toHaveBeenCalledWith(
+            expect.objectContaining({
+              username: "admin-owner",
+              action: "change_password",
+              sheet: "Users",
+              details: expect.stringContaining("admin-owner"),
+            }),
+          );
+          const call = (db.logAudit as ReturnType<typeof vi.fn>).mock.calls[0][0];
+          expect(call.details).toMatch(/Changed own password/);
+          expect(call.details).toContain("id=1");
+        });
+
+        it("does NOT write an audit entry when the current password is wrong", async () => {
+          const db = await import("./db");
+          (db.changeAppUserPassword as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+            success: false,
+            error: "Current password is incorrect",
+          });
+          const result = await viewerCaller().appUsers.changePassword({
+            ...baseChange,
+            newPassword: "secret123",
+            confirmPassword: "secret123",
+          });
+          expect(result).toEqual({
+            success: false,
+            error: "Current password is incorrect",
+          });
+          expect(db.logAudit).not.toHaveBeenCalled();
+        });
+
+        it("does NOT write an audit entry when newPassword !== confirmPassword", async () => {
+          const db = await import("./db");
+          const result = await viewerCaller().appUsers.changePassword({
+            ...baseChange,
+            newPassword: "secret123",
+            confirmPassword: "different1",
+          });
+          expect(result).toMatchObject({ success: false });
+          expect(db.changeAppUserPassword).not.toHaveBeenCalled();
+          expect(db.logAudit).not.toHaveBeenCalled();
+        });
+      });
+
       it("blocks the db write before mismatch handling when newPassword is weak", async () => {
         // Even when newPassword !== confirmPassword (which the handler
         // would normally surface as a friendly { success:false } error),

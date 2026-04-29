@@ -1956,11 +1956,30 @@ export const appRouter = router({
         ),
         confirmPassword: z.string(),
       }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         if (input.newPassword !== input.confirmPassword) {
           return { success: false, error: "New passwords do not match" };
         }
         const result = await db.changeAppUserPassword(input.userId, input.currentPassword, input.newPassword);
+        if (result.success) {
+          // Audit successful self-service password changes so the Audit Trail
+          // page can show who changed their own password and when. Failures
+          // (wrong current password, missing user, etc.) are intentionally
+          // not logged here so we don't fill the trail with noise — failed
+          // logins already get their own `login_failed` audit entries.
+          const target = await db.getAppUserById(input.userId);
+          const actor = ctx.user.name?.trim() || "unknown";
+          const targetTag = target ? `'${target.username}' (id=${input.userId})` : `id=${input.userId}`;
+          const details = target && target.username.toLowerCase() === actor.toLowerCase()
+            ? `Changed own password (${targetTag})`
+            : `Changed password for ${targetTag}`;
+          await db.logAudit({
+            username: actor,
+            action: "change_password",
+            sheet: "Users",
+            details,
+          });
+        }
         return result;
       }),
     // List all users - owner only
