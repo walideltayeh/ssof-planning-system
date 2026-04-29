@@ -218,8 +218,16 @@ function ForecastIntelligenceTab({ country }: { country: "Lebanon" | "Syria" | "
               .slice(0, 10)
               .map(s => (
                 <div key={s.id} className="flex items-center justify-between p-2 rounded border border-muted">
-                  <div className="flex-1">
-                    <span className="text-sm font-medium">{s.name}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-sm font-medium">{s.name}</span>
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${s.weight === "1kg" ? "bg-red-50 text-red-700" : s.weight === "250g" ? "bg-amber-50 text-amber-700" : "bg-blue-50 text-blue-700"}`}>
+                        {s.weight}
+                      </span>
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${(s as any).packagingType === "Old" ? "bg-slate-100 text-slate-700" : "bg-emerald-50 text-emerald-700"}`}>
+                        {(s as any).packagingType ?? "New"} Pkg
+                      </span>
+                    </div>
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: ZONE_COLORS[s.stockZone] + "15", color: ZONE_COLORS[s.stockZone] }}>
                         {s.stockZone}

@@ -3629,6 +3629,7 @@ export async function getForecastIntelligence(country: "Lebanon" | "Syria" | "Li
     id: number;
     name: string;
     weight: string;
+    packagingType: "Old" | "New";
     category: string;
     flavor: string;
     avg3m: number;
@@ -3768,6 +3769,7 @@ export async function getForecastIntelligence(country: "Lebanon" | "Syria" | "Li
       id: sku.id,
       name: sku.name,
       weight: sku.weight,
+      packagingType: ((sku as any).packagingType ?? "New") as "Old" | "New",
       category: sku.category ?? "Core",
       flavor: extractFlavor(sku.name),
       avg3m: Math.round(avg3m),
