@@ -483,11 +483,10 @@ describe("authorization lockdown", () => {
     // message, even when the client-side check is bypassed (see Task #55).
     describe("appUsers.changePassword (self-service dialog backstop)", () => {
       // The self-service dialog only ever changes the *caller's own*
-      // password (Task #59), so test inputs default to the caller's own
-      // app-user id. Tests that intentionally exercise the cross-user
-      // path override `userId` explicitly.
+      // password (Task #59 / Task #60), and the endpoint resolves the
+      // target user from the session — there is no `userId` field on the
+      // input, so a cross-user change is not even expressible here.
       const baseChange = {
-        userId: 2, // viewer-user's own app-user id (see mocks above)
         currentPassword: "oldsecret1",
         confirmPassword: "secret123",
       };
@@ -502,52 +501,17 @@ describe("authorization lockdown", () => {
         );
       });
 
-      // Task #59: the self-service Change Password dialog must only ever
-      // change the *caller's own* password. Even if the caller knows the
-      // current password of another user (e.g. a shared/temporary one),
-      // they must not be able to silently lock that user out — and the
-      // audit trail would otherwise misleadingly name the actor instead
-      // of the victim. Cross-user resets only happen through the
-      // owner-only `appUsers.update` path.
-      describe("self-service only (Task #59)", () => {
-        it("rejects a viewer trying to change another user's password with FORBIDDEN", async () => {
-          const db = await import("./db");
-          // viewer-user (id=2) tries to change admin-owner's password (id=1)
-          await expectTrpcCode(
-            viewerCaller().appUsers.changePassword({
-              ...baseChange,
-              userId: 1,
-              newPassword: "secret123",
-              confirmPassword: "secret123",
-            }),
-            "FORBIDDEN",
-          );
-          expect(db.changeAppUserPassword).not.toHaveBeenCalled();
-          expect(db.logAudit).not.toHaveBeenCalled();
-        });
-
-        it("rejects an owner-admin trying to change another user's password with FORBIDDEN", async () => {
-          const db = await import("./db");
-          // admin-owner (id=1) tries to change viewer-user's password (id=2)
-          // — even an owner must use `appUsers.update` for cross-user resets.
-          await expectTrpcCode(
-            adminCaller().appUsers.changePassword({
-              ...baseChange,
-              userId: 2,
-              newPassword: "secret123",
-              confirmPassword: "secret123",
-            }),
-            "FORBIDDEN",
-          );
-          expect(db.changeAppUserPassword).not.toHaveBeenCalled();
-          expect(db.logAudit).not.toHaveBeenCalled();
-        });
-
+      // Task #59 / Task #60: the self-service Change Password dialog must
+      // only ever change the *caller's own* password. Task #60 removed the
+      // `userId` field from the input entirely, so a cross-user attempt is
+      // no longer expressible at the wire level. The remaining defensive
+      // case is a signed-in caller whose username doesn't resolve to an
+      // app-user row (e.g. an OAuth-only session) — they cannot prove
+      // ownership of any user record, so the endpoint must reject them
+      // with FORBIDDEN before touching the DB.
+      describe("self-service only (Task #59 / Task #60)", () => {
         it("rejects with FORBIDDEN when the caller has no matching app-user row", async () => {
           const db = await import("./db");
-          // A signed-in caller whose username doesn't resolve to an app-user
-          // (defensive case, e.g. an OAuth-only session) must also be
-          // rejected — they cannot prove ownership of any userId.
           (db.getAppUserByUsername as ReturnType<typeof vi.fn>)
             .mockResolvedValueOnce(null);
           await expectTrpcCode(
@@ -619,8 +583,11 @@ describe("authorization lockdown", () => {
         );
       });
 
-      it("accepts a strong newPassword and forwards it to db.changeAppUserPassword", async () => {
+      it("accepts a strong newPassword and forwards the caller's own id to db.changeAppUserPassword", async () => {
         const db = await import("./db");
+        // viewer-user resolves to app-user id=2 (see mocks above), and
+        // Task #60 makes the endpoint always operate on the caller's own
+        // id — so the DB call must use 2, not anything from the input.
         const result = await viewerCaller().appUsers.changePassword({
           ...baseChange,
           newPassword: "secret123",
@@ -629,7 +596,7 @@ describe("authorization lockdown", () => {
         expect(result).toEqual({ success: true });
         expect(db.changeAppUserPassword).toHaveBeenCalledTimes(1);
         expect(db.changeAppUserPassword).toHaveBeenCalledWith(
-          baseChange.userId,
+          2,
           baseChange.currentPassword,
           "secret123",
         );
@@ -642,14 +609,11 @@ describe("authorization lockdown", () => {
       describe("audit trail logging (Task #58)", () => {
         it("writes a 'change_password' audit entry naming the actor on success", async () => {
           const db = await import("./db");
-          // Caller is "admin-owner" (id=1) changing their *own* password,
-          // so userId must match the admin caller's id — Task #59 forbids
-          // cross-user changes through this endpoint. The audit details
-          // should phrase it as a self-service ("Changed own password")
-          // entry because actor and target are the same user.
+          // Caller is "admin-owner" (id=1) changing their *own* password.
+          // Task #60: the endpoint resolves the target from the session,
+          // so the audit details always phrase it as "Changed own password".
           const result = await adminCaller().appUsers.changePassword({
             ...baseChange,
-            userId: 1,
             newPassword: "secret123",
             confirmPassword: "secret123",
           });

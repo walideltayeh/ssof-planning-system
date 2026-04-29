@@ -223,9 +223,8 @@ function DashboardLayoutContent({
     if (!cpCurrent || !cpNew || !cpConfirm) { setCpError("All fields are required"); return; }
     if (!checkPasswordStrength(cpNew).ok) { setCpError(PASSWORD_REQUIREMENTS_MESSAGE); return; }
     if (cpNew !== cpConfirm) { setCpError("New passwords do not match"); return; }
-    if (!appUser?.id) { setCpError("Not authenticated"); return; }
-    changePasswordMutation.mutate({ userId: appUser.id, currentPassword: cpCurrent, newPassword: cpNew, confirmPassword: cpConfirm });
-  }, [cpCurrent, cpNew, cpConfirm, appUser, changePasswordMutation]);
+    changePasswordMutation.mutate({ currentPassword: cpCurrent, newPassword: cpNew, confirmPassword: cpConfirm });
+  }, [cpCurrent, cpNew, cpConfirm, changePasswordMutation]);
 
   const isMobile = useIsMobile();
   const displayName = appUser?.displayName || user?.name || "-";

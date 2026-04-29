@@ -1948,7 +1948,6 @@ export const appRouter = router({
     // Change own password - any authenticated user
     changePassword: protectedProcedure
       .input(z.object({
-        userId: z.number(),
         currentPassword: z.string(),
         newPassword: z.string().min(PASSWORD_MIN_LENGTH).refine(
           (v) => checkPasswordStrength(v).ok,
@@ -1960,42 +1959,39 @@ export const appRouter = router({
         if (input.newPassword !== input.confirmPassword) {
           return { success: false, error: "New passwords do not match" };
         }
-        // Self-service only: a caller may only change their own password
-        // through this endpoint. Knowing another user's current password
-        // (e.g. a shared/temporary one) must NOT be enough to lock that
-        // user out via this dialog — and it would also make the audit
-        // trail misleading by naming the actor instead of the victim.
-        // Owners who legitimately need to reset someone else's password
-        // do so through the owner-only `appUsers.update` path.
+        // Self-service only: this endpoint always targets the caller's own
+        // app-user row, resolved from the session — there is no `userId`
+        // field on the input so a caller cannot even express a cross-user
+        // change. Knowing another user's current password (e.g. a shared
+        // /temporary one) must not be enough to lock that user out via
+        // this dialog, and it would also make the audit trail misleading
+        // by naming the actor instead of the victim. Owners who legitimately
+        // need to reset someone else's password use the owner-only
+        // `appUsers.update` path instead.
         const callerUsername = ctx.user.name;
         if (!callerUsername) {
           throw new TRPCError({ code: "FORBIDDEN", message: "No username on session" });
         }
         const caller = await db.getAppUserByUsername(callerUsername);
-        if (!caller || caller.id !== input.userId) {
+        if (!caller) {
           throw new TRPCError({
             code: "FORBIDDEN",
             message: "You can only change your own password from this dialog",
           });
         }
-        const result = await db.changeAppUserPassword(input.userId, input.currentPassword, input.newPassword);
+        const result = await db.changeAppUserPassword(caller.id, input.currentPassword, input.newPassword);
         if (result.success) {
           // Audit successful self-service password changes so the Audit Trail
           // page can show who changed their own password and when. Failures
-          // (wrong current password, missing user, etc.) are intentionally
-          // not logged here so we don't fill the trail with noise — failed
-          // logins already get their own `login_failed` audit entries.
-          const target = await db.getAppUserById(input.userId);
+          // (wrong current password, etc.) are intentionally not logged here
+          // so we don't fill the trail with noise — failed logins already
+          // get their own `login_failed` audit entries.
           const actor = ctx.user.name?.trim() || "unknown";
-          const targetTag = target ? `'${target.username}' (id=${input.userId})` : `id=${input.userId}`;
-          const details = target && target.username.toLowerCase() === actor.toLowerCase()
-            ? `Changed own password (${targetTag})`
-            : `Changed password for ${targetTag}`;
           await db.logAudit({
             username: actor,
             action: "change_password",
             sheet: "Users",
-            details,
+            details: `Changed own password ('${caller.username}' (id=${caller.id}))`,
           });
         }
         return result;

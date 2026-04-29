@@ -473,7 +473,6 @@ describe("DashboardLayout — Change Password dialog (weak password handling)", 
 
     expect(changePasswordMutate).toHaveBeenCalledTimes(1);
     expect(changePasswordMutate).toHaveBeenCalledWith({
-      userId: 7,
       currentPassword: "oldpass1",
       newPassword: "secret123",
       confirmPassword: "secret123",
