@@ -197,6 +197,15 @@ Schema was converted from MySQL to PostgreSQL during Replit import. Uses Drizzle
 - API: `trpc.country.forecastIntelligence` endpoint
 - Files: `server/db.ts` (getForecastIntelligence), `client/src/components/ForecastIntelligenceTab.tsx`, both Analysis pages
 
+### 12. Per-Country Roles
+- A user can be admin in one country and viewer in another (e.g. Lebanon-admin / KSA-viewer)
+- New `countryRoles` JSON column on `app_users` storing per-country overrides; missing entry → falls back to the user's global `role`; owners are always admin
+- Server-side `getEffectiveAppRole(user, country)` resolves the effective role; new `requireCountryAdmin(ctx, country)` and `requireSkuCountryAdmin(ctx, skuId)` helpers gate every country-scoped admin handler (period.init, sku.create/delete/updateCategory/reorder, all upload.* handlers, versions.load/import/delete, every country.* admin handler)
+- `establishAppUserSession` upgrades override-admins to platform admin via `hasAnyCountryAdmin(user)` so a global-viewer with any per-country admin override still passes the global `adminProcedure` gate (per-country gating still happens in the handler body)
+- `appUsers.create/update/list/verifyLogin` accept and return `countryRoles`; the update audit diff formats overrides as `country=role` pairs
+- Client AuthContext exposes `isAdminFor(country)`; legacy `isAdmin` resolves against the currently selected country (with admin-anywhere fallback when no country is selected)
+- User Management UI shows per-country role pickers (Default | Admin | Viewer) under each assigned country
+
 ### 11. SKU Active/Inactive Toggle — Lebanon
 - Toggle switch on each SKU row in Lebanon SKU Management page
 - Inactive SKUs are excluded from all calculations (forecast, stock, analysis, planning) but data is preserved

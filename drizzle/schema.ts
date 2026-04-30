@@ -225,6 +225,11 @@ export const appUsers = pgTable("app_users", {
   password: varchar("password", { length: 255 }).notNull(),
   role: appRoleEnum("role").default("viewer").notNull(),
   countries: text("countries").notNull(),
+  // JSON map of per-country role overrides, e.g. {"Lebanon":"admin","KSA":"viewer"}.
+  // When a country is missing from this map, the global `role` field above is
+  // used as the effective role for that country. Owners are admin everywhere
+  // regardless of either field.
+  countryRoles: text("countryRoles").default("{}").notNull(),
   isOwner: boolean("isOwner").default(false).notNull(),
   email: varchar("email", { length: 320 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

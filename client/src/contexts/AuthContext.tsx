@@ -10,6 +10,11 @@ export interface AppUser {
   displayName: string;
   role: AppRole;
   countries: string[];
+  /**
+   * Per-country role overrides. Missing entry → caller's global `role` applies
+   * for that country. Owners always behave as admin regardless of overrides.
+   */
+  countryRoles?: Record<string, AppRole>;
   isOwner: boolean;
   email?: string | null;
 }
@@ -23,9 +28,18 @@ interface AuthContextValue {
   user: AppUser | null;
   country: Country | null;
   isOwner: boolean;
+  /**
+   * True iff the caller is admin for the *currently selected* country. Owners
+   * are admin everywhere. Falls back to the user's global `role` when no
+   * per-country override is set, matching server-side `getEffectiveAppRole`.
+   * If no country is selected yet, true when the user is admin for at least
+   * one assigned country (so admin-only nav links remain visible).
+   */
   isAdmin: boolean;
   isAuthenticated: boolean;
   canAccessCountry: (c: Country) => boolean;
+  /** Per-country role check. Owners always return true. */
+  isAdminFor: (c: Country) => boolean;
   login: (username: string, password: string, country?: Country) => Promise<string | null>;
   logout: () => void;
   setCountry: (c: Country) => void;
@@ -107,13 +121,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const isOwner = state.user?.isOwner ?? false;
-  const isAdmin = state.user?.role === "admin" || isOwner;
   const isAuthenticated = state.user !== null;
   const canAccessCountry = (c: Country) => {
     if (!state.user) return false;
     if (state.user.isOwner) return true;
     return state.user.countries.includes(c);
   };
+  const isAdminFor = (c: Country): boolean => {
+    if (!state.user) return false;
+    if (state.user.isOwner) return true;
+    const override = state.user.countryRoles?.[c];
+    if (override) return override === "admin";
+    return state.user.role === "admin";
+  };
+  // Legacy `isAdmin` resolves against the currently selected country so
+  // existing call-sites (e.g. country-scoped pages) keep working. When no
+  // country is selected, fall back to "admin somewhere" so admin-only nav
+  // entries stay visible on the country selector.
+  const isAdmin = (() => {
+    if (!state.user) return false;
+    if (state.user.isOwner) return true;
+    if (state.country) return isAdminFor(state.country);
+    if (state.user.role === "admin") return true;
+    const overrides = state.user.countryRoles ?? {};
+    return Object.values(overrides).some(r => r === "admin");
+  })();
 
   return (
     <AuthContext.Provider value={{
@@ -123,6 +155,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAdmin,
       isAuthenticated,
       canAccessCountry,
+      isAdminFor,
       login,
       logout,
       setCountry,

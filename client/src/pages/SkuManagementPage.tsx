@@ -157,9 +157,12 @@ function exportSkusToExcel(skus: any[], country: string) {
 
 // ─── Lebanon SKU Management ──────────────────────────────────────────────────
 function LebanonSkuManagement() {
-  const { user: appUser } = useAppAuth();
+  const { isAdminFor } = useAppAuth();
   const utils = trpc.useUtils();
-  const isAdmin = (appUser as any)?.role === "admin";
+  // Resolve admin per country so a global-viewer with a Lebanon-admin override
+  // still sees the Lebanon admin controls (and a global-admin demoted to
+  // viewer-in-Lebanon does not). Owners always pass via `isAdminFor`.
+  const isAdmin = isAdminFor("Lebanon");
 
   const { data: skusData, isLoading } = trpc.country.skus.useQuery(
     { country: "Lebanon", includeInactive: true }
@@ -638,10 +641,11 @@ function SortableIntlSkuRow({
 
 function IntlSkuManagement() {
   const { country } = useCountry();
-  const { user: appUser } = useAppAuth();
+  const { isAdminFor } = useAppAuth();
   const utils = trpc.useUtils();
   const intlCountry = country as "Syria" | "Libya" | "KSA";
-  const isAdmin = (appUser as any)?.role === "admin";
+  // Per-country admin resolution — see LebanonSkuManagement for the rationale.
+  const isAdmin = isAdminFor(intlCountry);
 
   const { data: skusData, isLoading } = trpc.country.skus.useQuery(
     { country: intlCountry, includeInactive: true },

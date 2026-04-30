@@ -2589,7 +2589,7 @@ export async function getAppUserById(id: number): Promise<AppUserRow | null> {
   const rows = await db.select().from(appUsers).where(eq(appUsers.id, id)).limit(1);
   return rows[0] ?? null;
 }
-export async function createAppUser(data: { username: string; displayName: string; password: string; role: "admin" | "viewer"; countries: string[]; isOwner?: boolean; email?: string | null }) {
+export async function createAppUser(data: { username: string; displayName: string; password: string; role: "admin" | "viewer"; countries: string[]; countryRoles?: Record<string, "admin" | "viewer">; isOwner?: boolean; email?: string | null }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.insert(appUsers).values({
@@ -2598,11 +2598,12 @@ export async function createAppUser(data: { username: string; displayName: strin
     password: data.password.toLowerCase().trim(),
     role: data.role,
     countries: JSON.stringify(data.countries),
+    countryRoles: JSON.stringify(sanitizeCountryRoles(data.countryRoles, data.countries)),
     isOwner: data.isOwner ?? false,
     email: normalizeEmail(data.email),
   });
 }
-export async function updateAppUser(id: number, data: Partial<{ displayName: string; password: string; role: "admin" | "viewer"; countries: string[]; email: string | null }>) {
+export async function updateAppUser(id: number, data: Partial<{ displayName: string; password: string; role: "admin" | "viewer"; countries: string[]; countryRoles: Record<string, "admin" | "viewer">; email: string | null }>) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const update: Record<string, unknown> = {};
@@ -2610,10 +2611,100 @@ export async function updateAppUser(id: number, data: Partial<{ displayName: str
   if (data.password !== undefined) update.password = data.password.toLowerCase().trim();
   if (data.role !== undefined) update.role = data.role;
   if (data.countries !== undefined) update.countries = JSON.stringify(data.countries);
+  if (data.countryRoles !== undefined) {
+    // Pin the override map to the (post-update) countries list so that a
+    // viewer's "admin in KSA" override doesn't survive after KSA is removed
+    // from their access list.
+    const effectiveCountries = data.countries ?? [];
+    update.countryRoles = JSON.stringify(sanitizeCountryRoles(data.countryRoles, effectiveCountries));
+  } else if (data.countries !== undefined) {
+    // Countries list changed but caller didn't send a fresh override map —
+    // load the existing one and prune entries for countries the user lost.
+    const existing = await db.select().from(appUsers).where(eq(appUsers.id, id)).limit(1);
+    const prior = existing[0] ? parseCountryRoles(existing[0].countryRoles) : {};
+    update.countryRoles = JSON.stringify(sanitizeCountryRoles(prior, data.countries));
+  }
   if (data.email !== undefined) update.email = normalizeEmail(data.email);
   if (Object.keys(update).length > 0) {
     await db.update(appUsers).set(update).where(eq(appUsers.id, id));
   }
+}
+
+/**
+ * Parse the JSON-encoded `countryRoles` column into a clean map. Tolerates
+ * legacy rows whose value is missing, empty, or malformed (treats them as no
+ * overrides — caller falls back to the global `role`).
+ */
+export function parseCountryRoles(raw: string | null | undefined): Record<string, "admin" | "viewer"> {
+  if (!raw) return {};
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const out: Record<string, "admin" | "viewer"> = {};
+    for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof k !== "string") continue;
+      if (v === "admin" || v === "viewer") out[k] = v;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function sanitizeCountryRoles(
+  roles: Record<string, "admin" | "viewer"> | undefined,
+  countries: string[],
+): Record<string, "admin" | "viewer"> {
+  if (!roles) return {};
+  const allowed = new Set(countries.map(c => c.toLowerCase()));
+  const out: Record<string, "admin" | "viewer"> = {};
+  for (const [country, role] of Object.entries(roles)) {
+    if (role !== "admin" && role !== "viewer") continue;
+    if (!allowed.has(country.toLowerCase())) continue;
+    out[country] = role;
+  }
+  return out;
+}
+
+/**
+ * Effective role for a given country. Owners are admin everywhere. Otherwise
+ * the per-country override wins; if absent, the user's global `role` applies.
+ * Country names are compared case-insensitively to match `requireCountryAccess`.
+ */
+export function getEffectiveAppRole(
+  user: { role: "admin" | "viewer"; isOwner: boolean; countryRoles: string | null },
+  country: string,
+): "admin" | "viewer" {
+  if (user.isOwner) return "admin";
+  const map = parseCountryRoles(user.countryRoles);
+  const target = country.toLowerCase();
+  for (const [k, v] of Object.entries(map)) {
+    if (k.toLowerCase() === target) return v;
+  }
+  return user.role;
+}
+
+/**
+ * True iff the user is admin in at least one of their assigned countries.
+ * Used to decide whether to upgrade their platform `users.role` to `'admin'`
+ * at session establishment time, which is what `adminProcedure` gates on.
+ */
+export function hasAnyCountryAdmin(user: AppUserRow): boolean {
+  if (user.isOwner) return true;
+  if (user.role === "admin") {
+    let countries: string[] = [];
+    try {
+      const parsed: unknown = JSON.parse(user.countries);
+      if (Array.isArray(parsed)) countries = parsed.filter((c): c is string => typeof c === "string");
+    } catch { /* ignore */ }
+    const overrides = parseCountryRoles(user.countryRoles);
+    return countries.some(c => {
+      const override = Object.entries(overrides).find(([k]) => k.toLowerCase() === c.toLowerCase());
+      return override ? override[1] === "admin" : true;
+    });
+  }
+  // Global viewer: admin only if any per-country override grants admin.
+  return Object.values(parseCountryRoles(user.countryRoles)).some(r => r === "admin");
 }
 function normalizeEmail(email: string | null | undefined): string | null {
   if (email === undefined || email === null) return null;

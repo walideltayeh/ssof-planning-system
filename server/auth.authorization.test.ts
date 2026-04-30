@@ -126,6 +126,19 @@ vi.mock("./db", () => {
     getShipmentDataForCountry: vi.fn(async () => []),
     getArrivalDataForCountry: vi.fn(async () => []),
 
+    // Per-country role helpers (added with the per-country roles feature).
+    // The mocked users in this file have no `countryRoles` overrides, so
+    // `getEffectiveAppRole` reduces to the global `role` (with owner ⇒ admin).
+    parseCountryRoles: vi.fn((_raw: string | null | undefined) => ({})),
+    getEffectiveAppRole: vi.fn(
+      (user: { role: "admin" | "viewer"; isOwner: boolean }) =>
+        user.isOwner ? "admin" : user.role,
+    ),
+    hasAnyCountryAdmin: vi.fn(
+      (user: { role: "admin" | "viewer"; isOwner: boolean }) =>
+        user.isOwner || user.role === "admin",
+    ),
+
     // Audit log feed (representative read endpoint covered by Task #15).
     // Returned shape mirrors db.getAuditLogs so the router can serialize it.
     getAuditLogs: vi.fn(async () => ({

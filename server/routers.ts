@@ -37,11 +37,16 @@ const APP_USER_OPEN_ID_PREFIX = "appuser:";
 
 async function establishAppUserSession(
   ctx: { req: import("express").Request; res: import("express").Response },
-  appUser: { username: string; role: "admin" | "viewer"; isOwner: boolean },
+  appUser: { username: string; role: "admin" | "viewer"; isOwner: boolean; isPlatformAdmin?: boolean },
 ): Promise<void> {
   const trustedName = appUser.username.toLowerCase();
   const namespacedOpenId = `${APP_USER_OPEN_ID_PREFIX}${trustedName}`;
-  const isPlatformAdmin = appUser.isOwner || appUser.role === "admin";
+  // A user must hit `adminProcedure` if they are admin in *any* country, even
+  // when their global `role` is "viewer" (per-country override admins).
+  // The per-country admin enforcement still happens inside each handler via
+  // `requireCountryAdmin`, so this gate only filters out users who have no
+  // admin rights anywhere.
+  const isPlatformAdmin = appUser.isPlatformAdmin ?? (appUser.isOwner || appUser.role === "admin");
   await db.upsertUser({
     openId: namespacedOpenId,
     name: trustedName,
@@ -138,6 +143,59 @@ async function requireCountryAccess(
 }
 
 /**
+ * Per-country admin gate. Use inside any mutation that the legacy global
+ * `adminProcedure` used to gate, where the action is scoped to a specific
+ * country. Equivalent to `requireCountryAccess` *plus* a check that the
+ * caller's effective role for that country is "admin" (per-country override
+ * if present, otherwise the user's global `role`). Owners always pass.
+ *
+ * `adminProcedure` only verifies that the caller is admin in *some* country
+ * (so platform-wide endpoints still work), so country-scoped admin handlers
+ * MUST also call this helper to keep e.g. a "Lebanon-admin / KSA-viewer"
+ * user from mutating KSA data.
+ */
+async function requireCountryAdmin(
+  ctx: { user: User },
+  country: string,
+): Promise<void> {
+  const username = ctx.user.name;
+  if (!username) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "No username on session" });
+  }
+  const requester = await db.getAppUserByUsername(username);
+  if (!requester) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "No country access configured for this account",
+    });
+  }
+  if (requester.isOwner) return;
+  let allowed: string[] = [];
+  try {
+    const parsed: unknown = JSON.parse(requester.countries);
+    if (Array.isArray(parsed)) {
+      allowed = parsed.filter((c): c is string => typeof c === "string");
+    }
+  } catch {
+    allowed = [];
+  }
+  const target = country.toLowerCase();
+  if (!allowed.some(c => c.toLowerCase() === target)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: `You do not have access to ${country}`,
+    });
+  }
+  const effective = db.getEffectiveAppRole(requester, country);
+  if (effective !== "admin") {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: `Admin role required for ${country}`,
+    });
+  }
+}
+
+/**
  * Resolve the country a SKU belongs to and enforce per-country access.
  *
  * Several `country.*` mutations only take a `skuId` and historically treated
@@ -176,6 +234,22 @@ async function requireSkuCountryAccess(
   return country;
 }
 
+/**
+ * Same as `requireSkuCountryAccess` but additionally enforces admin role for
+ * the resolved country. Used by SKU-by-id mutations that previously sat on
+ * `adminProcedure` — those handlers now need to verify the caller is admin
+ * for the SKU's specific country, not just admin somewhere.
+ */
+async function requireSkuCountryAdmin(
+  ctx: { user: User },
+  skuId: number,
+  providedCountry?: string,
+): Promise<Country> {
+  const country = await requireSkuCountryAccess(ctx, skuId, providedCountry);
+  await requireCountryAdmin(ctx, country);
+  return country;
+}
+
 export const appRouter = router({
   system: systemRouter,
   auth: router({
@@ -198,7 +272,10 @@ export const appRouter = router({
         }
         return db.getAllPeriods();
       }),
-    init: adminProcedure.mutation(async () => {
+    init: adminProcedure.mutation(async ({ ctx }) => {
+      // Lebanon-implicit endpoint — gate on Lebanon admin specifically so a
+      // Syria-only admin can't initialise the global Lebanon period table.
+      await requireCountryAdmin(ctx, "Lebanon");
       return db.ensurePeriods();
     }),
     existingYears: protectedProcedure
@@ -233,6 +310,7 @@ export const appRouter = router({
         isExcludedFromTotal: z.boolean().optional(),
               }))
       .mutation(async ({ ctx, input }) => {
+        await requireCountryAdmin(ctx, "Lebanon");
         const result = await db.createSku(input);
         await db.logAudit({
           username: getAuditActor(ctx),
@@ -246,6 +324,7 @@ export const appRouter = router({
     delete: adminProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ ctx, input }) => {
+        await requireCountryAdmin(ctx, "Lebanon");
         const allSkus = await db.getAllSkus();
         const sku = allSkus.find(s => s.id === input.id);
         await db.deleteSku(input.id);
@@ -261,6 +340,7 @@ export const appRouter = router({
     updateCategory: adminProcedure
       .input(z.object({ id: z.number(), category: z.enum(["Core", "NPI"]) }))
       .mutation(async ({ ctx, input }) => {
+        await requireCountryAdmin(ctx, "Lebanon");
         const allSkus = await db.getAllSkus();
         const sku = allSkus.find(s => s.id === input.id);
         const oldCategory = sku?.category || "unknown";
@@ -279,6 +359,7 @@ export const appRouter = router({
     reorder: adminProcedure
       .input(z.object({ orderedIds: z.array(z.number()) }))
       .mutation(async ({ ctx, input }) => {
+        await requireCountryAdmin(ctx, "Lebanon");
         await db.reorderLebanonSkus(input.orderedIds);
         await db.logAudit({
           username: getAuditActor(ctx),
@@ -693,6 +774,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         const country = (input.country || 'Lebanon') as import('../drizzle/schema').Country;
+        await requireCountryAdmin(ctx, country);
         let periodsRefreshed = await db.getPeriodsForCountry(country);
         if (periodsRefreshed.length === 0) { await db.ensurePeriods(); periodsRefreshed = await db.getPeriodsForCountry(country); }
         let allSkus = await db.getSkusForCountry(country, true);
@@ -740,6 +822,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         const country = (input.country || 'Lebanon') as import('../drizzle/schema').Country;
+        await requireCountryAdmin(ctx, country);
         const allPeriods = await db.getPeriodsForCountry(country);
         const allSkus = await db.getSkusForCountry(country, true);
         const bulkRecords: { skuId: number; periodId: number; value: string; isActual: boolean }[] = [];
@@ -775,6 +858,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         const country = (input.country || 'Lebanon') as import('../drizzle/schema').Country;
+        await requireCountryAdmin(ctx, country);
         const allPeriods = await db.getPeriodsForCountry(country);
         const allSkus = await db.getSkusForCountry(country, true);
         let processed = 0;
@@ -813,6 +897,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         const country = (input.country || 'Lebanon') as import('../drizzle/schema').Country;
+        await requireCountryAdmin(ctx, country);
         const allPeriods = await db.getPeriodsForCountry(country);
         const allSkus = await db.getSkusForCountry(country, true);
         const bulkRecords: { skuId: number; periodId: number; week1: string; week2: string; week3: string; week4: string }[] = [];
@@ -858,6 +943,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         const country = (input.country || 'Lebanon') as import('../drizzle/schema').Country;
+        await requireCountryAdmin(ctx, country);
         const allPeriods = await db.getPeriodsForCountry(country);
         const allSkus = await db.getSkusForCountry(country, true);
         const bulkRecords: { skuId: number; periodId: number; week1: string; week2: string; week3: string; week4: string }[] = [];
@@ -904,6 +990,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         const country = (input.country || 'Lebanon') as import('../drizzle/schema').Country;
+        await requireCountryAdmin(ctx, country);
         let periodsRefreshed = await db.getPeriodsForCountry(country);
         if (periodsRefreshed.length === 0) { await db.ensurePeriods(); periodsRefreshed = await db.getPeriodsForCountry(country); }
         const allSkus = await db.getSkusForCountry(country, true);
@@ -1063,6 +1150,7 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const version = await db.getVersionById(input.id);
         if (!version) throw new Error('Version not found');
+        await requireCountryAdmin(ctx, version.country);
         await db.restoreSnapshot(version.snapshotData, version.country as any);
         await db.logAudit({
           country: version.country as any,
@@ -1079,6 +1167,7 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const version = await db.getVersionById(input.id);
         if (!version) throw new Error('Version not found');
+        await requireCountryAdmin(ctx, version.country);
         await db.deleteVersion(input.id);
         await db.logAudit({
           username: getAuditActor(ctx),
@@ -1112,6 +1201,7 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const { versionData } = input;
         const country = (input.country || versionData.country || 'Lebanon') as import('../drizzle/schema').Country;
+        await requireCountryAdmin(ctx, country);
         if (!versionData.snapshotData) throw new Error('Invalid version file: missing snapshot data');
         await db.restoreSnapshot(versionData.snapshotData, country);
         await db.logAudit({
@@ -1203,7 +1293,7 @@ export const appRouter = router({
     init: adminProcedure
       .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]) }))
       .mutation(async ({ ctx, input }) => {
-        await requireCountryAccess(ctx, input.country);
+        await requireCountryAdmin(ctx, input.country);
         await db.ensurePeriodsForCountry(input.country);
         return { success: true };
       }),
@@ -1243,7 +1333,7 @@ export const appRouter = router({
         isExcludedFromTotal: z.boolean().optional(),
               }))
       .mutation(async ({ ctx, input }) => {
-        await requireCountryAccess(ctx, input.country);
+        await requireCountryAdmin(ctx, input.country);
         const result = await db.createSkuForCountry(input.country, {
           name: input.name,
           weight: input.weight,
@@ -1270,7 +1360,7 @@ export const appRouter = router({
         country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
-        const country = await requireSkuCountryAccess(ctx, input.skuId, input.country);
+        const country = await requireSkuCountryAdmin(ctx, input.skuId, input.country);
         await db.updateSkuPackagingType(input.skuId, input.packagingType);
         await db.logAudit({
           country,
@@ -1291,7 +1381,7 @@ export const appRouter = router({
         country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
-        const country = await requireSkuCountryAccess(ctx, input.skuId, input.country);
+        const country = await requireSkuCountryAdmin(ctx, input.skuId, input.country);
         await db.deleteSku(input.skuId);
         await db.logAudit({
           country,
@@ -1312,7 +1402,7 @@ export const appRouter = router({
         country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
-        const country = await requireSkuCountryAccess(ctx, input.skuId, input.country);
+        const country = await requireSkuCountryAdmin(ctx, input.skuId, input.country);
         await db.toggleSkuActive(input.skuId, input.isActive);
         await db.logAudit({
           country,
@@ -1470,7 +1560,7 @@ export const appRouter = router({
         year: z.number().min(2024).max(2040),
               }))
       .mutation(async ({ ctx, input }) => {
-        await requireCountryAccess(ctx, input.country);
+        await requireCountryAdmin(ctx, input.country);
         const result = await db.addYearForCountry(input.country, input.year);
         await db.logAudit({
           country: input.country, username: getAuditActor(ctx),
@@ -1498,7 +1588,7 @@ export const appRouter = router({
         country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
-        const country = await requireSkuCountryAccess(ctx, input.skuId, input.country);
+        const country = await requireSkuCountryAdmin(ctx, input.skuId, input.country);
         await db.updateSkuDetails(input.skuId, {
           name: input.name,
           weight: input.weight,
@@ -1858,7 +1948,7 @@ export const appRouter = router({
         orderedIds: z.array(z.number()),
               }))
       .mutation(async ({ ctx, input }) => {
-        await requireCountryAccess(ctx, input.country);
+        await requireCountryAdmin(ctx, input.country);
         await db.reorderCountrySkus(input.country, input.orderedIds);
         await db.logAudit({
           country: input.country,
@@ -1904,7 +1994,12 @@ export const appRouter = router({
           }
           const u = result.user;
           await logSuccess(u.username.toLowerCase());
-          await establishAppUserSession(ctx, { username: u.username, role: u.role, isOwner: u.isOwner });
+          await establishAppUserSession(ctx, {
+            username: u.username,
+            role: u.role,
+            isOwner: u.isOwner,
+            isPlatformAdmin: db.hasAnyCountryAdmin(u),
+          });
           return {
             success: true,
             user: {
@@ -1913,6 +2008,7 @@ export const appRouter = router({
               displayName: u.displayName,
               role: u.role,
               countries: JSON.parse(u.countries) as string[],
+              countryRoles: db.parseCountryRoles(u.countryRoles),
               isOwner: u.isOwner,
               email: u.email ?? null,
             },
@@ -1925,7 +2021,12 @@ export const appRouter = router({
         }
         const u = result.user;
         await logSuccess(u.username.toLowerCase());
-        await establishAppUserSession(ctx, { username: u.username, role: u.role, isOwner: u.isOwner });
+        await establishAppUserSession(ctx, {
+          username: u.username,
+          role: u.role,
+          isOwner: u.isOwner,
+          isPlatformAdmin: db.hasAnyCountryAdmin(u),
+        });
         return {
           success: true,
           user: {
@@ -1934,6 +2035,7 @@ export const appRouter = router({
             displayName: u.displayName,
             role: u.role,
             countries: JSON.parse(u.countries) as string[],
+            countryRoles: db.parseCountryRoles(u.countryRoles),
             isOwner: u.isOwner,
             email: u.email ?? null,
           },
@@ -2014,6 +2116,7 @@ export const appRouter = router({
             displayName: u.displayName,
             role: u.role,
             countries: JSON.parse(u.countries) as string[],
+            countryRoles: db.parseCountryRoles(u.countryRoles),
             isOwner: u.isOwner,
             email: u.email ?? null,
             createdAt: u.createdAt,
@@ -2037,6 +2140,7 @@ export const appRouter = router({
         ),
         role: z.enum(["admin", "viewer"]),
         countries: z.array(z.string()),
+        countryRoles: z.record(z.string(), z.enum(["admin", "viewer"])).optional(),
         email: z.string().email().nullable().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
@@ -2049,13 +2153,20 @@ export const appRouter = router({
           password: input.password,
           role: input.role,
           countries: input.countries,
+          countryRoles: input.countryRoles,
           email: input.email ?? null,
         });
+        const overrides = input.countryRoles
+          ? Object.entries(input.countryRoles)
+              .filter(([c]) => input.countries.includes(c))
+              .map(([c, r]) => `${c}=${r}`)
+              .join(", ")
+          : "";
         await db.logAudit({
           username: requester.username,
           action: "create_user",
           sheet: "Users",
-          details: `Created user '${input.username}' (${input.role}) with access to ${input.countries.join(", ") || "no countries"}`,
+          details: `Created user '${input.username}' (${input.role}) with access to ${input.countries.join(", ") || "no countries"}${overrides ? ` [overrides: ${overrides}]` : ""}`,
         });
         return { success: true };
       }),
@@ -2070,6 +2181,7 @@ export const appRouter = router({
         ).optional(),
         role: z.enum(["admin", "viewer"]).optional(),
         countries: z.array(z.string()).optional(),
+        countryRoles: z.record(z.string(), z.enum(["admin", "viewer"])).optional(),
         email: z.union([z.string().email(), z.literal("")]).nullable().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
@@ -2080,6 +2192,7 @@ export const appRouter = router({
           password: input.password,
           role: input.role,
           countries: input.countries,
+          countryRoles: input.countryRoles,
           ...(input.email !== undefined ? { email: input.email === "" ? null : input.email } : {}),
         });
         const changes: string[] = [];
@@ -2097,6 +2210,32 @@ export const appRouter = router({
           const newCountries = input.countries.join(", ");
           if (oldCountries !== newCountries) {
             changes.push(`countries '${oldCountries || "(none)"}' → '${newCountries || "(none)"}'`);
+          }
+        }
+        if (input.countryRoles !== undefined) {
+          const fmt = (m: Record<string, string>) =>
+            Object.entries(m).sort(([a], [b]) => a.localeCompare(b)).map(([c, r]) => `${c}=${r}`).join(", ");
+          // Diff against what the database would actually store: prune both
+          // sides by the country list each side is sanitized against. This
+          // keeps the audit trail honest even if `before` carries stale
+          // overrides for countries the user is no longer assigned to.
+          const beforeCountries = before ? (JSON.parse(before.countries) as string[]) : [];
+          const beforeOverridesRaw = before ? db.parseCountryRoles(before.countryRoles) : {};
+          const oldMap: Record<string, string> = {};
+          for (const [c, r] of Object.entries(beforeOverridesRaw)) {
+            if (beforeCountries.includes(c)) oldMap[c] = r;
+          }
+          const oldOverrides = fmt(oldMap);
+          // The new list is whatever `countries` was provided in this request,
+          // falling back to the user's prior list if the field was omitted.
+          const effectiveCountries = input.countries ?? beforeCountries;
+          const newOverridesMap: Record<string, string> = {};
+          for (const [c, r] of Object.entries(input.countryRoles)) {
+            if (effectiveCountries.includes(c)) newOverridesMap[c] = r;
+          }
+          const newOverrides = fmt(newOverridesMap);
+          if (oldOverrides !== newOverrides) {
+            changes.push(`country roles '${oldOverrides || "(none)"}' → '${newOverrides || "(none)"}'`);
           }
         }
         if (input.email !== undefined) {

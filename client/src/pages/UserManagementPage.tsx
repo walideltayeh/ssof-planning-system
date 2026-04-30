@@ -40,11 +40,17 @@ interface UserFormState {
   password: string;
   role: "admin" | "viewer";
   countries: Country[];
+  /**
+   * Per-country role overrides. Missing entry → falls back to `role`. The
+   * server prunes overrides for countries the user is not assigned to, so
+   * deselecting a country here also drops its override.
+   */
+  countryRoles: Partial<Record<Country, "admin" | "viewer">>;
   email: string;
 }
 
 function emptyForm(): UserFormState {
-  return { username: "", displayName: "", password: "", role: "viewer", countries: [], email: "" };
+  return { username: "", displayName: "", password: "", role: "viewer", countries: [], countryRoles: {}, email: "" };
 }
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -118,12 +124,20 @@ export default function UserManagementPage() {
   }
 
   function openEdit(u: ServerUser) {
+    const assigned = (u.countries as string[]).filter((c): c is Country => ALL_COUNTRIES.includes(c as Country));
+    const rawRoles = (u as { countryRoles?: Record<string, "admin" | "viewer"> }).countryRoles ?? {};
+    const overrides: Partial<Record<Country, "admin" | "viewer">> = {};
+    for (const c of assigned) {
+      const r = rawRoles[c];
+      if (r === "admin" || r === "viewer") overrides[c] = r;
+    }
     setForm({
       username: u.username,
       displayName: u.displayName,
       password: "",
       role: u.role as "admin" | "viewer",
-      countries: (u.countries as string[]).filter((c): c is Country => ALL_COUNTRIES.includes(c as Country)),
+      countries: assigned,
+      countryRoles: overrides,
       email: u.email ?? "",
     });
     setEditingId(u.id);
@@ -132,10 +146,24 @@ export default function UserManagementPage() {
   }
 
   function toggleCountry(c: Country) {
-    setForm(f => ({
-      ...f,
-      countries: f.countries.includes(c) ? f.countries.filter(x => x !== c) : [...f.countries, c],
-    }));
+    setForm(f => {
+      const willHave = !f.countries.includes(c);
+      const nextCountries = willHave ? [...f.countries, c] : f.countries.filter(x => x !== c);
+      // Drop the override for any country we just unassigned so it doesn't
+      // silently re-apply if the country is added back later.
+      const nextRoles = { ...f.countryRoles };
+      if (!willHave) delete nextRoles[c];
+      return { ...f, countries: nextCountries, countryRoles: nextRoles };
+    });
+  }
+
+  function setCountryOverride(c: Country, value: "default" | "admin" | "viewer") {
+    setForm(f => {
+      const next = { ...f.countryRoles };
+      if (value === "default") delete next[c];
+      else next[c] = value;
+      return { ...f, countryRoles: next };
+    });
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -153,6 +181,14 @@ export default function UserManagementPage() {
     const trimmedEmail = form.email.trim();
     const emailValue = trimmedEmail === "" ? "" : trimmedEmail;
 
+    // Only send overrides for currently-assigned countries. The server prunes
+    // stale entries too, but keeping the payload tight makes audit logs cleaner.
+    const overridesPayload: Record<string, "admin" | "viewer"> = {};
+    for (const c of form.countries) {
+      const r = form.countryRoles[c];
+      if (r) overridesPayload[c] = r;
+    }
+
     if (editingId) {
       await updateMutation.mutateAsync({
         id: editingId,
@@ -160,6 +196,7 @@ export default function UserManagementPage() {
         ...(form.password ? { password: form.password } : {}),
         role: form.role,
         countries: form.countries,
+        countryRoles: overridesPayload,
         email: emailValue,
       });
     } else {
@@ -169,6 +206,7 @@ export default function UserManagementPage() {
         password: form.password,
         role: form.role,
         countries: form.countries,
+        ...(Object.keys(overridesPayload).length > 0 ? { countryRoles: overridesPayload } : {}),
         ...(emailValue ? { email: emailValue } : {}),
       });
     }
@@ -338,6 +376,50 @@ export default function UserManagementPage() {
                 </div>
                 <p className="text-xs text-muted-foreground">Select which countries this user can log in to.</p>
               </div>
+
+              {form.countries.length > 0 && (
+                <div className="grid gap-1.5">
+                  <label className="text-sm font-medium">Per-country role overrides</label>
+                  <p className="text-xs text-muted-foreground">
+                    By default each country uses the user's main role above (<span className="font-medium">{form.role}</span>).
+                    Override per country to e.g. let someone be admin in one market and viewer in another.
+                  </p>
+                  <div className="space-y-2 pt-1">
+                    {form.countries.map(c => {
+                      const current = form.countryRoles[c];
+                      const value: "default" | "admin" | "viewer" = current ?? "default";
+                      return (
+                        <div key={c} className="flex items-center gap-3">
+                          <Badge variant="outline" className={`text-xs gap-1 shrink-0 w-24 justify-center ${COUNTRY_COLORS[c]}`}>
+                            <span>{COUNTRY_FLAGS[c]}</span> {c}
+                          </Badge>
+                          <div className="flex gap-1">
+                            {([
+                              { v: "default", label: `Default (${form.role})` },
+                              { v: "admin", label: "Admin" },
+                              { v: "viewer", label: "Viewer" },
+                            ] as const).map(opt => (
+                              <button
+                                key={opt.v}
+                                type="button"
+                                onClick={() => setCountryOverride(c, opt.v)}
+                                data-testid={`button-country-role-${c}-${opt.v}`}
+                                className={`px-2.5 py-1 rounded-md border text-xs font-medium transition-colors ${
+                                  value === opt.v
+                                    ? "bg-primary text-primary-foreground border-primary"
+                                    : "bg-background border-border hover:bg-muted"
+                                }`}
+                              >
+                                {opt.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {formError && (
                 <p className="text-sm text-destructive font-medium">{formError}</p>
