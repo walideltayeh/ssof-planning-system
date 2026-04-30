@@ -40,8 +40,8 @@ export default function ShipmentPage() {
 
   const { data: lbData, isLoading: lbLoading, isFetching: lbFetching, refetch: lbRefetch } = trpc.data.shipment.useQuery(undefined, { enabled: isLebanon, staleTime: 0, refetchOnWindowFocus: true });
   const { data: intlData, isLoading: intlLoading, isFetching: intlFetching, refetch: intlRefetch } = trpc.country.data.useQuery(
-    { country: country as "Syria" | "Libya" },
-    { enabled: !isLebanon && (country === "Syria" || country === "Libya"), staleTime: 0, refetchOnWindowFocus: true }
+    { country: country as "Syria" | "Libya" | "KSA" },
+    { enabled: !isLebanon && (country === "Syria" || country === "Libya" || country === "KSA"), staleTime: 0, refetchOnWindowFocus: true }
   );
   const data = isLebanon
     ? lbData
@@ -195,7 +195,7 @@ export default function ShipmentPage() {
     if (isLebanon) {
       updateCellLb.mutate({ skuId, periodId, [weekKey]: numVal.toString(), skuName: sku?.name, periodLabel: period?.label });
     } else {
-      updateCellIntl.mutate({ skuId, periodId, week1: dataMap.get(`${skuId}-${periodId}`)?.week1 ?? "0", week2: dataMap.get(`${skuId}-${periodId}`)?.week2 ?? "0", week3: dataMap.get(`${skuId}-${periodId}`)?.week3 ?? "0", week4: dataMap.get(`${skuId}-${periodId}`)?.week4 ?? "0", [weekKey]: numVal.toString(), country: country as "Syria" | "Libya", skuName: sku?.name, periodLabel: period?.label });
+      updateCellIntl.mutate({ skuId, periodId, week1: dataMap.get(`${skuId}-${periodId}`)?.week1 ?? "0", week2: dataMap.get(`${skuId}-${periodId}`)?.week2 ?? "0", week3: dataMap.get(`${skuId}-${periodId}`)?.week3 ?? "0", week4: dataMap.get(`${skuId}-${periodId}`)?.week4 ?? "0", [weekKey]: numVal.toString(), country: country as "Syria" | "Libya" | "KSA", skuName: sku?.name, periodLabel: period?.label });
     }
     setEditingCell(null);
   }, [editValue, updateCellLb, updateCellIntl, isLebanon, country, appUser, data, dataMap]);
@@ -215,7 +215,7 @@ export default function ShipmentPage() {
       week4: existing?.week4 ?? "0",
       arrivalOffsetValue: parseInt(offsetValue) || 0,
       arrivalOffsetUnit: offsetUnit,
-      country: country as "Syria" | "Libya",
+      country: country as "Syria" | "Libya" | "KSA",
       skuName: sku?.name,
       periodLabel: period?.label,
     });
@@ -229,7 +229,7 @@ export default function ShipmentPage() {
     updateRefsIntl.mutate({
       skuId, periodId,
       [field]: value || null,
-      country: country as "Syria" | "Libya",
+      country: country as "Syria" | "Libya" | "KSA",
       skuName: sku?.name,
       periodLabel: period?.label,
     });

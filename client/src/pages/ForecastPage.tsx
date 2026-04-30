@@ -28,8 +28,8 @@ export default function ForecastPage() {
   const { data: lbData, isLoading: lbLoading, isFetching: lbFetching, refetch: lbRefetch } = trpc.data.forecast.useQuery(undefined, { enabled: isLebanon, staleTime: 0, refetchOnWindowFocus: true });
   // Syria/Libya use the country.data endpoint
   const { data: intlData, isLoading: intlLoading, isFetching: intlFetching, refetch: intlRefetch } = trpc.country.data.useQuery(
-    { country: country as "Syria" | "Libya" },
-    { enabled: !isLebanon && (country === "Syria" || country === "Libya"), staleTime: 0, refetchOnWindowFocus: true }
+    { country: country as "Syria" | "Libya" | "KSA" },
+    { enabled: !isLebanon && (country === "Syria" || country === "Libya" || country === "KSA"), staleTime: 0, refetchOnWindowFocus: true }
   );
 
   const data = isLebanon
@@ -212,14 +212,14 @@ export default function ForecastPage() {
     const period = data?.periods.find(p => p.id === periodId);
     updateCell.mutate({ skuId, periodId, value: numVal.toString(), skuName: sku?.name, periodLabel: period?.label, oldValue });
     // Forecast→Production auto-link (Syria/Libya only)
-    if (!isLebanon && (country === "Syria" || country === "Libya")) {
+    if (!isLebanon && (country === "Syria" || country === "Libya" || country === "KSA")) {
       const cellKey = `${skuId}-${periodId}`;
       const targetWeek = prodLinkWeek.get(cellKey) ?? "week1";
       const weeks = { week1: "0", week2: "0", week3: "0", week4: "0", [targetWeek]: numVal.toString() };
       updateProductionIntl.mutate({
         skuId, periodId,
         week1: weeks.week1, week2: weeks.week2, week3: weeks.week3, week4: weeks.week4,
-        country: country as "Syria" | "Libya",
+        country: country as "Syria" | "Libya" | "KSA",
         skuName: sku?.name, periodLabel: period?.label,
       });
     }
@@ -730,11 +730,11 @@ export default function ForecastPage() {
                                             setProdLinkWeek(prev => { const next = new Map(prev); next.set(cellKey, w); return next; });
                                             setWeekPickerOpen(null);
                                             // Persist to DB and sync Production
-                                            if (!isLebanon && (country === "Syria" || country === "Libya")) {
+                                            if (!isLebanon && (country === "Syria" || country === "Libya" || country === "KSA")) {
                                               updateForecastWeek.mutate({
                                                 skuId: sku.id, periodId: p.id,
                                                 targetWeek: w,
-                                                country: country as "Syria" | "Libya",
+                                                country: country as "Syria" | "Libya" | "KSA",
                                                 skuName: sku.name, periodLabel: p.label,
                                               });
                                             }

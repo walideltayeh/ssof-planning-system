@@ -2,7 +2,14 @@
 
 ## Overview
 
-Sales, Stock, Orders & Forecast planning system for Al Fakher — a global shisha tobacco brand. Supports three markets: Lebanon, Syria, and Libya.
+Sales, Stock, Orders & Forecast planning system for Al Fakher — a global shisha tobacco brand. Supports four markets: Lebanon (domestic template), and Syria, Libya, KSA (intl template — uses IntlPlanningFgPage / IntlAnalysisPage / IntlImsPage / expiry / clearance flow).
+
+## IMS Source Marker
+
+`ims_data.source` (`"manual"` default, `"auto_forecast"` when written by `autoFillImsFromForecast`) lets the UI color future-period IMS cells that came from the recommended forecast push. Surfaces:
+- `IntlImsPage`, `PlanningFgPage`, `IntlPlanningFgPage` IMS row → violet-tinted cells with tooltip for future periods only.
+- `ForecastIntelligenceTab` SKU table → "AUTO" badge next to SKU name when any future IMS came from auto-fill (server flag `hasAutoFilledFutureIms`).
+Default for all other IMS writes (manual edits, snapshot restores, uploads, forecast split apply) is `"manual"`.
 
 ## Architecture
 

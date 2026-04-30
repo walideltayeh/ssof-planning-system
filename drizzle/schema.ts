@@ -1,10 +1,10 @@
 import { integer, pgEnum, pgTable, text, timestamp, varchar, numeric, json, boolean, date, serial } from "drizzle-orm/pg-core";
 
 // Country enum used across all tables
-export const COUNTRIES = ["Lebanon", "Syria", "Libya"] as const;
+export const COUNTRIES = ["Lebanon", "Syria", "Libya", "KSA"] as const;
 export type Country = typeof COUNTRIES[number];
 
-export const countryEnum = pgEnum("country", ["Lebanon", "Syria", "Libya"]);
+export const countryEnum = pgEnum("country", ["Lebanon", "Syria", "Libya", "KSA"]);
 export const roleEnum = pgEnum("role", ["user", "admin"]);
 export const categoryEnum = pgEnum("category", ["Core", "NPI"]);
 export const packagingTypeEnum = pgEnum("packagingType", ["Old", "New"]);
@@ -75,12 +75,19 @@ export const revisedForecastData = pgTable("revised_forecast_data", {
 export type RevisedForecastData = typeof revisedForecastData.$inferSelect;
 
 // IMS (actual) data (monthly values per SKU)
+// `source` records how the value got there:
+//   "manual"        – default, user typed it in or it was uploaded as IMS
+//   "auto_forecast" – pushed in by the "Auto-fill IMS from Forecast" action.
+// The UI uses this to color future-period cells that came from a recommended
+// forecast push so planners can see which months are "system-suggested" vs
+// "actually known".
 export const imsData = pgTable("ims_data", {
   id: serial("id").primaryKey(),
   skuId: integer("skuId").notNull(),
   periodId: integer("periodId").notNull(),
   value: numeric("value", { precision: 12, scale: 2 }).default("0"),
   isActual: boolean("isActual").default(false),
+  source: varchar("source", { length: 20 }).default("manual").notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
 export type ImsData = typeof imsData.$inferSelect;

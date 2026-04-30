@@ -18,18 +18,20 @@ const ACTION_LABELS: Record<string, string> = {
   delete_user: "deleted",
 };
 
-const ALL_COUNTRIES: Country[] = ["Lebanon", "Syria", "Libya"];
+const ALL_COUNTRIES: Country[] = ["Lebanon", "Syria", "Libya", "KSA"];
 
 const COUNTRY_FLAGS: Record<Country, string> = {
   Lebanon: "🇱🇧",
   Syria: "🇸🇾",
   Libya: "🇱🇾",
+  KSA: "🇸🇦",
 };
 
 const COUNTRY_COLORS: Record<Country, string> = {
   Lebanon: "bg-red-100 text-red-700 border-red-200",
   Syria: "bg-green-100 text-green-700 border-green-200",
   Libya: "bg-blue-100 text-blue-700 border-blue-200",
+  KSA: "bg-emerald-100 text-emerald-700 border-emerald-200",
 };
 
 interface UserFormState {

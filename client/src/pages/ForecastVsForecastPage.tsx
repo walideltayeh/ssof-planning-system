@@ -24,8 +24,8 @@ export default function ForecastVsForecastPage() {
   const utils = trpc.useUtils();
 
   const { data: intlData, isLoading } = trpc.country.data.useQuery(
-    { country: country as "Syria" | "Libya" },
-    { enabled: country === "Syria" || country === "Libya", staleTime: 0, refetchOnWindowFocus: true }
+    { country: country as "Syria" | "Libya" | "KSA" },
+    { enabled: country === "Syria" || country === "Libya" || country === "KSA", staleTime: 0, refetchOnWindowFocus: true }
   );
 
   const updateRevisedForecast = trpc.country.updateRevisedForecast.useMutation({
@@ -151,7 +151,7 @@ export default function ForecastVsForecastPage() {
     const period = intlData?.periods.find(p => p.id === periodId);
     updateRevisedForecast.mutate({
       skuId, periodId, value: numVal.toString(),
-      country: country as "Syria" | "Libya",
+      country: country as "Syria" | "Libya" | "KSA",
       skuName: sku?.name,
       periodLabel: period?.label,
       oldValue,
@@ -205,7 +205,7 @@ export default function ForecastVsForecastPage() {
   }, 0);
 
   if (isLoading) return <TableSkeleton title="Forecast Production vs Actual" rows={10} cols={14} />;
-  if (country !== "Syria" && country !== "Libya") {
+  if (country !== "Syria" && country !== "Libya" && country !== "KSA") {
     return <div className="p-4 text-sm text-muted-foreground">This page is only available for Syria and Libya.</div>;
   }
 

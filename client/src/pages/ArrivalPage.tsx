@@ -84,8 +84,8 @@ export default function ArrivalPage() {
 
   const { data: lbData, isLoading: lbLoading, isFetching: lbFetching, refetch: lbRefetch } = trpc.data.arrival.useQuery(undefined, { enabled: isLebanon, staleTime: 0, refetchOnWindowFocus: true });
   const { data: intlData, isLoading: intlLoading, isFetching: intlFetching, refetch: intlRefetch } = trpc.country.data.useQuery(
-    { country: country as "Syria" | "Libya" },
-    { enabled: !isLebanon && (country === "Syria" || country === "Libya"), staleTime: 0, refetchOnWindowFocus: true }
+    { country: country as "Syria" | "Libya" | "KSA" },
+    { enabled: !isLebanon && (country === "Syria" || country === "Libya" || country === "KSA"), staleTime: 0, refetchOnWindowFocus: true }
   );
   const data = isLebanon
     ? lbData
@@ -166,8 +166,8 @@ export default function ArrivalPage() {
 
   // Clearance events query (Syria/Libya only)
   const { data: clearanceEventsData } = trpc.country.clearanceEvents.useQuery(
-    { country: country as "Syria" | "Libya" },
-    { enabled: !isLebanon && (country === "Syria" || country === "Libya") }
+    { country: country as "Syria" | "Libya" | "KSA" },
+    { enabled: !isLebanon && (country === "Syria" || country === "Libya" || country === "KSA") }
   );
 
   // Map: batchKey -> clearance events
@@ -868,7 +868,7 @@ export default function ArrivalPage() {
                           value={batch.arrivalStatus}
                           onValueChange={(val) => updateArrivalStatus.mutate({
                             skuId: batch.sku.id, periodId: batch.period.id,
-                            status: val as ArrivalStatus, country: country as "Syria" | "Libya",
+                            status: val as ArrivalStatus, country: country as "Syria" | "Libya" | "KSA",
                             skuName: batch.sku.name, periodLabel: batch.period.label,
                           })}
                         >
@@ -921,7 +921,7 @@ export default function ArrivalPage() {
                                       onBlur={e => {
                                         const val = e.target.value;
                                         if (val !== ev.clearedQty) {
-                                          updateClearanceEvent.mutate({ eventId: ev.id, skuId: batch.sku.id, periodId: batch.period.id, country: country as "Syria" | "Libya", clearedQty: val, skuName: batch.sku.name, periodLabel: batch.period.label });
+                                          updateClearanceEvent.mutate({ eventId: ev.id, skuId: batch.sku.id, periodId: batch.period.id, country: country as "Syria" | "Libya" | "KSA", clearedQty: val, skuName: batch.sku.name, periodLabel: batch.period.label });
                                         }
                                       }}
                                       onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
@@ -936,7 +936,7 @@ export default function ArrivalPage() {
                                       onBlur={e => {
                                         const val = e.target.value;
                                         if (val !== fmtDate(ev.clearedDate)) {
-                                          updateClearanceEvent.mutate({ eventId: ev.id, skuId: batch.sku.id, periodId: batch.period.id, country: country as "Syria" | "Libya", clearedDate: val, skuName: batch.sku.name, periodLabel: batch.period.label });
+                                          updateClearanceEvent.mutate({ eventId: ev.id, skuId: batch.sku.id, periodId: batch.period.id, country: country as "Syria" | "Libya" | "KSA", clearedDate: val, skuName: batch.sku.name, periodLabel: batch.period.label });
                                         }
                                       }}
                                       onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
@@ -958,7 +958,7 @@ export default function ArrivalPage() {
                                         onBlur={e => {
                                           const val = e.target.value || null;
                                           if (val !== fmtDate(ev.pendingClearDate)) {
-                                            updateClearanceEvent.mutate({ eventId: ev.id, skuId: batch.sku.id, periodId: batch.period.id, country: country as "Syria" | "Libya", pendingClearDate: val, skuName: batch.sku.name, periodLabel: batch.period.label });
+                                            updateClearanceEvent.mutate({ eventId: ev.id, skuId: batch.sku.id, periodId: batch.period.id, country: country as "Syria" | "Libya" | "KSA", pendingClearDate: val, skuName: batch.sku.name, periodLabel: batch.period.label });
                                           }
                                         }}
                                         onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
@@ -977,7 +977,7 @@ export default function ArrivalPage() {
                                       onBlur={e => {
                                         const val = e.target.value || null;
                                         if (val !== (ev.invoiceRef ?? null)) {
-                                          updateClearanceEvent.mutate({ eventId: ev.id, skuId: batch.sku.id, periodId: batch.period.id, country: country as "Syria" | "Libya", invoiceRef: val, skuName: batch.sku.name, periodLabel: batch.period.label });
+                                          updateClearanceEvent.mutate({ eventId: ev.id, skuId: batch.sku.id, periodId: batch.period.id, country: country as "Syria" | "Libya" | "KSA", invoiceRef: val, skuName: batch.sku.name, periodLabel: batch.period.label });
                                         }
                                       }}
                                       onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
@@ -993,7 +993,7 @@ export default function ArrivalPage() {
                                       onBlur={e => {
                                         const val = e.target.value || null;
                                         if (val !== (ev.containerRef ?? null)) {
-                                          updateClearanceEvent.mutate({ eventId: ev.id, skuId: batch.sku.id, periodId: batch.period.id, country: country as "Syria" | "Libya", containerRef: val, skuName: batch.sku.name, periodLabel: batch.period.label });
+                                          updateClearanceEvent.mutate({ eventId: ev.id, skuId: batch.sku.id, periodId: batch.period.id, country: country as "Syria" | "Libya" | "KSA", containerRef: val, skuName: batch.sku.name, periodLabel: batch.period.label });
                                         }
                                       }}
                                       onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
@@ -1005,7 +1005,7 @@ export default function ArrivalPage() {
                                       className="text-red-400 hover:text-red-600 text-[11px] font-medium px-1.5 py-0.5 rounded hover:bg-red-50 transition-colors"
                                       onClick={() => {
                                         if (confirm(`Delete clearance event #${evIdx + 1}?`)) {
-                                          deleteClearanceEvent.mutate({ eventId: ev.id, skuId: batch.sku.id, periodId: batch.period.id, country: country as "Syria" | "Libya", skuName: batch.sku.name, periodLabel: batch.period.label });
+                                          deleteClearanceEvent.mutate({ eventId: ev.id, skuId: batch.sku.id, periodId: batch.period.id, country: country as "Syria" | "Libya" | "KSA", skuName: batch.sku.name, periodLabel: batch.period.label });
                                         }
                                       }}
                                     >Delete</button>
@@ -1078,7 +1078,7 @@ export default function ArrivalPage() {
                                 addClearanceEvent.mutate({
                                   skuId: batch.sku.id,
                                   periodId: batch.period.id,
-                                  country: country as "Syria" | "Libya",
+                                  country: country as "Syria" | "Libya" | "KSA",
                                   clearedQty: qty.toString(),
                                   clearedDate: addForm.clearedDate,
                                   pendingClearDate: addForm.pendingClearDate || null,

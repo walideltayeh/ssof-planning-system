@@ -807,7 +807,7 @@ describe("authorization lockdown", () => {
     });
 
     it("allows the owner-admin to read every country", async () => {
-      for (const country of ["Lebanon", "Syria", "Libya"] as const) {
+      for (const country of ["Lebanon", "Syria", "Libya", "KSA"] as const) {
         const result = await adminCaller().country.data({ country });
         expect(result).toMatchObject({
           skus: expect.any(Array),

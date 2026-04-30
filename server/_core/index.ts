@@ -46,7 +46,7 @@ async function startServer() {
       const country = req.query.country as string | undefined;
       let buffer: Buffer;
       let countryLabel = "Lebanon";
-      if (country === "Syria" || country === "Libya") {
+      if (country === "Syria" || country === "Libya" || country === "KSA" || country === "KSA") {
         const { generateExcelBufferForCountry } = await import("../excelExport");
         buffer = await generateExcelBufferForCountry(country);
         countryLabel = country;
@@ -75,7 +75,7 @@ async function startServer() {
       }
       let buffer: Buffer;
       let countryLabel = "Lebanon";
-      if (country === "Syria" || country === "Libya") {
+      if (country === "Syria" || country === "Libya" || country === "KSA" || country === "KSA") {
         const { generateSingleSheetBufferForCountry } = await import("../excelExport");
         buffer = await generateSingleSheetBufferForCountry(country, sheet);
         countryLabel = country;
@@ -115,8 +115,8 @@ async function startServer() {
     try {
       if (!(await authenticateHttpRequest(req, res))) return;
       const country = req.query.country as string;
-      if (country !== "Syria" && country !== "Libya") {
-        return res.status(400).json({ error: "Country must be Syria or Libya" });
+      if (country !== "Syria" && country !== "Libya" && country !== "KSA" && country !== "KSA") {
+        return res.status(400).json({ error: "Country must be Syria, Libya, or KSA" });
       }
       const { generateIntlAnalysisExcelBuffer } = await import("../excelExport");
       const buffer = await generateIntlAnalysisExcelBuffer(country);

@@ -18,7 +18,7 @@ const TREND_ICONS: Record<string, any> = {
   stable: Minus,
 };
 
-function ForecastIntelligenceTab({ country }: { country: "Lebanon" | "Syria" | "Libya" }) {
+function ForecastIntelligenceTab({ country }: { country: "Lebanon" | "Syria" | "Libya" | "KSA" }) {
   const [subView, setSubView] = useState<"summary" | "skuTable" | "gapAnalysis">("summary");
   const [weightFilter, setWeightFilter] = useState<string>("all");
   const [trendFilter, setTrendFilter] = useState<string>("all");
@@ -314,9 +314,22 @@ function ForecastIntelligenceTab({ country }: { country: "Lebanon" | "Syria" | "
             <tbody>
               {filteredSkus.map((s, i) => {
                 const TrendIcon = TREND_ICONS[s.trendDirection] || Minus;
+                const autoFilled = (s as any).hasAutoFilledFutureIms === true;
                 return (
                   <tr key={s.id} className={i % 2 === 0 ? "bg-white" : "bg-muted/20"}>
-                    <td className="px-2 py-1.5 font-medium max-w-[180px] truncate" title={s.name}>{s.name}</td>
+                    <td className="px-2 py-1.5 font-medium max-w-[180px] truncate" title={autoFilled ? `${s.name} — future IMS auto-filled from recommended forecast` : s.name}>
+                      <span className="flex items-center gap-1">
+                        <span className="truncate">{s.name}</span>
+                        {autoFilled && (
+                          <span
+                            className="inline-flex items-center px-1 py-0 rounded-sm text-[8px] font-semibold bg-violet-100 text-violet-700 border border-violet-200 leading-tight"
+                            title="Future IMS auto-filled from recommended forecast"
+                          >
+                            AUTO
+                          </span>
+                        )}
+                      </span>
+                    </td>
                     <td className="px-2 py-1.5 text-right">{s.avg3m.toLocaleString()}</td>
                     <td className="px-2 py-1.5 text-right">{s.avg6m.toLocaleString()}</td>
                     <td className="px-2 py-1.5">

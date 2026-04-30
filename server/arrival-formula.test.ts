@@ -22,7 +22,7 @@ beforeAll(async () => {
       password: "test-fixture-password",
       role: "admin",
       isOwner: true,
-      countries: JSON.stringify(["Lebanon", "Syria", "Libya"]),
+      countries: JSON.stringify(["Lebanon", "Syria", "Libya", "KSA"]),
     })
     .onConflictDoNothing();
 });

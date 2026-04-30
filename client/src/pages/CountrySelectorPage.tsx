@@ -5,7 +5,7 @@ import { COUNTRY_CONFIG } from "@/contexts/CountryContext";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 
-const ALL_COUNTRIES: Country[] = ["Lebanon", "Syria", "Libya"];
+const ALL_COUNTRIES: Country[] = ["Lebanon", "Syria", "Libya", "KSA"];
 
 const CARD_STYLES: Record<Country, { accentClass: string; badgeClass: string; borderClass: string }> = {
   Lebanon: {
@@ -22,6 +22,11 @@ const CARD_STYLES: Record<Country, { accentClass: string; badgeClass: string; bo
     accentClass: "from-blue-600 to-green-600",
     badgeClass: "bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100",
     borderClass: "hover:border-blue-300",
+  },
+  KSA: {
+    accentClass: "from-green-700 to-teal-600",
+    badgeClass: "bg-green-50 text-green-800 border border-green-200 hover:bg-green-100",
+    borderClass: "hover:border-green-300",
   },
 };
 

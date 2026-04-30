@@ -179,10 +179,10 @@ export default function ExpiryDashboardPage() {
   const { country } = useCountry();
   const { formatVal } = useUnit();
   const formatQty = (n: number) => formatVal(n);
-  const isIntl = country === "Syria" || country === "Libya";
+  const isIntl = country === "Syria" || country === "Libya" || country === "KSA";
 
   const { data, isLoading, refetch, isFetching } = trpc.country.expiryDashboard.useQuery(
-    { country: country as "Syria" | "Libya" },
+    { country: country as "Syria" | "Libya" | "KSA" },
     { enabled: isIntl, staleTime: 0, refetchOnWindowFocus: true }
   );
 

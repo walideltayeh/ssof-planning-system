@@ -288,7 +288,7 @@ describe("DashboardLayout — Change Password dialog (weak password handling)", 
       username: "walid",
       displayName: "Walid",
       role: "admin",
-      countries: ["Lebanon", "Syria", "Libya"],
+      countries: ["Lebanon", "Syria", "Libya", "KSA"],
       isOwner: true,
     };
     changePasswordMutate.mockReset();

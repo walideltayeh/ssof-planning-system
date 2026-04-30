@@ -206,19 +206,19 @@ export default function IntlAnalysisPage() {
   };
 
   const { data, isLoading } = trpc.country.intlAnalysis.useQuery(
-    { country: country as "Syria" | "Libya" },
-    { enabled: country === "Syria" || country === "Libya" }
+    { country: country as "Syria" | "Libya" | "KSA" },
+    { enabled: country === "Syria" || country === "Libya" || country === "KSA" }
   );
   const { data: runningRateData, isLoading: loadingRunRate } = trpc.country.runningRate.useQuery(
-    { country: country as "Lebanon" | "Syria" | "Libya" },
-    { enabled: country === "Syria" || country === "Libya" }
+    { country: country as "Lebanon" | "Syria" | "Libya" | "KSA" },
+    { enabled: country === "Syria" || country === "Libya" || country === "KSA" }
   );
   const { data: stockLevelsData, isLoading: loadingStockLvl } = trpc.country.stockLevels.useQuery(
-    { country: country as "Lebanon" | "Syria" | "Libya" },
-    { enabled: country === "Syria" || country === "Libya" }
+    { country: country as "Lebanon" | "Syria" | "Libya" | "KSA" },
+    { enabled: country === "Syria" || country === "Libya" || country === "KSA" }
   );
 
-  if (country !== "Syria" && country !== "Libya") {
+  if (country !== "Syria" && country !== "Libya" && country !== "KSA") {
     return <div className="p-6 text-muted-foreground">This page is only available for Syria and Libya.</div>;
   }
 
@@ -1445,8 +1445,8 @@ export default function IntlAnalysisPage() {
         <TabsContent value="forecastclearance"><ForecastClearanceTab /></TabsContent>
         <TabsContent value="breakdowns"><BreakdownsTab /></TabsContent>
         <TabsContent value="runrate"><RunningRateTab /></TabsContent>
-        <TabsContent value="closingstock"><ClosingStockTab country={country as "Syria" | "Libya"} /></TabsContent>
-        <TabsContent value="forecastintel"><ForecastIntelligenceTab country={country as "Syria" | "Libya"} /></TabsContent>
+        <TabsContent value="closingstock"><ClosingStockTab country={country as "Syria" | "Libya" | "KSA"} /></TabsContent>
+        <TabsContent value="forecastintel"><ForecastIntelligenceTab country={country as "Syria" | "Libya" | "KSA"} /></TabsContent>
       </Tabs>
     </div>
   );

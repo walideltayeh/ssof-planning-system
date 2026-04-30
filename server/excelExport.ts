@@ -1114,7 +1114,7 @@ export async function generateSingleSheetBuffer(sheet: string): Promise<Buffer> 
   return Buffer.from(buffer);
 }
 
-export async function generateSingleSheetBufferForCountry(country: "Syria" | "Libya", sheet: string): Promise<Buffer> {
+export async function generateSingleSheetBufferForCountry(country: "Syria" | "Libya" | "KSA", sheet: string): Promise<Buffer> {
   const data = await db.getFullPlanningDataForCountry(country);
   const { skus: allSkus, periods: allPeriods, forecast, ims, arrival, planningFg } = data;
   const revisedForecast = await db.getRevisedForecastDataForCountry(country);
@@ -1351,7 +1351,7 @@ function buildIntlPlanningFgSheet(
   return ws;
 }
 
-export async function generateExcelBufferForCountry(country: "Syria" | "Libya"): Promise<Buffer> {
+export async function generateExcelBufferForCountry(country: "Syria" | "Libya" | "KSA"): Promise<Buffer> {
   const data = await db.getFullPlanningDataForCountry(country);
   const { skus: allSkus, periods: allPeriods, forecast, ims, arrival, planningFg } = data;
   const revisedForecast = await db.getRevisedForecastDataForCountry(country);
@@ -1880,7 +1880,7 @@ export async function generateAnalysisExcelBuffer(): Promise<Buffer> {
   return Buffer.from(buf);
 }
 
-export async function generateIntlAnalysisExcelBuffer(country: "Syria" | "Libya"): Promise<Buffer> {
+export async function generateIntlAnalysisExcelBuffer(country: "Syria" | "Libya" | "KSA"): Promise<Buffer> {
   const data = await db.getIntlAnalysis(country);
   if (!data) throw new Error(`No analysis data available for ${country}`);
 

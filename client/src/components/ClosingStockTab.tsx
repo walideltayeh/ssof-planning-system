@@ -29,7 +29,7 @@ const WEEKS_BG = (w: number): string => {
   return "bg-orange-600 text-white";
 };
 
-function ClosingStockTab({ country }: { country: "Lebanon" | "Syria" | "Libya" }) {
+function ClosingStockTab({ country }: { country: "Lebanon" | "Syria" | "Libya" | "KSA" }) {
   const [weightFilter, setWeightFilter] = useState<string>("all");
   const [zoneFilter, setZoneFilter] = useState<string>("all");
   const [sortField, setSortField] = useState<string>("name");

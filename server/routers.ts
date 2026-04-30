@@ -659,8 +659,10 @@ export const appRouter = router({
           const fNum = parseFloat(forecastVal) || 0;
           if (fNum === 0) continue; // skip if no forecast
 
-          // Overwrite IMS with forecast value
-          await db.upsertImsData(sku.id, input.periodId, forecastVal, false);
+          // Overwrite IMS with forecast value, marking source so the UI can
+          // color these "system-pushed" cells differently from manually
+          // entered IMS.
+          await db.upsertImsData(sku.id, input.periodId, forecastVal, false, "auto_forecast");
           filled++;
         }
 
@@ -972,7 +974,7 @@ export const appRouter = router({
   // ==================== SSOF VERSIONS ====================
   versions: router({
     list: protectedProcedure
-      .input(z.object({ country: z.enum(['Lebanon', 'Syria', 'Libya']).optional() }).optional())
+      .input(z.object({ country: z.enum(['Lebanon', 'Syria', 'Libya', 'KSA']).optional() }).optional())
       .query(async ({ input }) => {
         return db.listVersions(input?.country as any);
       }),
@@ -981,7 +983,7 @@ export const appRouter = router({
       .input(z.object({
         name: z.string().min(1).max(255),
         description: z.string().optional(),
-        country: z.enum(['Lebanon', 'Syria', 'Libya']).optional(),
+        country: z.enum(['Lebanon', 'Syria', 'Libya', 'KSA']).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         const actor = getAuditActor(ctx);
@@ -1105,7 +1107,7 @@ export const appRouter = router({
     import: adminProcedure
       .input(z.object({
         versionData: z.any(), // The full version JSON from file
-        country: z.enum(['Lebanon', 'Syria', 'Libya']).optional(),
+        country: z.enum(['Lebanon', 'Syria', 'Libya', 'KSA']).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         const { versionData } = input;
@@ -1199,7 +1201,7 @@ export const appRouter = router({
   country: router({
     // Initialize a country's periods
     init: adminProcedure
-      .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya"]) }))
+      .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]) }))
       .mutation(async ({ ctx, input }) => {
         await requireCountryAccess(ctx, input.country);
         await db.ensurePeriodsForCountry(input.country);
@@ -1207,7 +1209,7 @@ export const appRouter = router({
       }),
     // Fetch all data for a country
     data: protectedProcedure
-      .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya"]) }))
+      .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]) }))
       .query(async ({ ctx, input }) => {
         await requireCountryAccess(ctx, input.country);
         const c = input.country;
@@ -1225,7 +1227,7 @@ export const appRouter = router({
       }),
     // Get SKUs for a country
     skus: protectedProcedure
-      .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya"]), includeInactive: z.boolean().optional() }))
+      .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]), includeInactive: z.boolean().optional() }))
       .query(async ({ ctx, input }) => {
         await requireCountryAccess(ctx, input.country);
         return db.getSkusForCountry(input.country, input.includeInactive ?? false);
@@ -1233,7 +1235,7 @@ export const appRouter = router({
     // Create SKU for a country
     createSku: adminProcedure
       .input(z.object({
-        country: z.enum(["Lebanon", "Syria", "Libya"]),
+        country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]),
         name: z.string().min(1),
         weight: z.string(),
         category: z.enum(["Core", "NPI"]).optional(),
@@ -1265,7 +1267,7 @@ export const appRouter = router({
         skuId: z.number(),
         packagingType: z.enum(["Old", "New"]),
                 skuName: z.string().optional(),
-        country: z.enum(["Lebanon", "Syria", "Libya"]).optional(),
+        country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         const country = await requireSkuCountryAccess(ctx, input.skuId, input.country);
@@ -1286,7 +1288,7 @@ export const appRouter = router({
       .input(z.object({
         skuId: z.number(),
                 skuName: z.string().optional(),
-        country: z.enum(["Lebanon", "Syria", "Libya"]).optional(),
+        country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         const country = await requireSkuCountryAccess(ctx, input.skuId, input.country);
@@ -1307,7 +1309,7 @@ export const appRouter = router({
         skuId: z.number(),
         isActive: z.boolean(),
                 skuName: z.string().optional(),
-        country: z.enum(["Lebanon", "Syria", "Libya"]).optional(),
+        country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         const country = await requireSkuCountryAccess(ctx, input.skuId, input.country);
@@ -1326,7 +1328,7 @@ export const appRouter = router({
     updateForecast: protectedProcedure
       .input(z.object({
         skuId: z.number(), periodId: z.number(), value: z.string(),
-        country: z.enum(["Lebanon", "Syria", "Libya"]),
+        country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]),
         targetWeek: z.string().optional(), // "week1" | "week2" | "week3" | "week4"
         skuName: z.string().optional(),
         periodLabel: z.string().optional(), oldValue: z.string().optional(),
@@ -1349,7 +1351,7 @@ export const appRouter = router({
       .input(z.object({
         skuId: z.number(), periodId: z.number(),
         targetWeek: z.string(), // "week1" | "week2" | "week3" | "week4"
-        country: z.enum(["Lebanon", "Syria", "Libya"]),
+        country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]),
         skuName: z.string().optional(),
         periodLabel: z.string().optional(),
       }))
@@ -1369,7 +1371,7 @@ export const appRouter = router({
     updateRevisedForecast: protectedProcedure
       .input(z.object({
         skuId: z.number(), periodId: z.number(), value: z.string(),
-        country: z.enum(["Lebanon", "Syria", "Libya"]),
+        country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]),
         skuName: z.string().optional(),
         periodLabel: z.string().optional(), oldValue: z.string().optional(),
       }))
@@ -1396,7 +1398,7 @@ export const appRouter = router({
         note: z.string().nullable().optional(),
         invoiceRef: z.string().nullable().optional(),
         containerRef: z.string().nullable().optional(),
-        country: z.enum(["Lebanon", "Syria", "Libya"]),
+        country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]),
         skuName: z.string().optional(), periodLabel: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
@@ -1422,7 +1424,7 @@ export const appRouter = router({
         skuId: z.number(), periodId: z.number(),
         invoiceRef: z.string().nullable().optional(),
         containerRef: z.string().nullable().optional(),
-        country: z.enum(["Lebanon", "Syria", "Libya"]),
+        country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]),
         skuName: z.string().optional(), periodLabel: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
@@ -1445,7 +1447,7 @@ export const appRouter = router({
         skuId: z.number(), periodId: z.number(),
         week1: z.string(), week2: z.string(), week3: z.string(), week4: z.string(),
         arrivalOffsetWeeks: z.number().optional(),
-        country: z.enum(["Lebanon", "Syria", "Libya"]),
+        country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]),
         skuName: z.string().optional(), periodLabel: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
@@ -1464,7 +1466,7 @@ export const appRouter = router({
     // Add year for a country
     addYear: adminProcedure
       .input(z.object({
-        country: z.enum(["Lebanon", "Syria", "Libya"]),
+        country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]),
         year: z.number().min(2024).max(2040),
               }))
       .mutation(async ({ ctx, input }) => {
@@ -1479,7 +1481,7 @@ export const appRouter = router({
       }),
     // Get existing years for a country
     existingYears: protectedProcedure
-      .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya"]) }))
+      .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]) }))
       .query(async ({ ctx, input }) => {
         await requireCountryAccess(ctx, input.country);
         return db.getExistingYearsForCountry(input.country);
@@ -1493,7 +1495,7 @@ export const appRouter = router({
         category: z.enum(["Core", "NPI"]).optional(),
         packagingType: z.enum(["Old", "New"]).optional(),
                 skuName: z.string().optional(),
-        country: z.enum(["Lebanon", "Syria", "Libya"]).optional(),
+        country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]).optional(),
       }))
       .mutation(async ({ ctx, input }) => {
         const country = await requireSkuCountryAccess(ctx, input.skuId, input.country);
@@ -1519,7 +1521,7 @@ export const appRouter = router({
         skuId: z.number(),
         periodId: z.number(),
         status: z.enum(["Pending", "In Transit", "Arrived", "Delayed", "Cleared", "Partially Cleared"]),
-        country: z.enum(["Lebanon", "Syria", "Libya"]),
+        country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]),
                 skuName: z.string().optional(),
         periodLabel: z.string().optional(),
       }))
@@ -1545,7 +1547,7 @@ export const appRouter = router({
         periodId: z.number(),
         clearedQty: z.number().nullable(),
         totalQty: z.number(), // full production qty to determine auto-status
-        country: z.enum(["Lebanon", "Syria", "Libya"]),
+        country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]),
                 skuName: z.string().optional(),
         periodLabel: z.string().optional(),
       }))
@@ -1577,7 +1579,7 @@ export const appRouter = router({
         skuId: z.number(),
         periodId: z.number(),
         clearedDate: z.string().nullable(), // ISO date string YYYY-MM-DD or null
-        country: z.enum(["Lebanon", "Syria", "Libya"]),
+        country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]),
                 skuName: z.string().optional(),
         periodLabel: z.string().optional(),
       }))
@@ -1604,7 +1606,7 @@ export const appRouter = router({
         skuId: z.number(),
         periodId: z.number(),
         pendingClearDate: z.string().nullable(), // ISO date string YYYY-MM-DD or null
-        country: z.enum(["Lebanon", "Syria", "Libya"]),
+        country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]),
                 skuName: z.string().optional(),
         periodLabel: z.string().optional(),
       }))
@@ -1627,7 +1629,7 @@ export const appRouter = router({
 
     // List all clearance events for a country
     clearanceEvents: protectedProcedure
-      .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya"]) }))
+      .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]) }))
       .query(async ({ ctx, input }) => {
         await requireCountryAccess(ctx, input.country);
         return db.getClearanceEventsForCountry(input.country);
@@ -1638,7 +1640,7 @@ export const appRouter = router({
       .input(z.object({
         skuId: z.number(),
         periodId: z.number(),
-        country: z.enum(["Lebanon", "Syria", "Libya"]),
+        country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]),
         clearedQty: z.string(),
         clearedDate: z.string(), // YYYY-MM-DD
         pendingClearDate: z.string().nullable().optional(),
@@ -1669,7 +1671,7 @@ export const appRouter = router({
         eventId: z.number(),
         skuId: z.number(),
         periodId: z.number(),
-        country: z.enum(["Lebanon", "Syria", "Libya"]),
+        country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]),
         clearedQty: z.string().optional(),
         clearedDate: z.string().optional(),
         pendingClearDate: z.string().nullable().optional(),
@@ -1701,7 +1703,7 @@ export const appRouter = router({
         eventId: z.number(),
         skuId: z.number(),
         periodId: z.number(),
-        country: z.enum(["Lebanon", "Syria", "Libya"]),
+        country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]),
                 skuName: z.string().optional(),
         periodLabel: z.string().optional(),
       }))
@@ -1721,10 +1723,10 @@ export const appRouter = router({
       }),
 
     planningFg: protectedProcedure
-      .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya"]) }))
+      .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]) }))
       .query(async ({ ctx, input }) => {
         await requireCountryAccess(ctx, input.country);
-        return db.getFullPlanningDataForCountry(input.country as "Syria" | "Libya");
+        return db.getFullPlanningDataForCountry(input.country as "Syria" | "Libya" | "KSA");
       }),
 
     // Update IMS cell for Syria/Libya
@@ -1733,7 +1735,7 @@ export const appRouter = router({
         skuId: z.number(),
         periodId: z.number(),
         value: z.string(),
-        country: z.enum(["Lebanon", "Syria", "Libya"]),
+        country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]),
                 skuName: z.string().optional(),
         periodLabel: z.string().optional(),
       }))
@@ -1755,35 +1757,35 @@ export const appRouter = router({
 
     // Intl Analysis query for Syria/Libya
     intlAnalysis: protectedProcedure
-      .input(z.object({ country: z.enum(["Syria", "Libya"]) }))
+      .input(z.object({ country: z.enum(["Syria", "Libya", "KSA"]) }))
       .query(async ({ ctx, input }) => {
         await requireCountryAccess(ctx, input.country);
         return db.getIntlAnalysis(input.country);
       }),
 
     runningRate: protectedProcedure
-      .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya"]) }))
+      .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]) }))
       .query(async ({ ctx, input }) => {
         await requireCountryAccess(ctx, input.country);
         return db.getRunningRateAnalysis(input.country);
       }),
 
     stockLevels: protectedProcedure
-      .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya"]) }))
+      .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]) }))
       .query(async ({ ctx, input }) => {
         await requireCountryAccess(ctx, input.country);
         return db.getStockLevelAnalysis(input.country);
       }),
 
     forecastIntelligence: protectedProcedure
-      .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya"]) }))
+      .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]) }))
       .query(async ({ ctx, input }) => {
         await requireCountryAccess(ctx, input.country);
         return db.getForecastIntelligence(input.country);
       }),
 
     currentMonthClosingStock: protectedProcedure
-      .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya"]) }))
+      .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]) }))
       .query(async ({ ctx, input }) => {
         await requireCountryAccess(ctx, input.country);
         return db.getCurrentMonthClosingStock(input.country);
@@ -1811,7 +1813,7 @@ export const appRouter = router({
         periodId: z.number(),
         label: z.string(),
         value: z.string(),
-        country: z.enum(["Lebanon", "Syria", "Libya"]),
+        country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]),
                 skuName: z.string().optional(),
         periodLabel: z.string().optional(),
         oldValue: z.string().optional(),
@@ -1844,7 +1846,7 @@ export const appRouter = router({
 
     // Product Expiry Dashboard
     expiryDashboard: protectedProcedure
-      .input(z.object({ country: z.enum(["Syria", "Libya"]) }))
+      .input(z.object({ country: z.enum(["Syria", "Libya", "KSA"]) }))
       .query(async ({ ctx, input }) => {
         await requireCountryAccess(ctx, input.country);
         return db.getExpiryDashboard(input.country);
@@ -1852,7 +1854,7 @@ export const appRouter = router({
 
     reorderSkus: adminProcedure
       .input(z.object({
-        country: z.enum(["Syria", "Libya"]),
+        country: z.enum(["Syria", "Libya", "KSA"]),
         orderedIds: z.array(z.number()),
               }))
       .mutation(async ({ ctx, input }) => {

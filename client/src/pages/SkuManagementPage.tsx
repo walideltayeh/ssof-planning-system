@@ -640,7 +640,7 @@ function IntlSkuManagement() {
   const { country } = useCountry();
   const { user: appUser } = useAppAuth();
   const utils = trpc.useUtils();
-  const intlCountry = country as "Syria" | "Libya";
+  const intlCountry = country as "Syria" | "Libya" | "KSA";
   const isAdmin = (appUser as any)?.role === "admin";
 
   const { data: skusData, isLoading } = trpc.country.skus.useQuery(

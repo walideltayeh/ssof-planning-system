@@ -98,8 +98,8 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
   const utils = trpc.useUtils();
 
   const { data, isLoading, isFetching, refetch } = trpc.country.planningFg.useQuery(
-    { country: country as "Syria" | "Libya" },
-    { enabled: country === "Syria" || country === "Libya", staleTime: 0, refetchOnWindowFocus: true, refetchInterval: 30000 }
+    { country: country as "Syria" | "Libya" | "KSA" },
+    { enabled: country === "Syria" || country === "Libya" || country === "KSA", staleTime: 0, refetchOnWindowFocus: true, refetchInterval: 30000 }
   );
 
   const updateCell = trpc.country.updatePlanningFgCell.useMutation({
@@ -222,6 +222,15 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
     const m = new Map<string, number>();
     for (const d of data?.ims ?? [])
       m.set(`${d.skuId}-${d.periodId}`, parseFloat(d.value ?? "0") || 0);
+    return m;
+  }, [data]);
+
+  // Source map for IMS cells. Read by the IMS row to color future-period
+  // cells that came from "Auto-fill IMS from Forecast".
+  const imsSourceMap = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const d of data?.ims ?? [])
+      m.set(`${d.skuId}-${d.periodId}`, ((d as any).source as string) ?? "manual");
     return m;
   }, [data]);
 
@@ -406,7 +415,7 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
         skuId,
         periodId,
         value: newVal,
-        country: country as "Syria" | "Libya",
+        country: country as "Syria" | "Libya" | "KSA",
         skuName: sku?.name,
         periodLabel: period?.label,
       });
@@ -419,7 +428,7 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
         week2: "0",
         week3: "0",
         week4: "0",
-        country: country as "Syria" | "Libya",
+        country: country as "Syria" | "Libya" | "KSA",
         skuName: sku?.name,
         periodLabel: period?.label,
       });
@@ -430,7 +439,7 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
         periodId,
         label,
         value: newVal,
-        country: country as "Syria" | "Libya",
+        country: country as "Syria" | "Libya" | "KSA",
         skuName: sku?.name,
         periodLabel: period?.label,
         oldValue,
@@ -460,7 +469,7 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
       toast.error("Undo failed: " + err.message);
     };
 
-    const countryArg = country as "Syria" | "Libya";
+    const countryArg = country as "Syria" | "Libya" | "KSA";
 
     if (entry.type === "intlIms") {
       updateImsMut.mutate({
@@ -523,7 +532,7 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
       toast.error("Redo failed: " + err.message);
     };
 
-    const countryArg = country as "Syria" | "Libya";
+    const countryArg = country as "Syria" | "Libya" | "KSA";
 
     if (entry.type === "intlIms") {
       updateImsMut.mutate({
@@ -1167,17 +1176,27 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
                               );
                             }
 
-                            // Read-only: Production, Arrivals, IMS
+                            // Read-only: Production, Arrivals, IMS.
+                            // Future IMS cells that were auto-filled from
+                            // recommended forecast get a violet treatment so
+                            // planners can spot system-pushed values.
+                            const isAutoFilledFutureIms =
+                              isIms &&
+                              isStrictlyFuture(p) &&
+                              (imsSourceMap.get(`${sku.id}-${p.id}`) ?? "manual") === "auto_forecast";
                             return (
                               <td
                                 key={p.id}
                                 className={`px-2 py-1.5 text-right ${
-                                  isArrivals
+                                  isAutoFilledFutureIms
+                                    ? "text-violet-700 italic font-medium bg-violet-50 ring-1 ring-inset ring-violet-200"
+                                    : isArrivals
                                     ? val > 0 ? "text-emerald-700 font-medium" : "text-muted-foreground"
                                     : isIms
                                     ? val > 0 ? "text-orange-700 font-medium" : "text-muted-foreground"
                                     : "text-muted-foreground"
                                 }`}
+                                title={isAutoFilledFutureIms ? "Auto-filled from recommended forecast" : undefined}
                               >
                                 {val === 0 ? "—" : formatVal(val)}
                               </td>

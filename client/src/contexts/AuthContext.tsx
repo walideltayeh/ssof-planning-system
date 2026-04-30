@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect, ReactNode } from "react
 import { trpc } from "@/lib/trpc";
 
 export type AppRole = "admin" | "viewer";
-export type Country = "Lebanon" | "Syria" | "Libya";
+export type Country = "Lebanon" | "Syria" | "Libya" | "KSA";
 
 export interface AppUser {
   id: number;
@@ -72,7 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       const user = result.user as AppUser;
       const userCountries = user.isOwner
-        ? ["Lebanon", "Syria", "Libya"]
+        ? ["Lebanon", "Syria", "Libya", "KSA"]
         : user.countries;
       const resolvedCountry = country
         ? country

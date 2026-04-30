@@ -59,7 +59,7 @@ export async function runStartupMigration() {
       return;
     }
 
-    const countries = ["Lebanon", "Syria", "Libya"] as const;
+    const countries = ["Lebanon", "Syria", "Libya", "KSA"] as const;
     const combined: any = {
       skus: [], periods: [], forecast: [], ims: [],
       shipment: [], arrival: [], planningFg: [],

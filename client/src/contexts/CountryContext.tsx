@@ -3,7 +3,7 @@ import { useAppAuth } from "./AuthContext";
 import type { Country as AuthCountry } from "./AuthContext";
 import { clearDeniedCountry } from "@/lib/countryAccessStore";
 
-export type Country = "Lebanon" | "Syria" | "Libya";
+export type Country = "Lebanon" | "Syria" | "Libya" | "KSA";
 
 export const COUNTRY_CONFIG = {
   Lebanon: {
@@ -57,6 +57,24 @@ export const COUNTRY_CONFIG = {
     },
     usesForecastVsIms: false,
     allowedUsers: ["walid", "libyadmin", "libyaviewer"],
+    canManageSkus: true,
+    usesExcelUpload: false,
+  },
+  KSA: {
+    label: "KSA",
+    flag: "\u{1F1F8}\u{1F1E6}",
+    color: "#15803d",
+    accentColor: "#0f766e",
+    terms: {
+      forecast: "Forecast Production",
+      ims: "IMS",
+      production: "Production",
+      arrival: "Arrival",
+      forecastVsIms: "Forecast vs Forecast",
+      forecastProduction: "Forecast Production",
+    },
+    usesForecastVsIms: false,
+    allowedUsers: ["walid", "ksaadmin", "ksaviewer"],
     canManageSkus: true,
     usesExcelUpload: false,
   },

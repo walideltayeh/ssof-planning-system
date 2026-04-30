@@ -231,7 +231,7 @@ function DashboardLayoutContent({
   const displayRole = appUser?.role || "admin";
   const displayInitial = displayName.charAt(0).toUpperCase();
 
-  const accessibleCountries = (["Lebanon", "Syria", "Libya"] as Country[]).filter(c =>
+  const accessibleCountries = (["Lebanon", "Syria", "Libya", "KSA"] as Country[]).filter(c =>
     canAccessCountry(c)
   );
 

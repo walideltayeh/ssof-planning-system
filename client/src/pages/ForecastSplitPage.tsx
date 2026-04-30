@@ -302,7 +302,7 @@ export default function ForecastSplitPage() {
 
   // Active SKUs for the per-SKU adjustment panel.
   const { data: activeSkusData } = trpc.country.skus.useQuery(
-    { country: (country as "Lebanon" | "Syria" | "Libya"), includeInactive: false },
+    { country: (country as "Lebanon" | "Syria" | "Libya" | "KSA"), includeInactive: false },
     { enabled: !!country },
   );
   const activeSkus = (activeSkusData ?? []).filter((s: any) => s.isActive !== false);

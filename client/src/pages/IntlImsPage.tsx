@@ -19,8 +19,8 @@ export default function IntlImsPage() {
   const utils = trpc.useUtils();
 
   const { data, isLoading, isFetching, refetch } = trpc.country.data.useQuery(
-    { country: country as "Syria" | "Libya" },
-    { enabled: country === "Syria" || country === "Libya", staleTime: 0, refetchOnWindowFocus: true }
+    { country: country as "Syria" | "Libya" | "KSA" },
+    { enabled: country === "Syria" || country === "Libya" || country === "KSA", staleTime: 0, refetchOnWindowFocus: true }
   );
 
   const updateIms = trpc.country.updateIms.useMutation({
@@ -69,8 +69,31 @@ export default function IntlImsPage() {
     return m;
   }, [data]);
 
+  // Source map: skuId-periodId → "manual" | "auto_forecast". Used to color
+  // future-period cells that came from "Auto-fill IMS from Forecast" so
+  // planners can tell system-pushed values apart from real entries at a glance.
+  const imsSourceMap = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const d of data?.ims ?? []) {
+      m.set(`${d.skuId}-${d.periodId}`, ((d as any).source as string) ?? "manual");
+    }
+    return m;
+  }, [data]);
+
   const allSkus = data?.skus ?? [];
   const periods = data?.periods ?? [];
+
+  // "Future" = strictly after the current calendar month. Coloring only kicks
+  // in for future periods because past auto-filled values would just be
+  // historical noise.
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+  const isFuturePeriod = useCallback(
+    (year: number, month: number) =>
+      year > currentYear || (year === currentYear && month > currentMonth),
+    [currentYear, currentMonth]
+  );
 
   const sortedSkus = useMemo(() => {
     return [...allSkus].sort((a, b) => {
@@ -158,7 +181,7 @@ export default function IntlImsPage() {
         skuId,
         periodId,
         value: numVal.toString(),
-        country: country as "Syria" | "Libya",
+        country: country as "Syria" | "Libya" | "KSA",
         skuName: sku?.name,
         periodLabel: period?.label,
       });
@@ -346,10 +369,17 @@ export default function IntlImsPage() {
                                   const val = getVal(sku.id, p.id);
                                   const cellKey = `${sku.id}-${p.id}`;
                                   const isEditing = editingCell === cellKey;
+                                  const source = imsSourceMap.get(cellKey) ?? "manual";
+                                  const isAutoFilledFuture =
+                                    source === "auto_forecast" && isFuturePeriod(p.year, p.month);
+                                  const cellClass = isAutoFilledFuture
+                                    ? "px-1 py-1 text-right border-l border-violet-300 bg-violet-50/70 min-w-[70px] cursor-pointer hover:bg-violet-100"
+                                    : "px-1 py-1 text-right border-l border-border/30 min-w-[70px] cursor-pointer hover:bg-primary/10";
                                   return (
                                     <td
                                       key={p.id}
-                                      className="px-1 py-1 text-right border-l border-border/30 min-w-[70px] cursor-pointer hover:bg-primary/10"
+                                      className={cellClass}
+                                      title={isAutoFilledFuture ? "Auto-filled from recommended forecast" : undefined}
                                       onClick={() => !isEditing && handleCellClick(cellKey, val)}
                                     >
                                       {isEditing ? (
@@ -363,7 +393,15 @@ export default function IntlImsPage() {
                                           onKeyDown={(e) => handleKeyDown(e, sku.id, p.id)}
                                         />
                                       ) : (
-                                        <span className={val === 0 ? "text-muted-foreground/40" : ""}>
+                                        <span
+                                          className={
+                                            isAutoFilledFuture
+                                              ? "text-violet-700 font-medium italic"
+                                              : val === 0
+                                                ? "text-muted-foreground/40"
+                                                : ""
+                                          }
+                                        >
                                           {formatNumber(val)}
                                         </span>
                                       )}

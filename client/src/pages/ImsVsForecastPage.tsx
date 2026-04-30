@@ -23,8 +23,8 @@ export default function ImsVsForecastPage() {
 
   const { data: lbData, isLoading: lbLoading } = trpc.data.imsVsForecast.useQuery(undefined, { enabled: isLebanon, staleTime: 0, refetchOnWindowFocus: true });
   const { data: intlData, isLoading: intlLoading } = trpc.country.data.useQuery(
-    { country: country as "Syria" | "Libya" },
-    { enabled: !isLebanon && (country === "Syria" || country === "Libya") }
+    { country: country as "Syria" | "Libya" | "KSA" },
+    { enabled: !isLebanon && (country === "Syria" || country === "Libya" || country === "KSA") }
   );
   // For Syria/Libya: IMS tab shows IMS data (editable) vs Forecast Production (read-only)
   const data = isLebanon

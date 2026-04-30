@@ -420,6 +420,17 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
     return map;
   }, [data]);
 
+  // Source map for IMS cells. Cells written by `autoFillImsFromForecast`
+  // carry source="auto_forecast" so the IMS row can color future
+  // system-pushed values distinctly from manually entered ones.
+  const imsSourceMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const d of data?.ims ?? []) {
+      map.set(`${d.skuId}-${d.periodId}`, ((d as any).source as string) ?? "manual");
+    }
+    return map;
+  }, [data]);
+
   const forecastMap = useMemo(() => {
     const map = new Map<string, string>();
     for (const d of data?.forecast ?? []) map.set(`${d.skuId}-${d.periodId}`, d.value ?? "0");
@@ -1128,6 +1139,18 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
                                   const highlightKey = label === "IMS" ? `${sku.id}-${p.id}-IMS` : "";
                                   const isCellHighlighted = highlightKey ? highlightedCells.has(highlightKey) : false;
 
+                                  // Color future-period IMS cells that were
+                                  // pushed in by Auto-fill from Forecast so
+                                  // they stand out against manually entered
+                                  // values.
+                                  const isAutoFilledFuture =
+                                    label === "IMS" &&
+                                    isStrictlyFuture(p) &&
+                                    (imsSourceMap.get(`${sku.id}-${p.id}`) ?? "manual") === "auto_forecast";
+                                  const autoFillClass = isAutoFilledFuture
+                                    ? "bg-violet-50 text-violet-700 italic font-medium ring-1 ring-inset ring-violet-200"
+                                    : "";
+
                                   if (isEditing) {
                                     return (
                                       <td key={cellKey} className="px-0.5 py-0.5">
@@ -1147,11 +1170,17 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
                                   return (
                                     <td
                                       key={cellKey}
-                                      className={`px-1 py-1.5 text-right tabular-nums ${cellClass} ${dimClass} ${isCellHighlighted ? "cell-flash" : ""} ${
+                                      className={`px-1 py-1.5 text-right tabular-nums ${cellClass} ${autoFillClass} ${dimClass} ${isCellHighlighted ? "cell-flash" : ""} ${
                                         editable ? "cursor-pointer hover:bg-primary/10 transition-colors ring-inset hover:ring-1 hover:ring-primary/30" : ""
                                       }`}
                                       onClick={() => editable && handleCellClick(cellKey, val, label, p, idx, sku.id)}
-                                      title={editable ? `Click to edit ${label}` : undefined}
+                                      title={
+                                        isAutoFilledFuture
+                                          ? "Auto-filled from recommended forecast"
+                                          : editable
+                                            ? `Click to edit ${label}`
+                                            : undefined
+                                      }
                                     >
                                       {formatNumber(val, isWeeks)}
                                     </td>

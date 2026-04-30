@@ -136,6 +136,11 @@ export async function getSkusForCountry(country: Country, includeInactive = fals
 export async function createSkuForCountry(country: Country, data: { name: string; weight: string; category?: "Core" | "NPI"; packagingType?: "Old" | "New"; isExcludedFromTotal?: boolean }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
+  // Defensive: brand-new countries (e.g. KSA on first SKU creation through any
+  // path that bypasses the router-level ensure) need their period rows
+  // present, otherwise the per-period init below produces zero rows and the
+  // SKU lands with no forecast/IMS scaffolding.
+  await ensurePeriodsForCountry(country);
   const allSkus = await getSkusForCountry(country);
   const maxOrder = allSkus.length > 0 ? Math.max(...allSkus.map(s => s.sortOrder)) : 0;
   const [result] = await db.insert(skus).values({
@@ -437,15 +442,21 @@ export async function getImsData() {
   return db.select().from(imsData).orderBy(asc(imsData.skuId), asc(imsData.periodId));
 }
 
-export async function upsertImsData(skuId: number, periodId: number, value: string, isActual: boolean) {
+export async function upsertImsData(
+  skuId: number,
+  periodId: number,
+  value: string,
+  isActual: boolean,
+  source: "manual" | "auto_forecast" = "manual",
+) {
   const db = await getDb();
   if (!db) return;
   const existing = await db.select().from(imsData)
     .where(and(eq(imsData.skuId, skuId), eq(imsData.periodId, periodId))).limit(1);
   if (existing.length > 0) {
-    await db.update(imsData).set({ value, isActual }).where(eq(imsData.id, existing[0].id));
+    await db.update(imsData).set({ value, isActual, source }).where(eq(imsData.id, existing[0].id));
   } else {
-    await db.insert(imsData).values({ skuId, periodId, value, isActual });
+    await db.insert(imsData).values({ skuId, periodId, value, isActual, source });
   }
 }
 
@@ -2126,7 +2137,7 @@ export async function upsertCountryPlanningFgCell(skuId: number, periodId: numbe
 
 // ==================== INTL ANALYSIS (Syria / Libya) ====================
 
-export async function getIntlAnalysis(country: "Syria" | "Libya") {
+export async function getIntlAnalysis(country: "Syria" | "Libya" | "KSA") {
   const db = await getDb();
   if (!db) return null;
 
@@ -2547,7 +2558,7 @@ export async function reorderLebanonSkus(orderedIds: number[]): Promise<void> {
  * orderedIds: array of SKU IDs in the new desired order (must all belong to the same country).
  */
 export async function reorderCountrySkus(
-  country: "Syria" | "Libya",
+  country: "Syria" | "Libya" | "KSA",
   orderedIds: number[]
 ): Promise<void> {
   const db = await getDb();
@@ -2662,7 +2673,7 @@ export async function verifyAppUserLoginNoCountry(username: string, password: st
 export async function ensureOwnerExists(username: string, displayName: string) {
   const existing = await getAppUserByUsername(username);
   if (!existing) {
-    await createAppUser({ username, displayName, password: username, role: "admin", countries: ["Lebanon", "Syria", "Libya"], isOwner: true });
+    await createAppUser({ username, displayName, password: username, role: "admin", countries: ["Lebanon", "Syria", "Libya", "KSA"], isOwner: true });
   }
 }
 
@@ -2727,7 +2738,7 @@ export async function removePresence(username: string) {
  *   ≤ 0  → "Expired", 1-2 → "2M", 3-4 → "4M", 5-6 → "6M",
  *   7-9 → "9M", 10-12 → "12M", 13-18 → "18M", 19-24 → "24M", > 24 → "OK"
  */
-export async function getExpiryDashboard(country: "Syria" | "Libya") {
+export async function getExpiryDashboard(country: "Syria" | "Libya" | "KSA") {
   const emptySummary = { expired: 0, twoMonth: 0, fourMonth: 0, sixMonth: 0, nineMonth: 0, twelveMonth: 0, eighteenMonth: 0, twentyFourMonth: 0 };
   const database = await getDb();
   if (!database) return { rows: [] as ExpiryRow[], summary: emptySummary };
@@ -2916,7 +2927,7 @@ export async function getExpiryDashboard(country: "Syria" | "Libya") {
 }
 
 // ==================== RUNNING RATE ANALYSIS ====================
-export async function getRunningRateAnalysis(country: "Lebanon" | "Syria" | "Libya") {
+export async function getRunningRateAnalysis(country: "Lebanon" | "Syria" | "Libya" | "KSA") {
   const db = await getDb();
   if (!db) return null;
 
@@ -3065,7 +3076,7 @@ export async function getRunningRateAnalysis(country: "Lebanon" | "Syria" | "Lib
 }
 
 // ==================== STOCK LEVEL ANALYSIS ====================
-export async function getStockLevelAnalysis(country: "Lebanon" | "Syria" | "Libya") {
+export async function getStockLevelAnalysis(country: "Lebanon" | "Syria" | "Libya" | "KSA") {
   const db = await getDb();
   if (!db) return null;
 
@@ -3123,7 +3134,7 @@ export async function getStockLevelAnalysis(country: "Lebanon" | "Syria" | "Liby
     monthlyArrivals: number[];
   };
 
-  const isIntl = country === "Syria" || country === "Libya";
+  const isIntl = country === "Syria" || country === "Libya" || country === "KSA";
   const clearArrivalMap = new Map<string, number>();
   if (isIntl) {
     const clearEvts = await db.select().from(clearanceEvents).where(
@@ -3350,7 +3361,7 @@ type ExpiryRow = {
 };
 
 // ==================== CURRENT MONTH CLOSING STOCK ====================
-export async function getCurrentMonthClosingStock(country: "Lebanon" | "Syria" | "Libya") {
+export async function getCurrentMonthClosingStock(country: "Lebanon" | "Syria" | "Libya" | "KSA") {
   const db = await getDb();
   if (!db) return null;
 
@@ -3555,7 +3566,7 @@ export async function getCurrentMonthClosingStock(country: "Lebanon" | "Syria" |
 }
 
 // ==================== FORECAST INTELLIGENCE ====================
-export async function getForecastIntelligence(country: "Lebanon" | "Syria" | "Libya") {
+export async function getForecastIntelligence(country: "Lebanon" | "Syria" | "Libya" | "KSA") {
   const db = await getDb();
   if (!db) return null;
 
@@ -3578,12 +3589,17 @@ export async function getForecastIntelligence(country: "Lebanon" | "Syria" | "Li
 
   const imsMap = new Map<string, string>();
   for (const r of imsRows) imsMap.set(`${r.skuId}-${r.periodId}`, r.value ?? "0");
+  // Map of which IMS cells came from "Auto-fill IMS from Forecast". Used to
+  // surface a per-SKU "auto-filled" indicator on the Forecast Intelligence
+  // table without forcing the client to pull the full IMS dataset.
+  const imsSourceMap = new Map<string, string>();
+  for (const r of imsRows) imsSourceMap.set(`${r.skuId}-${r.periodId}`, (r as any).source ?? "manual");
   const fcMap = new Map<string, string>();
   for (const r of fcRows) fcMap.set(`${r.skuId}-${r.periodId}`, r.value ?? "0");
   const planMap = new Map<string, typeof planRows[0]>();
   for (const r of planRows) planMap.set(`${r.skuId}-${r.periodId}`, r);
 
-  const isIntl = country === "Syria" || country === "Libya";
+  const isIntl = country === "Syria" || country === "Libya" || country === "KSA";
   const lebArrRows = !isIntl ? await db.select().from(arrivalData).where(inArray(arrivalData.skuId, skuIds)) : [];
   const lebArrMap = new Map<string, number>();
   for (const r of lebArrRows) {
@@ -3654,6 +3670,7 @@ export async function getForecastIntelligence(country: "Lebanon" | "Syria" | "Li
       trendAdjustment: number;
     };
     reasoning: string;
+    hasAutoFilledFutureIms: boolean;
   };
 
   const skuResults: SkuForecastIntel[] = [];
@@ -3765,6 +3782,14 @@ export async function getForecastIntelligence(country: "Lebanon" | "Syria" | "Li
     if (isRamadan) reasons.push("Ramadan uplift");
     if (reasons.length === 0) reasons.push("Stable demand");
 
+    // Flag SKUs whose recommended forecast was already pushed into IMS via
+    // "Auto-fill IMS from Forecast" (any future-period IMS row with
+    // source="auto_forecast"). Lets the UI render an "auto" badge so
+    // planners can tell the future demand signal is system-suggested.
+    const hasAutoFilledFutureIms = futurePeriods.some(
+      p => imsSourceMap.get(`${sku.id}-${p.id}`) === "auto_forecast"
+    );
+
     skuResults.push({
       id: sku.id,
       name: sku.name,
@@ -3794,6 +3819,7 @@ export async function getForecastIntelligence(country: "Lebanon" | "Syria" | "Li
         trendAdjustment: Math.round(trendAdj * 100),
       },
       reasoning: reasons.join(" · "),
+      hasAutoFilledFutureIms,
     });
   }
 

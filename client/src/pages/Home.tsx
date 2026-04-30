@@ -265,7 +265,7 @@ function IntlHome() {
   const [yearToAdd, setYearToAdd] = useState("");
   const utils = trpc.useUtils();
 
-  const intlCountry = country as "Syria" | "Libya";
+  const intlCountry = country as "Syria" | "Libya" | "KSA";
 
   const { data: skuData, isLoading: skusLoading } = trpc.country.skus.useQuery(
     { country: intlCountry },
