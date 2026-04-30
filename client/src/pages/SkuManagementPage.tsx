@@ -791,10 +791,15 @@ function IntlSkuManagement() {
       setCreateOpen(false);
       resetCreateForm();
     } else {
+      const w = newWeight.trim();
+      if (!/^[\d.]+\s*(g|kg)$/i.test(w)) {
+        toast.error('Weight must look like "50g", "300g", "1kg", or "2kg"');
+        return;
+      }
       createMutation.mutate({
         country: intlCountry,
         name: newName.trim(),
-        weight: newWeight,
+        weight: w,
         category: newCategory,
         packagingType: newPackaging,
       });
@@ -1040,12 +1045,28 @@ function IntlSkuManagement() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1.5">Weight *</label>
-                  <Select value={newWeight} onValueChange={setNewWeight}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {["250g", "1kg", "50g", "100g", "200g", "500g"].map(w => <SelectItem key={w} value={w}>{w}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+                  <Input
+                    value={newWeight}
+                    onChange={e => setNewWeight(e.target.value)}
+                    placeholder='e.g. "50g", "300g", "1kg"'
+                  />
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {["50g", "100g", "200g", "250g", "500g", "1kg"].map(w => (
+                      <button
+                        key={w}
+                        type="button"
+                        onClick={() => setNewWeight(w)}
+                        className={`px-2 py-0.5 rounded-full text-xs border transition-colors ${
+                          newWeight === w
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "border-border bg-background hover:bg-muted"
+                        }`}
+                      >
+                        {w}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-1">Custom sizes welcome — type any value (g or kg).</p>
                 </div>
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1.5">Category *</label>
@@ -1113,12 +1134,27 @@ function IntlSkuManagement() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1.5">Weight</label>
-                  <Select value={editWeight} onValueChange={setEditWeight}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {["250g", "1kg", "50g", "100g", "200g", "500g"].map(w => <SelectItem key={w} value={w}>{w}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+                  <Input
+                    value={editWeight}
+                    onChange={e => setEditWeight(e.target.value)}
+                    placeholder='e.g. "50g", "300g", "1kg"'
+                  />
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {["50g", "100g", "200g", "250g", "500g", "1kg"].map(w => (
+                      <button
+                        key={w}
+                        type="button"
+                        onClick={() => setEditWeight(w)}
+                        className={`px-2 py-0.5 rounded-full text-xs border transition-colors ${
+                          editWeight === w
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "border-border bg-background hover:bg-muted"
+                        }`}
+                      >
+                        {w}
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1.5">Category</label>
