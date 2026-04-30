@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { useAppAuth } from "@/contexts/AuthContext";
 import { useCountry } from "@/contexts/CountryContext";
@@ -8,6 +8,45 @@ import { useLocation } from "wouter";
 import { Package, BarChart3, Truck, Box, ArrowRight, CalendarPlus, Loader2, Download } from "lucide-react";
 import { toast } from "sonner";
 import { useAuditAction } from "@/hooks/useAuditLog";
+
+// Parse weights like "50g", "1kg", "500g", "0.5kg" into grams for sorting.
+// Anything we can't parse goes to the end so the dashboard never crashes.
+function weightToGrams(w: string): number {
+  const m = w.trim().match(/^([\d.]+)\s*(g|kg)$/i);
+  if (!m) return Number.MAX_SAFE_INTEGER;
+  const v = parseFloat(m[1]);
+  return m[2].toLowerCase() === "kg" ? v * 1000 : v;
+}
+
+// Deterministic per-weight color palette — same index used by stat cards
+// AND the SKU table badges, so the colors stay consistent.
+const WEIGHT_PALETTE = [
+  { card: "from-blue-500 to-indigo-600", badge: "bg-blue-100 text-blue-700" },
+  { card: "from-amber-500 to-orange-600", badge: "bg-amber-100 text-amber-700" },
+  { card: "from-rose-500 to-pink-600", badge: "bg-rose-100 text-rose-700" },
+  { card: "from-violet-500 to-purple-600", badge: "bg-violet-100 text-violet-700" },
+  { card: "from-emerald-500 to-green-600", badge: "bg-emerald-100 text-emerald-700" },
+  { card: "from-cyan-500 to-blue-600", badge: "bg-cyan-100 text-cyan-700" },
+  { card: "from-yellow-500 to-amber-600", badge: "bg-yellow-100 text-yellow-700" },
+  { card: "from-fuchsia-500 to-pink-600", badge: "bg-fuchsia-100 text-fuchsia-700" },
+] as const;
+
+// Sorted distinct weights present on the country's SKUs, with their
+// palette index. Drives both the stat cards and the table badges.
+function useWeightBreakdown(skus: Array<{ weight: string }>) {
+  return useMemo(() => {
+    const sorted = Array.from(new Set(skus.map(s => s.weight)))
+      .filter(Boolean)
+      .sort((a, b) => weightToGrams(a) - weightToGrams(b));
+    const indexByWeight = new Map<string, number>();
+    sorted.forEach((w, i) => indexByWeight.set(w, i));
+    return {
+      weights: sorted,
+      paletteFor: (w: string) => WEIGHT_PALETTE[(indexByWeight.get(w) ?? 0) % WEIGHT_PALETTE.length],
+      countOf: (w: string) => skus.filter(s => s.weight === w).length,
+    };
+  }, [skus]);
+}
 
 // ─── Lebanon Dashboard ────────────────────────────────────────────────────────
 function LebanonHome() {
@@ -45,15 +84,19 @@ function LebanonHome() {
   const periods = periodData ?? [];
   const years = existingYears ?? [];
 
-  const sku50g = skus.filter(s => s.weight === '50g');
-  const sku250g = skus.filter(s => s.weight === '250g');
-  const sku1kg = skus.filter(s => s.weight === '1kg');
+  // Dynamic per-weight breakdown — picks up custom weights (e.g. "500g")
+  // automatically as soon as they exist on an active SKU.
+  const { weights, paletteFor, countOf } = useWeightBreakdown(skus);
 
   const statCards = [
     { label: "Total SKUs", value: skus.length, icon: Package, color: "from-teal-500 to-emerald-600", textColor: "text-white" },
-    { label: "50g Products", value: sku50g.length, icon: Box, color: "from-blue-500 to-indigo-600", textColor: "text-white" },
-    { label: "250g Products", value: sku250g.length, icon: Box, color: "from-amber-500 to-orange-600", textColor: "text-white" },
-    { label: "1kg Products", value: sku1kg.length, icon: Box, color: "from-rose-500 to-pink-600", textColor: "text-white" },
+    ...weights.map(w => ({
+      label: `${w} Products`,
+      value: countOf(w),
+      icon: Box,
+      color: paletteFor(w).card,
+      textColor: "text-white",
+    })),
   ];
 
   const quickLinks = [
@@ -61,9 +104,14 @@ function LebanonHome() {
     { label: "IMS vs Forecast", desc: "Compare actuals vs forecast", path: "/ims-vs-forecast", icon: BarChart3 },
     { label: "Shipment", desc: "Weekly production shipments", path: "/shipment", icon: Truck },
     { label: "Arrival to Regie", desc: "Weekly arrival tracking", path: "/arrival", icon: Truck },
-    { label: "Planning FG 50g", desc: "Finished goods planning", path: "/planning-fg-50g", icon: Box },
-    { label: "Planning FG 250g", desc: "Finished goods planning", path: "/planning-fg-250g", icon: Box },
-    { label: "Planning FG 1kg", desc: "Finished goods planning", path: "/planning-fg-1kg", icon: Box },
+    // One Planning FG quick-link per actual weight — uses the dynamic
+    // /planning-fg/:weight route so custom weights work out of the box.
+    ...weights.map(w => ({
+      label: `Planning FG ${w}`,
+      desc: "Finished goods planning",
+      path: `/planning-fg/${encodeURIComponent(w)}`,
+      icon: Box,
+    })),
     { label: "Upload Data", desc: "Import Excel workbook", path: "/upload", icon: Package },
   ];
 
@@ -221,14 +269,10 @@ function LebanonHome() {
                     <tr key={sku.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
                       <td className="py-2.5 px-3 font-medium">{sku.name}</td>
                       <td className="py-2.5 px-3">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                          sku.weight === '50g' ? 'bg-blue-100 text-blue-700' :
-                          sku.weight === '250g' ? 'bg-amber-100 text-amber-700' :
-                          'bg-rose-100 text-rose-700'
-                        }`}>{sku.weight}</span>
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${paletteFor(sku.weight).badge}`}>{sku.weight}</span>
                       </td>
                       <td className="py-2.5 px-3 text-muted-foreground">
-                        <span className="cursor-pointer hover:text-primary hover:underline transition-colors" onClick={() => setLocation(`/planning-fg-${sku.weight}`)}>
+                        <span className="cursor-pointer hover:text-primary hover:underline transition-colors" onClick={() => setLocation(`/planning-fg/${encodeURIComponent(sku.weight)}`)}>
                           Planning FG {sku.weight}
                         </span>
                       </td>
@@ -291,14 +335,18 @@ function IntlHome() {
   const skus = skuData ?? [];
   const years = (periodsData ?? []) as number[];
 
-   const sku50g = skus.filter((s: any) => s.weight === '50g');
-  const sku250g = skus.filter((s: any) => s.weight === '250g');
-  const sku1kg = skus.filter((s: any) => s.weight === '1kg');
+  // Dynamic per-weight breakdown — picks up KSA's custom weights (e.g.
+  // "300g", "500g") automatically as soon as they exist on an active SKU.
+  const { weights, paletteFor, countOf } = useWeightBreakdown(skus);
   const statCards = [
     { label: "Total SKUs", value: skus.length, icon: Package, color: "from-teal-500 to-emerald-600", textColor: "text-white" },
-    ...(sku50g.length > 0 ? [{ label: "50g Products", value: sku50g.length, icon: Box, color: "from-violet-500 to-purple-600", textColor: "text-white" }] : []),
-    { label: "250g Products", value: sku250g.length, icon: Box, color: "from-amber-500 to-orange-600", textColor: "text-white" },
-    { label: "1kg Products", value: sku1kg.length, icon: Box, color: "from-rose-500 to-pink-600", textColor: "text-white" },
+    ...weights.map(w => ({
+      label: `${w} Products`,
+      value: countOf(w),
+      icon: Box,
+      color: paletteFor(w).card,
+      textColor: "text-white",
+    })),
     { label: "Planning Years", value: years.length, icon: BarChart3, color: "from-blue-500 to-indigo-600", textColor: "text-white" },
   ];
 
@@ -471,9 +519,7 @@ function IntlHome() {
                     <tr key={sku.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
                       <td className="py-2.5 px-3 font-medium">{sku.name}</td>
                       <td className="py-2.5 px-3">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
-                          sku.weight === '250g' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'
-                        }`}>{sku.weight}</span>
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${paletteFor(sku.weight).badge}`}>{sku.weight}</span>
                       </td>
                       <td className="py-2.5 px-3">
                         <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${

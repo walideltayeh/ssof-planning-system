@@ -197,6 +197,11 @@ Schema was converted from MySQL to PostgreSQL during Replit import. Uses Drizzle
 - API: `trpc.country.forecastIntelligence` endpoint
 - Files: `server/db.ts` (getForecastIntelligence), `client/src/components/ForecastIntelligenceTab.tsx`, both Analysis pages
 
+### 14. Custom-Weight SKUs & Dynamic Dashboard Cards
+- The country dashboard (`Home.tsx`) now generates one weight stat-card per distinct weight on that country's SKUs, sorted by grams via the same `weightToGrams` parser used elsewhere; KSA's `300g` / `500g` SKUs get their own card automatically. Same logic powers the SKU-table weight badge colors and the per-weight Planning FG quick-links (which use the dynamic `/planning-fg/:weight` route)
+- SKU Management (Lebanon + Intl create dialogs, Intl edit dialog) replaced the fixed Select/Input with a `WeightInput` component: type a plain number (`500`, `1.5`), pick the unit with a g/kg segmented toggle. The component bubbles up the canonical string (`500g`, `1.5kg`) the rest of the app expects. Quick-pick chips below set both number and unit
+- Submit-time validation: weight must match `^[\d.]+(g|kg)$/i`; combined with the server-side trim at the SKU write boundary the canonical form flows cleanly into the strict-equality planning filters
+
 ### 13. Per-Country Dynamic Planning FG Tabs (weight-driven)
 - The Planning FG sidebar entries are now generated per country from the unique weights of that country's **active** SKUs (e.g. KSA gets a "Planning FG 500g" tab if it has a 500g SKU; a country with no 50g SKUs does not show "Planning FG 50g")
 - Server: `db.getActiveWeightsForCountry(country)` returns deduped weights sorted by grams (`weightToGrams` parses "g"/"kg"); exposed as `trpc.country.weights` (protected, gated by `requireCountryAccess`)

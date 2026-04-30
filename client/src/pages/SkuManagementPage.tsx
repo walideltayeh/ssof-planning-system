@@ -32,6 +32,95 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
+// ─── Friendly Weight Input ────────────────────────────────────────────────────
+// Lets the user type a plain number ("500", "1.5") and pick the unit with a
+// segmented g/kg toggle. The value bubbled up via onChange is the canonical
+// weight string the rest of the app expects (e.g. "500g", "1.5kg").
+function WeightInput({
+  value,
+  onChange,
+  autoFocus = false,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  autoFocus?: boolean;
+}) {
+  const trimmed = (value ?? "").trim();
+  const m = trimmed.match(/^([\d.]*)\s*(kg|g)?$/i);
+  const num = m?.[1] ?? "";
+  const unit = (m?.[2]?.toLowerCase() === "kg" ? "kg" : "g") as "g" | "kg";
+
+  const setNum = (n: string) => {
+    // Only digits and a single dot. "" → "" so the field can be cleared.
+    const cleaned = n.replace(/[^\d.]/g, "").replace(/(\..*)\./g, "$1");
+    onChange(cleaned ? `${cleaned}${unit}` : "");
+  };
+  const setUnit = (u: "g" | "kg") => {
+    onChange(num ? `${num}${u}` : `${u === "kg" ? "1" : "50"}${u}`);
+  };
+
+  return (
+    <div className="flex items-stretch h-9 rounded-md border border-input bg-background overflow-hidden focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-1">
+      <input
+        type="text"
+        inputMode="decimal"
+        value={num}
+        autoFocus={autoFocus}
+        onChange={e => setNum(e.target.value)}
+        placeholder={unit === "g" ? "e.g. 500" : "e.g. 1"}
+        className="flex-1 min-w-0 px-3 text-sm bg-transparent outline-none placeholder:text-muted-foreground"
+      />
+      <div className="flex items-stretch border-l border-input">
+        {(["g", "kg"] as const).map(u => (
+          <button
+            key={u}
+            type="button"
+            onClick={() => setUnit(u)}
+            className={`px-3 text-xs font-semibold transition-colors ${
+              unit === u
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-muted"
+            }`}
+          >
+            {u}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Quick-pick chips that set both the number and the unit on the WeightInput.
+function WeightQuickPicks({
+  value,
+  options,
+  onPick,
+}: {
+  value: string;
+  options: string[];
+  onPick: (w: string) => void;
+}) {
+  const current = (value ?? "").trim();
+  return (
+    <div className="flex flex-wrap gap-1 mt-1.5">
+      {options.map(w => (
+        <button
+          key={w}
+          type="button"
+          onClick={() => onPick(w)}
+          className={`px-2 py-0.5 rounded-full text-xs border transition-colors ${
+            current === w
+              ? "bg-primary text-primary-foreground border-primary"
+              : "border-border bg-background hover:bg-muted"
+          }`}
+        >
+          {w}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ─── Sortable Row Component ───────────────────────────────────────────────────
 function SortableSkuRow({
   sku,
@@ -326,8 +415,13 @@ function LebanonSkuManagement() {
       setCreateOpen(false);
       resetCreateForm();
     } else {
+      const w = newWeight.trim();
+      if (!/^[\d.]+(g|kg)$/i.test(w)) {
+        toast.error("Please enter a weight (e.g. 50, 300, or 1 kg)");
+        return;
+      }
       createMutation.mutate(
-        { name: newName.trim(), weight: newWeight, category: newCategory},
+        { name: newName.trim(), weight: w, category: newCategory},
         { onSuccess: () => { setCreateOpen(false); resetCreateForm(); } }
       );
     }
@@ -479,14 +573,13 @@ function LebanonSkuManagement() {
             ) : (
               <div>
                 <label className="text-xs font-medium text-muted-foreground block mb-1.5">Weight *</label>
-                <Select value={newWeight} onValueChange={setNewWeight}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="50g">50g</SelectItem>
-                    <SelectItem value="250g">250g</SelectItem>
-                    <SelectItem value="1kg">1kg</SelectItem>
-                  </SelectContent>
-                </Select>
+                <WeightInput value={newWeight} onChange={setNewWeight} />
+                <WeightQuickPicks
+                  value={newWeight}
+                  options={["50g", "100g", "200g", "250g", "500g", "1kg"]}
+                  onPick={setNewWeight}
+                />
+                <p className="text-[10px] text-muted-foreground mt-1">Just type a number. Switch g / kg with the toggle.</p>
               </div>
             )}
 
@@ -1045,28 +1138,13 @@ function IntlSkuManagement() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1.5">Weight *</label>
-                  <Input
+                  <WeightInput value={newWeight} onChange={setNewWeight} />
+                  <WeightQuickPicks
                     value={newWeight}
-                    onChange={e => setNewWeight(e.target.value)}
-                    placeholder='e.g. "50g", "300g", "1kg"'
+                    options={["50g", "100g", "200g", "250g", "500g", "1kg"]}
+                    onPick={setNewWeight}
                   />
-                  <div className="flex flex-wrap gap-1 mt-1.5">
-                    {["50g", "100g", "200g", "250g", "500g", "1kg"].map(w => (
-                      <button
-                        key={w}
-                        type="button"
-                        onClick={() => setNewWeight(w)}
-                        className={`px-2 py-0.5 rounded-full text-xs border transition-colors ${
-                          newWeight === w
-                            ? "bg-primary text-primary-foreground border-primary"
-                            : "border-border bg-background hover:bg-muted"
-                        }`}
-                      >
-                        {w}
-                      </button>
-                    ))}
-                  </div>
-                  <p className="text-[10px] text-muted-foreground mt-1">Custom sizes welcome — type any value (g or kg).</p>
+                  <p className="text-[10px] text-muted-foreground mt-1">Just type a number. Switch g / kg with the toggle.</p>
                 </div>
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1.5">Category *</label>
@@ -1134,27 +1212,12 @@ function IntlSkuManagement() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1.5">Weight</label>
-                  <Input
+                  <WeightInput value={editWeight} onChange={setEditWeight} />
+                  <WeightQuickPicks
                     value={editWeight}
-                    onChange={e => setEditWeight(e.target.value)}
-                    placeholder='e.g. "50g", "300g", "1kg"'
+                    options={["50g", "100g", "200g", "250g", "500g", "1kg"]}
+                    onPick={setEditWeight}
                   />
-                  <div className="flex flex-wrap gap-1 mt-1.5">
-                    {["50g", "100g", "200g", "250g", "500g", "1kg"].map(w => (
-                      <button
-                        key={w}
-                        type="button"
-                        onClick={() => setEditWeight(w)}
-                        className={`px-2 py-0.5 rounded-full text-xs border transition-colors ${
-                          editWeight === w
-                            ? "bg-primary text-primary-foreground border-primary"
-                            : "border-border bg-background hover:bg-muted"
-                        }`}
-                      >
-                        {w}
-                      </button>
-                    ))}
-                  </div>
                 </div>
                 <div>
                   <label className="text-xs font-medium text-muted-foreground block mb-1.5">Category</label>
