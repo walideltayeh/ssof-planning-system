@@ -197,6 +197,15 @@ Schema was converted from MySQL to PostgreSQL during Replit import. Uses Drizzle
 - API: `trpc.country.forecastIntelligence` endpoint
 - Files: `server/db.ts` (getForecastIntelligence), `client/src/components/ForecastIntelligenceTab.tsx`, both Analysis pages
 
+### 13. Per-Country Dynamic Planning FG Tabs (weight-driven)
+- The Planning FG sidebar entries are now generated per country from the unique weights of that country's **active** SKUs (e.g. KSA gets a "Planning FG 500g" tab if it has a 500g SKU; a country with no 50g SKUs does not show "Planning FG 50g")
+- Server: `db.getActiveWeightsForCountry(country)` returns deduped weights sorted by grams (`weightToGrams` parses "g"/"kg"); exposed as `trpc.country.weights` (protected, gated by `requireCountryAccess`)
+- Routes: generic `/planning-fg/:weight` and `/intl-planning-fg/:weight` accept any weight string (legacy `/planning-fg-50g` etc. routes preserved for backward compat)
+- `DashboardLayout` queries `country.weights` and splices `Planning FG ${w}` items into the menu in the original "Planning FG" position; heartbeat `pageVal` prefers the active menu item's label, then the static map, then a regex-derived `Planning FG ${weight}` fallback
+- `IntlPlanningFgPage` widened `weight?` to `string`; the catch-all `/intl-planning-fg` Size filter now derives buttons from the SKUs returned by `country.planningFg`
+- `SkuManagementPage` invalidates `country.weights` alongside `country.skus` on create/update/delete/toggleActive (Lebanon and Intl) so new tabs appear/disappear immediately
+- `createSkuForCountry`, `createSku`, and `updateSkuDetails` trim `weight` at the write boundary so the canonical form (e.g. "50g") matches the strict-equality filters in `getFullPlanningData`
+
 ### 12. Per-Country Roles
 - A user can be admin in one country and viewer in another (e.g. Lebanon-admin / KSA-viewer)
 - New `countryRoles` JSON column on `app_users` storing per-country overrides; missing entry → falls back to the user's global `role`; owners are always admin

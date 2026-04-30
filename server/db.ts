@@ -133,6 +133,28 @@ export async function getSkusForCountry(country: Country, includeInactive = fals
   return db.select().from(skus).where(conditions).orderBy(asc(skus.sortOrder));
 }
 
+// Returns the unique weights present on ACTIVE SKUs for the given country,
+// sorted ascending in grams ("50g", "250g", "500g", "1kg", …). Powers the
+// Planning FG sidebar tabs so each country only sees weights it actually has
+// SKUs for. Inactive SKUs do not contribute, matching the rest of the
+// planning surfaces which exclude inactive SKUs from calculations.
+export function weightToGrams(w: string): number {
+  const m = (w ?? "").trim().match(/^([\d.]+)\s*(kg|g)$/i);
+  if (!m) return Number.MAX_SAFE_INTEGER;
+  const v = parseFloat(m[1]);
+  return m[2].toLowerCase() === "kg" ? v * 1000 : v;
+}
+
+export async function getActiveWeightsForCountry(country: Country): Promise<string[]> {
+  const list = await getSkusForCountry(country, false);
+  const seen = new Set<string>();
+  for (const s of list) {
+    const w = (s.weight ?? "").trim();
+    if (w) seen.add(w);
+  }
+  return Array.from(seen).sort((a, b) => weightToGrams(a) - weightToGrams(b));
+}
+
 export async function createSkuForCountry(country: Country, data: { name: string; weight: string; category?: "Core" | "NPI"; packagingType?: "Old" | "New"; isExcludedFromTotal?: boolean }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -146,7 +168,10 @@ export async function createSkuForCountry(country: Country, data: { name: string
   const [result] = await db.insert(skus).values({
     country,
     name: data.name,
-    weight: data.weight,
+    // Trim weight at the write boundary so the canonical form (e.g. "50g")
+    // matches everywhere — sidebar dedup, planning data filters that compare
+    // with strict equality (`s.weight === weightFilter`), and URL params.
+    weight: (data.weight ?? "").trim(),
     category: data.category || "Core",
     packagingType: data.packagingType || "New",
     sortOrder: maxOrder + 1,
@@ -294,7 +319,7 @@ export async function updateSkuDetails(skuId: number, data: { name?: string; wei
   if (!db) throw new Error("Database not available");
   const updates: Record<string, unknown> = {};
   if (data.name !== undefined) updates.name = data.name;
-  if (data.weight !== undefined) updates.weight = data.weight;
+  if (data.weight !== undefined) updates.weight = data.weight.trim();
   if (data.category !== undefined) updates.category = data.category;
   if (data.packagingType !== undefined) updates.packagingType = data.packagingType;
   if (Object.keys(updates).length > 0) {
@@ -345,7 +370,9 @@ export async function createSku(data: { name: string; weight: string; category?:
   const maxOrder = allSkus.length > 0 ? Math.max(...allSkus.map(s => s.sortOrder)) : 0;
   const [result] = await db.insert(skus).values({
     name: data.name,
-    weight: data.weight,
+    // Trim weight at the write boundary so the canonical form matches the
+    // strict-equality filters in `getFullPlanningData`.
+    weight: (data.weight ?? "").trim(),
     category: data.category || "Core",
     sortOrder: maxOrder + 1,
     isExcludedFromTotal: data.isExcludedFromTotal || false,

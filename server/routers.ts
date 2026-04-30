@@ -1322,6 +1322,15 @@ export const appRouter = router({
         await requireCountryAccess(ctx, input.country);
         return db.getSkusForCountry(input.country, input.includeInactive ?? false);
       }),
+    // Unique active-SKU weights for the given country, ascending in grams.
+    // Drives the dynamic Planning FG sidebar tabs (e.g. KSA → 250g, 500g
+    // only if those weights actually exist in its SKUs).
+    weights: protectedProcedure
+      .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]) }))
+      .query(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
+        return db.getActiveWeightsForCountry(input.country);
+      }),
     // Create SKU for a country
     createSku: adminProcedure
       .input(z.object({

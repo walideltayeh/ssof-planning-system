@@ -69,7 +69,9 @@ interface Period {
 }
 
 interface IntlPlanningFgPageProps {
-  weight?: "50g" | "250g" | "1kg";
+  // Any weight string the country's active SKUs use ("50g", "250g", "500g",
+  // "1kg", …). The sidebar picks the available weights per country.
+  weight?: string;
 }
 
 /**
@@ -206,7 +208,9 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
 
   // ── Filter state ──────────────────────────────────────────────────────────
   const [searchText, setSearchText] = useState("");
-  const [sizeFilter, setSizeFilter] = useState<"All" | "50g" | "250g" | "1kg">("All");
+  // sizeFilter is open-ended ("All" or any weight string) so countries with
+  // their own weights (e.g. KSA's 500g) work without code changes.
+  const [sizeFilter, setSizeFilter] = useState<string>("All");
   const [packagingFilter, setPackagingFilter] = useState<"All" | "New" | "Old">("All");
 
   const hasActiveFilters = searchText.trim() !== "" || sizeFilter !== "All" || packagingFilter !== "All";
@@ -830,11 +834,25 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
           />
         </div>
 
-        {/* Size filter — only shown when no weight prop */}
+        {/* Size filter — only shown on the catch-all /intl-planning-fg
+            route (no weight prop). Choices come from the actual SKU weights
+            present in the loaded data so countries with their own weights
+            (e.g. KSA's 500g) get a button automatically. */}
         {!weight && (
           <div className="flex items-center gap-1">
             <span className="text-xs text-muted-foreground font-medium mr-1">Size:</span>
-            {(["All", "50g", "250g", "1kg"] as const).map((s) => (
+            {(["All", ...Array.from(new Set((data?.skus ?? []).map(s => (s as any).weight as string)))
+              .filter(Boolean)
+              .sort((a, b) => {
+                const toG = (w: string) => {
+                  const m = w.match(/^([\d.]+)\s*(kg|g)$/i);
+                  if (!m) return Number.MAX_SAFE_INTEGER;
+                  const v = parseFloat(m[1]);
+                  return m[2].toLowerCase() === "kg" ? v * 1000 : v;
+                };
+                return toG(a) - toG(b);
+              })
+            ]).map((s) => (
               <button
                 key={s}
                 onClick={() => setSizeFilter(s)}

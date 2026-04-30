@@ -173,6 +173,8 @@ function LebanonSkuManagement() {
   const createMutation = trpc.skus.create.useMutation({
     onSuccess: () => {
       utils.country.skus.invalidate();
+      // A new SKU may introduce a brand-new weight tab in the sidebar.
+      utils.country.weights.invalidate();
       utils.data.forecast.invalidate();
       utils.data.planningFg.invalidate();
       toast.success("SKU created successfully");
@@ -183,6 +185,8 @@ function LebanonSkuManagement() {
   const deleteMutation = trpc.skus.delete.useMutation({
     onSuccess: () => {
       utils.country.skus.invalidate();
+      // Removing the last SKU of a weight should drop the sidebar tab.
+      utils.country.weights.invalidate();
       utils.data.forecast.invalidate();
       utils.data.planningFg.invalidate();
       toast.success("SKU deleted");
@@ -225,6 +229,8 @@ function LebanonSkuManagement() {
     },
     onSettled: () => {
       utils.country.skus.invalidate();
+      // Toggling active changes the active-weights set the sidebar uses.
+      utils.country.weights.invalidate();
       utils.data.forecast.invalidate();
       utils.data.planningFg.invalidate();
       utils.data.shipment.invalidate();
@@ -662,6 +668,8 @@ function IntlSkuManagement() {
   const createMutation = trpc.country.createSku.useMutation({
     onSuccess: () => {
       utils.country.skus.invalidate();
+      // A new SKU may introduce a brand-new weight tab in the sidebar.
+      utils.country.weights.invalidate();
       setLocalSkus(null);
       toast.success("SKU created and added to all planning tables.");
       setCreateOpen(false);
@@ -673,6 +681,8 @@ function IntlSkuManagement() {
   const updateMutation = trpc.country.updateSku.useMutation({
     onSuccess: () => {
       utils.country.skus.invalidate();
+      // Editing a SKU can change its weight, which can add or remove a tab.
+      utils.country.weights.invalidate();
       setLocalSkus(null);
       toast.success("SKU updated.");
       setEditTarget(null);
@@ -683,6 +693,8 @@ function IntlSkuManagement() {
   const deleteMutation = trpc.country.deleteSku.useMutation({
     onSuccess: () => {
       utils.country.skus.invalidate();
+      // Removing the last SKU of a weight should drop the sidebar tab.
+      utils.country.weights.invalidate();
       setLocalSkus(null);
       toast.success("SKU and all associated planning data deleted.");
       setDeleteTarget(null);
@@ -705,7 +717,11 @@ function IntlSkuManagement() {
       setLocalSkus(null);
       toast.error("Failed to update SKU status");
     },
-    onSettled: () => { utils.country.skus.invalidate(); },
+    onSettled: () => {
+      utils.country.skus.invalidate();
+      // Toggling active changes the active-weights set the sidebar uses.
+      utils.country.weights.invalidate();
+    },
   });
 
   const reorderMutation = trpc.country.reorderSkus.useMutation({

@@ -46,6 +46,10 @@ function Dashboard() {
         <Route path="/planning-fg-50g">{() => <PlanningFgPage weight="50g" />}</Route>
         <Route path="/planning-fg-250g">{() => <PlanningFgPage weight="250g" />}</Route>
         <Route path="/planning-fg-1kg">{() => <PlanningFgPage weight="1kg" />}</Route>
+        {/* Generic Planning FG route — accepts any weight string ("50g",
+            "250g", "500g", "1kg", …). The sidebar generates these links per
+            country based on the weights actually present in its SKUs. */}
+        <Route path="/planning-fg/:weight">{(params) => <PlanningFgPage weight={decodeURIComponent(params.weight)} />}</Route>
         <Route path="/upload" component={DataVersionsPage} />
         <Route path="/sku-management" component={SkuManagementPage} />
         <Route path="/add-year" component={AddYearPage} />
@@ -58,6 +62,8 @@ function Dashboard() {
         <Route path="/intl-planning-fg-50g">{() => <IntlPlanningFgPage weight="50g" />}</Route>
         <Route path="/intl-planning-fg-250g">{() => <IntlPlanningFgPage weight="250g" />}</Route>
         <Route path="/intl-planning-fg-1kg">{() => <IntlPlanningFgPage weight="1kg" />}</Route>
+        {/* Generic Intl Planning FG route — see /planning-fg/:weight above. */}
+        <Route path="/intl-planning-fg/:weight">{(params) => <IntlPlanningFgPage weight={decodeURIComponent(params.weight)} />}</Route>
         <Route path="/intl-planning-fg">{() => <IntlPlanningFgPage />}</Route>
         <Route path="/intl-ims" component={IntlImsPage} />
         <Route path="/intl-analysis" component={IntlAnalysisPage} />

@@ -60,47 +60,63 @@ function normalizeRoutePath(loc: string): string {
   return noHash;
 }
 
-// Lebanon menu items (original)
-const LEBANON_MENU: Array<{ label: string; path: string; adminOnly: boolean; walidOnly?: boolean }> = [
-  { label: "Dashboard", path: "/", adminOnly: false },
-  { label: "Forecast", path: "/forecast", adminOnly: false },
-  { label: "IMS vs Forecast", path: "/ims-vs-forecast", adminOnly: false },
-  { label: "Shipment (Production)", path: "/shipment", adminOnly: false },
-  { label: "Arrival to Regie", path: "/arrival", adminOnly: false },
-  { label: "Planning FG 50g", path: "/planning-fg-50g", adminOnly: false },
-  { label: "Planning FG 250g", path: "/planning-fg-250g", adminOnly: false },
-  { label: "Planning FG 1kg", path: "/planning-fg-1kg", adminOnly: false },
-  { label: "Analysis", path: "/analysis", adminOnly: false },
-  { label: "Competitor Analysis", path: "/competitor-analysis", adminOnly: false },
-  { label: "Recommended Forecast Split", path: "/forecast-split", adminOnly: false },
-  { label: "Data & Versions", path: "/data-versions", adminOnly: true },
-  { label: "SKU Management", path: "/sku-management", adminOnly: true },
-  { label: "Add Year", path: "/add-year", adminOnly: true },
-  { label: "User Management", path: "/user-management", adminOnly: true, walidOnly: true },
-  { label: "Audit Trail", path: "/audit-trail", adminOnly: true, walidOnly: true },
-];
+type MenuItem = { label: string; path: string; adminOnly: boolean; walidOnly?: boolean };
 
-// Syria / Libya menu items
-const INTL_MENU: Array<{ label: string; path: string; adminOnly: boolean; walidOnly?: boolean }> = [
-  { label: "Dashboard", path: "/", adminOnly: false },
-  { label: "Forecast Production", path: "/forecast", adminOnly: false },
-  { label: "Forecast Production vs Actual", path: "/forecast-vs-forecast", adminOnly: false },
-  { label: "Production", path: "/shipment", adminOnly: false },
-  { label: "Arrival", path: "/arrival", adminOnly: false },
-  { label: "IMS", path: "/intl-ims", adminOnly: false },
-  { label: "Planning FG 50g", path: "/intl-planning-fg-50g", adminOnly: false },
-  { label: "Planning FG 250g", path: "/intl-planning-fg-250g", adminOnly: false },
-  { label: "Planning FG 1kg", path: "/intl-planning-fg-1kg", adminOnly: false },
-  { label: "Analysis", path: "/intl-analysis", adminOnly: false },
-  { label: "Competitor Analysis", path: "/competitor-analysis", adminOnly: false },
-  { label: "Recommended Forecast Split", path: "/forecast-split", adminOnly: false },
-  { label: "Product Expiry Dashboard", path: "/expiry-dashboard", adminOnly: false },
-  { label: "Data & Versions", path: "/data-versions", adminOnly: true },
-  { label: "SKU Management", path: "/sku-management", adminOnly: true },
-  { label: "Add Year", path: "/add-year", adminOnly: true },
-  { label: "User Management", path: "/user-management", adminOnly: true, walidOnly: true },
-  { label: "Audit Trail", path: "/audit-trail", adminOnly: true, walidOnly: true },
-];
+// Build the per-country Planning FG menu items from the active SKU weights
+// for that country. Each weight gets its own tab (legacy URLs like
+// /planning-fg-50g / /intl-planning-fg-50g still resolve, but new tabs use
+// the generic /planning-fg/:weight and /intl-planning-fg/:weight routes so
+// arbitrary weights — e.g. KSA's 500g — work without any code change).
+function buildPlanningFgItems(weights: string[], intl: boolean): MenuItem[] {
+  const prefix = intl ? "/intl-planning-fg/" : "/planning-fg/";
+  return weights.map(w => ({
+    label: `Planning FG ${w}`,
+    path: `${prefix}${encodeURIComponent(w)}`,
+    adminOnly: false,
+  }));
+}
+
+// Lebanon menu items (original)
+function buildLebanonMenu(weights: string[]): MenuItem[] {
+  return [
+    { label: "Dashboard", path: "/", adminOnly: false },
+    { label: "Forecast", path: "/forecast", adminOnly: false },
+    { label: "IMS vs Forecast", path: "/ims-vs-forecast", adminOnly: false },
+    { label: "Shipment (Production)", path: "/shipment", adminOnly: false },
+    { label: "Arrival to Regie", path: "/arrival", adminOnly: false },
+    ...buildPlanningFgItems(weights, false),
+    { label: "Analysis", path: "/analysis", adminOnly: false },
+    { label: "Competitor Analysis", path: "/competitor-analysis", adminOnly: false },
+    { label: "Recommended Forecast Split", path: "/forecast-split", adminOnly: false },
+    { label: "Data & Versions", path: "/data-versions", adminOnly: true },
+    { label: "SKU Management", path: "/sku-management", adminOnly: true },
+    { label: "Add Year", path: "/add-year", adminOnly: true },
+    { label: "User Management", path: "/user-management", adminOnly: true, walidOnly: true },
+    { label: "Audit Trail", path: "/audit-trail", adminOnly: true, walidOnly: true },
+  ];
+}
+
+// Syria / Libya / KSA menu items
+function buildIntlMenu(weights: string[]): MenuItem[] {
+  return [
+    { label: "Dashboard", path: "/", adminOnly: false },
+    { label: "Forecast Production", path: "/forecast", adminOnly: false },
+    { label: "Forecast Production vs Actual", path: "/forecast-vs-forecast", adminOnly: false },
+    { label: "Production", path: "/shipment", adminOnly: false },
+    { label: "Arrival", path: "/arrival", adminOnly: false },
+    { label: "IMS", path: "/intl-ims", adminOnly: false },
+    ...buildPlanningFgItems(weights, true),
+    { label: "Analysis", path: "/intl-analysis", adminOnly: false },
+    { label: "Competitor Analysis", path: "/competitor-analysis", adminOnly: false },
+    { label: "Recommended Forecast Split", path: "/forecast-split", adminOnly: false },
+    { label: "Product Expiry Dashboard", path: "/expiry-dashboard", adminOnly: false },
+    { label: "Data & Versions", path: "/data-versions", adminOnly: true },
+    { label: "SKU Management", path: "/sku-management", adminOnly: true },
+    { label: "Add Year", path: "/add-year", adminOnly: true },
+    { label: "User Management", path: "/user-management", adminOnly: true, walidOnly: true },
+    { label: "Audit Trail", path: "/audit-trail", adminOnly: true, walidOnly: true },
+  ];
+}
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
 const DEFAULT_WIDTH = 260;
@@ -152,8 +168,17 @@ export default function DashboardLayout({
     );
   }
 
-  // Choose menu based on country
-  const baseMenuItems = country === "Lebanon" ? LEBANON_MENU : INTL_MENU;
+  // Build the per-country Planning FG tabs from the weights actually present
+  // on that country's active SKUs. While the weights are loading we render the
+  // menu without any Planning FG entries (avoids flashing the wrong set if
+  // the previously cached country had different weights).
+  const weightsQuery = trpc.country.weights.useQuery(
+    { country: country as "Lebanon" | "Syria" | "Libya" | "KSA" },
+    { enabled: !!country, staleTime: 30_000 },
+  );
+  const weights = weightsQuery.data ?? [];
+
+  const baseMenuItems = country === "Lebanon" ? buildLebanonMenu(weights) : buildIntlMenu(weights);
   const menuItems = baseMenuItems.filter(item => {
     if (item.walidOnly && appUser?.username.toLowerCase() !== 'walid') return false;
     if (item.adminOnly && !isAdmin) return false;
@@ -286,6 +311,11 @@ function DashboardLayoutContent({
     "/intl-planning-fg-50g": "Planning FG 50g",
     "/intl-planning-fg-250g": "Planning FG 250g",
     "/intl-planning-fg-1kg": "Planning FG 1kg",
+    // The dynamic /planning-fg/:weight and /intl-planning-fg/:weight routes
+    // are not enumerated here — see the heartbeat below, which prefers the
+    // active menu item's label and falls back to a path-derived label so any
+    // weight (e.g. "500g") is presented as "Planning FG 500g" without code
+    // changes.
     "/analysis": "Analysis",
     "/intl-analysis": "Analysis",
     "/data-versions": "Data & Versions",
@@ -300,7 +330,15 @@ function DashboardLayoutContent({
     const currentUser = appUser || (user ? { username: user.openId, displayName: user.name || user.openId } : null);
     if (!currentUser) return;
     const countryVal = country || "Unknown";
-    const pageVal = PAGE_LABELS[location] || location;
+    // Prefer the active menu item's label (handles dynamic Planning FG tabs
+    // like "Planning FG 500g"), then the static lookup, then a path-derived
+    // fallback for the generic /planning-fg/:weight routes, and finally the
+    // raw location.
+    const dynPlanningMatch = location.match(/^\/(intl-)?planning-fg\/(.+)$/);
+    const dynPlanningLabel = dynPlanningMatch
+      ? `Planning FG ${decodeURIComponent(dynPlanningMatch[2])}`
+      : null;
+    const pageVal = activeMenuItem?.label || PAGE_LABELS[location] || dynPlanningLabel || location;
 
     // Identity (username/displayName) is derived server-side from `ctx.user`,
     // so we only send navigation context here. See `presence.heartbeat` in
