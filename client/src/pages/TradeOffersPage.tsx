@@ -172,7 +172,7 @@ function buildRideAlong(slow: SkuIntel, anchor: SkuIntel, k: Knobs): Deck {
   const swapText = swapWordy(k.swapClause, slow.name, coop);
   const headline = `For every ${ratio} cases of ${anchor.name} you order, we add 1 case of ${slow.name} at the same per-case price.`;
 
-  const phone = `Hi — quick one. You're already moving ${fmt(anchor.avg3m)} units of ${anchor.name} a month. Easiest deal I have this quarter: order ${ratio} cases of ${anchor.name} like you usually do, and I add 1 case of ${slow.name} on the same invoice at the SAME ${fmt(k.pricePerMc, 0)} per case. Total comes to $${fmt(totalInvoice)}. ${swapText} Same per-case price you've been paying — just a different mix. Want me to write it up?`;
+  const phone = `Hi — quick one. You're already moving ${fmt(anchor.avg3m)} cases of ${anchor.name} a month. Easiest deal I have this quarter: order ${ratio} cases of ${anchor.name} like you usually do, and I add 1 case of ${slow.name} on the same invoice at the SAME ${fmt(k.pricePerMc, 0)} per case. Total comes to $${fmt(totalInvoice)}. ${swapText} Same per-case price you've been paying — just a different mix. Want me to write it up?`;
   const sms = clampSms(`Order ${ratio}× ${anchor.name}, get +1 ${slow.name} at same per-case price. ${k.swapClause === "coop" ? `$${fmt(coop, 0)} co-op fund` : `${k.swapClause}d swap`}. Reply YES to lock.`);
   const whatsapp = `Hey 👋\n\nQuick offer for ${anchor.name}: order ${ratio} cases (your usual), and we add 1 case of ${slow.name} at the same per-case price.\n\nTotal: $${fmt(totalInvoice)}.\n${swapText}\n\nWant me to add it to your next order?`;
 
@@ -688,7 +688,7 @@ export default function TradeOffersPage() {
             <div>
               <div className="uppercase tracking-wider text-[10px] text-muted-foreground">Bestseller (the engine)</div>
               <div className="font-semibold mt-1">{anchor.name} <span className="text-muted-foreground">({anchor.weight})</span></div>
-              <div className="text-muted-foreground">{fmt(anchor.avg3m)} units / month</div>
+              <div className="text-muted-foreground">{fmt(anchor.avg3m)} cases / month (last 3M avg)</div>
             </div>
             <div>
               <div className="uppercase tracking-wider text-[10px] text-muted-foreground">Slow flavors detected</div>
