@@ -197,6 +197,21 @@ Schema was converted from MySQL to PostgreSQL during Replit import. Uses Drizzle
 - API: `trpc.country.forecastIntelligence` endpoint
 - Files: `server/db.ts` (getForecastIntelligence), `client/src/components/ForecastIntelligenceTab.tsx`, both Analysis pages
 
+### 15. Recommended AI Trade Offers — Hormozi $100M Offer engine (all countries)
+- New page at `/trade-offers` (file `client/src/pages/TradeOffersPage.tsx`), linked from both Lebanon and Intl sidebars between "Recommended Forecast Split" and the admin section.
+- Pure client-side computation on top of the existing `trpc.country.forecastIntelligence` query — no new server endpoint, no DB writes. The page is a proposal generator only.
+- Per-overstock SKU: identifies the country's top-rate SKU as the anchor, then renders a 6-layer Hormozi value stack (anchor bundle, free goods, co-op fund, exclusivity, risk reversal via swap-back, pricing guard), the bundle math grid (anchor pull ratio, slow-as-% of anchor, retailers needed, total invoice), a Devil's Advocate vs Steelman side-by-side, dual reliability scores (us vs retailer), and a copy-to-clipboard sales-rep script.
+- All knobs are user-controlled (per project decision: expose every option, no hard-coding):
+  - Pricing guard: STRICT / SOFT 5% / FLEX 10%
+  - Overstock trigger: > 6 / 9 / 12 / 18 months of cover
+  - Swap-back: 60 / 90 / 120 days OR co-op marketing fund instead
+  - Retailer tier: A / B / C (changes commitment block size — A=5 blocks, B=2, C=1)
+  - Free-goods cap: 1–25% slider (drives anchor pull ratio = clamp(⌈100/cap⌉, 5, 15))
+  - Per-MC selling price (default $127) and units per MC (default 60) — input fields
+- No COGS data exists, so all margin/value math uses the WS list price as the single reference. Co-op fund is fixed at 6% of the slow MC list price.
+- Severity tiers: ≥100 mo = DEAD STOCK, ≥24 = CRITICAL, ≥12 = HEAVY OVER, else OVERSTOCK.
+- No approval workflow — output is recommendations only; sales reps copy the script, planning lead reviews the reliability scores before sending.
+
 ### 14. Custom-Weight SKUs & Dynamic Dashboard Cards
 - The country dashboard (`Home.tsx`) now generates one weight stat-card per distinct weight on that country's SKUs, sorted by grams via the same `weightToGrams` parser used elsewhere; KSA's `300g` / `500g` SKUs get their own card automatically. Same logic powers the SKU-table weight badge colors and the per-weight Planning FG quick-links (which use the dynamic `/planning-fg/:weight` route)
 - SKU Management (Lebanon + Intl create dialogs, Intl edit dialog) replaced the fixed Select/Input with a `WeightInput` component: type a plain number (`500`, `1.5`), pick the unit with a g/kg segmented toggle. The component bubbles up the canonical string (`500g`, `1.5kg`) the rest of the app expects. Quick-pick chips below set both number and unit

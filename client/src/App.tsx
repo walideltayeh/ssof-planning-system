@@ -27,6 +27,7 @@ import IntlAnalysisPage from "@/pages/IntlAnalysisPage";
 import ForecastSplitPage from "@/pages/ForecastSplitPage";
 import ExpiryDashboardPage from "@/pages/ExpiryDashboardPage";
 import CompetitorAnalysisPage from "@/pages/CompetitorAnalysisPage";
+import TradeOffersPage from "@/pages/TradeOffersPage";
 import AutoSaveReminder from "./components/AutoSaveReminder";
 import LandingPage from "./pages/LandingPage";
 import CountrySelectorPage from "./pages/CountrySelectorPage";
@@ -70,6 +71,7 @@ function Dashboard() {
         <Route path="/forecast-split" component={ForecastSplitPage} />
         <Route path="/expiry-dashboard" component={ExpiryDashboardPage} />
         <Route path="/competitor-analysis" component={CompetitorAnalysisPage} />
+        <Route path="/trade-offers" component={TradeOffersPage} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
       </Switch>
