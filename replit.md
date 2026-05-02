@@ -197,20 +197,24 @@ Schema was converted from MySQL to PostgreSQL during Replit import. Uses Drizzle
 - API: `trpc.country.forecastIntelligence` endpoint
 - Files: `server/db.ts` (getForecastIntelligence), `client/src/components/ForecastIntelligenceTab.tsx`, both Analysis pages
 
-### 15. Recommended AI Trade Offers — Hormozi $100M Offer engine (all countries)
-- New page at `/trade-offers` (file `client/src/pages/TradeOffersPage.tsx`), linked from both Lebanon and Intl sidebars between "Recommended Forecast Split" and the admin section.
-- Pure client-side computation on top of the existing `trpc.country.forecastIntelligence` query — no new server endpoint, no DB writes. The page is a proposal generator only.
-- Per-overstock SKU: identifies the country's top-rate SKU as the anchor, then renders a 6-layer Hormozi value stack (anchor bundle, free goods, co-op fund, exclusivity, risk reversal via swap-back, pricing guard), the bundle math grid (anchor pull ratio, slow-as-% of anchor, retailers needed, total invoice), a Devil's Advocate vs Steelman side-by-side, dual reliability scores (us vs retailer), and a copy-to-clipboard sales-rep script.
-- All knobs are user-controlled (per project decision: expose every option, no hard-coding):
-  - Pricing guard: STRICT / SOFT 5% / FLEX 10%
-  - Overstock trigger: > 6 / 9 / 12 / 18 months of cover
-  - Swap-back: 60 / 90 / 120 days OR co-op marketing fund instead
-  - Retailer tier: A / B / C (changes commitment block size — A=5 blocks, B=2, C=1)
-  - Free-goods cap: 1–25% slider (drives anchor pull ratio = clamp(⌈100/cap⌉, 5, 15))
-  - Per-MC selling price (default $127) and units per MC (default 60) — input fields
+### 15. Recommended AI Trade Offers — 5 ready-to-send offer decks (all countries)
+- Page at `/trade-offers` (file `client/src/pages/TradeOffersPage.tsx`), linked from both Lebanon and Intl sidebars between "Recommended Forecast Split" and the admin section.
+- Pure client-side proposal generator on top of the existing `trpc.country.forecastIntelligence` query — no new server endpoint, no DB writes.
+- **Output format (post-rework May 2026):** instead of N configurable per-SKU cards, the page renders **up to 5 finished, named offer decks** ranked from simplest to biggest commitment. Every deck piggybacks the slow flavor onto the country's bestseller (the highest-`avg3m` SKU that is itself not in the slow list) so the retailer's existing demand drags the slow stock through.
+- The 5 deck templates:
+  1. **🏍️ The Ride-Along** — simplest piggyback. `N` cases of bestseller + 1 case slow at the same per-case price (`N` = clamp(⌈100/mixPct⌉, 5, 15)). Default play.
+  2. **🎁 The Variety Builder** — `M` cases bestseller + 1 case each of the top 2 slow flavors + a $50/case Instagram launch fund. Only renders when ≥2 slow SKUs exist.
+  3. **🔁 The Subscription Lock** — 4-week recurring program: each week ships `⌈N/2⌉` bestseller + 1 free slow case. Smooths cash flow, locks the shelf for a month.
+  4. **☕ The Café Starter Pack** — 3 cases bestseller + 1 case slow + a free Friday-night hookah-master demo (worth $150). Targets small accounts; uses the least-bad slow SKU when ≥3 exist.
+  5. **👑 The Territory Exclusive** — 20 cases bestseller + 5 cases slow + 90-day exclusive territory rights for the slow flavor + quarterly business review. For master distributors.
+- Each deck card surfaces: pitch headline (auto-substituted SKU names), bundle table (no jargon, plain rows), "Why retailer says yes" (3 bullets) vs "What to watch" (1–2 bullets), Risk-for-us / Appeal-to-retailer pills (Low/Medium/High via `riskScore`/`appealScore` heuristics), severity badge for the slow SKU, and a collapsible "Ready-to-send messages" section with **three** copy-to-clipboard scripts: phone pitch (60–90 sec), SMS (160 chars), WhatsApp (friendly multi-line).
+- **Plain-English glossary panel** at the top of the page (collapsed by default) defines: bestseller, slow flavor, mix ratio, mix portion, swap promise, co-op fund, months of stock. All UI copy uses these terms — never "anchor pull", "slow/anchor %", "tier blocks", etc.
+- Visible knobs reduced to 3 (plain language): "Show flavors with more than X months of stock" (6/9/12/18, default 9), "Swap promise" (60/90/120 days OR co-op fund), "Retailer size" (Small/Medium/Large segmented buttons with `aria-pressed`).
+- Hidden under "Advanced settings" expander: mix-portion slider 1–25% (was free-goods cap), Pricing guard STRICT/SOFT/FLEX, $/case (default $127), units/case (default 60).
+- Per-card anchor selection guarantees no self-bundles; threshold filter uses strict `>` to match UI labels; clipboard copies are async with try/catch + sonner error toast on failure.
 - No COGS data exists, so all margin/value math uses the WS list price as the single reference. Co-op fund is fixed at 6% of the slow MC list price.
 - Severity tiers: ≥100 mo = DEAD STOCK, ≥24 = CRITICAL, ≥12 = HEAVY OVER, else OVERSTOCK.
-- No approval workflow — output is recommendations only; sales reps copy the script, planning lead reviews the reliability scores before sending.
+- No approval workflow — output is proposals only; sales reps copy the script that fits the channel they're using; planning lead reviews the Risk/Appeal pills before sending.
 
 ### 14. Custom-Weight SKUs & Dynamic Dashboard Cards
 - The country dashboard (`Home.tsx`) now generates one weight stat-card per distinct weight on that country's SKUs, sorted by grams via the same `weightToGrams` parser used elsewhere; KSA's `300g` / `500g` SKUs get their own card automatically. Same logic powers the SKU-table weight badge colors and the per-weight Planning FG quick-links (which use the dynamic `/planning-fg/:weight` route)
