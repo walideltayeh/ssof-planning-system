@@ -56,8 +56,17 @@ type Knobs = {
   size: RetailerSize;
   mixPct: number;        // % of slow value attached per $100 bestseller (was "free-goods cap")
   pricePerMc: number;
-  unitsPerMc: number;
   pricingGuard: PricingGuard;
+};
+
+type Channel = "all" | "horeca" | "modern" | "traditional" | "wholesale";
+
+const CHANNEL_LABEL: Record<Channel, string> = {
+  all:         "All channels",
+  horeca:      "HoReCa (cafés & lounges)",
+  modern:      "Modern trade (supermarkets, chains)",
+  traditional: "Traditional trade (shops, kiosks)",
+  wholesale:   "Wholesale (master distributors)",
 };
 
 const SEVERITY = (months: number): { label: string; tone: string } => {
@@ -153,6 +162,10 @@ type Deck = {
   ourRisk: Risk;
   retailerAppeal: Risk;
   scripts: { phone: string; sms: string; whatsapp: string };
+  // The slow SKU whose months-of-stock should drive this deck's severity badge.
+  // Each builder is responsible for picking it (Variety = first; Cafe = the
+  // moderate pick; Ride-Along/Sub/Territory = the single slow they were given).
+  primarySlowId: number;
 };
 
 function calcMixRatio(k: Knobs): number {
@@ -170,30 +183,31 @@ function buildRideAlong(slow: SkuIntel, anchor: SkuIntel, k: Knobs): Deck {
   const appeal = rateAppeal(appealScore(k, ratio <= 8 ? 5 : 0));
 
   const swapText = swapWordy(k.swapClause, slow.name, coop);
-  const headline = `For every ${ratio} cases of ${anchor.name} you order, we add 1 case of ${slow.name} at the same per-case price.`;
+  const headline = `For every ${ratio} mastercases of ${anchor.name} you order, we add 1 mastercase of ${slow.name} at the same per-MC price.`;
 
-  const phone = `Hi — quick one. You're already moving ${fmt(anchor.avg3m)} cases of ${anchor.name} a month. Easiest deal I have this quarter: order ${ratio} cases of ${anchor.name} like you usually do, and I add 1 case of ${slow.name} on the same invoice at the SAME ${fmt(k.pricePerMc, 0)} per case. Total comes to $${fmt(totalInvoice)}. ${swapText} Same per-case price you've been paying — just a different mix. Want me to write it up?`;
-  const sms = clampSms(`Order ${ratio}× ${anchor.name}, get +1 ${slow.name} at same per-case price. ${k.swapClause === "coop" ? `$${fmt(coop, 0)} co-op fund` : `${k.swapClause}d swap`}. Reply YES to lock.`);
-  const whatsapp = `Hey 👋\n\nQuick offer for ${anchor.name}: order ${ratio} cases (your usual), and we add 1 case of ${slow.name} at the same per-case price.\n\nTotal: $${fmt(totalInvoice)}.\n${swapText}\n\nWant me to add it to your next order?`;
+  const phone = `Hi — quick one. You're already moving ${fmt(anchor.avg3m)} mastercases of ${anchor.name} a month. Easiest deal I have this quarter: order ${ratio} MC of ${anchor.name} like you usually do, and I add 1 MC of ${slow.name} on the same invoice at the SAME $${fmt(k.pricePerMc, 0)} per MC. Total comes to $${fmt(totalInvoice)}. ${swapText} Same per-MC price you've been paying — just a different mix. Want me to write it up?`;
+  const sms = clampSms(`Order ${ratio} MC ${anchor.name} + 1 MC ${slow.name} at same $/MC. ${k.swapClause === "coop" ? `$${fmt(coop, 0)} co-op` : `${k.swapClause}d swap`}. YES to lock.`);
+  const whatsapp = `Hey 👋\n\nQuick offer for ${anchor.name}: order ${ratio} mastercases (your usual), and we add 1 MC of ${slow.name} at the same per-MC price.\n\nTotal: $${fmt(totalInvoice)}.\n${swapText}\n\nWant me to add it to your next order?`;
 
   return {
     templateId: "rideAlong",
     templateName: "The Ride-Along",
     templateTag: "Simplest piggyback",
     templateIcon: Bike,
+    primarySlowId: slow.id,
     forLine: `for ${slow.name} (${slow.weight})`,
     headline,
     bundle: [
-      { label: `Cases of bestseller (${anchor.name})`, value: String(anchorMc) },
-      { label: `Cases of slow flavor (${slow.name})`,  value: String(slowMc) },
-      { label: "Per-case price (unchanged)",            value: `$${fmt(k.pricePerMc)}` },
+      { label: `Mastercases of bestseller (${anchor.name})`, value: `${anchorMc} MC` },
+      { label: `Mastercases of slow flavor (${slow.name})`, value: `${slowMc} MC` },
+      { label: "Per-mastercase price (unchanged)",      value: `$${fmt(k.pricePerMc)} / MC` },
       { label: "Total invoice",                          value: `$${fmt(totalInvoice)}` },
       { label: "Swap promise",                           value: k.swapClause === "coop" ? `$${fmt(coop, 0)} co-op fund` : `${k.swapClause} days, 1-for-1` },
       { label: "Pricing approach",                       value: pricingGuardLabel(k.pricingGuard) },
     ],
     whyYes: [
-      "Same per-case price on every line — nothing on the invoice looks like a discount.",
-      `${anchor.name} is your fastest-mover; the slow case rides along with no extra effort.`,
+      "Same per-MC price on every line — nothing on the invoice looks like a discount.",
+      `${anchor.name} is your fastest-mover; the slow mastercase rides along with no extra effort.`,
       k.swapClause === "coop"
         ? "Co-op fund pays for an Instagram boost — pulls customers into the new flavor."
         : `Risk-free: ${k.swapClause}-day swap means no dead stock if it doesn't move.`,
@@ -220,23 +234,24 @@ function buildVarietyBuilder(slows: SkuIntel[], anchor: SkuIntel, k: Knobs): Dec
   const slowNames = slowList.map(s => s.name).join(" and ");
   const swapText = swapWordy(k.swapClause, slowNames, coopBoost);
 
-  const headline = `Bundle ${anchorMc} cases of ${anchor.name} + 1 case each of ${slowNames}. Same per-case price across all flavors. We add a $${coopBoost} Instagram launch fund.`;
+  const headline = `Bundle ${anchorMc} mastercases of ${anchor.name} + 1 MC each of ${slowNames}. Same per-MC price across all flavors. We add a $${coopBoost} Instagram launch fund.`;
 
-  const phone = `Bigger play this quarter: I want to make you the only retailer in your zone carrying ${slowNames}. Bundle is ${anchorMc} cases of ${anchor.name} + 1 case of each new flavor. Same per-case price all the way through — total $${fmt(totalInvoice)}. We add $${coopBoost} for a one-week Instagram launch and I drop off the artwork. ${swapText} Three flavors, one invoice, one launch — your customers see a fresh menu without you changing prices.`;
-  const sms = clampSms(`Launch: ${anchorMc}× ${anchor.name} + 1 ea ${slowNames}. $${fmt(totalInvoice)} + $${coopBoost} IG fund. Exclusive in zone. YES?`);
-  const whatsapp = `Quarterly launch idea 🎁\n\n${anchorMc} cases ${anchor.name} + 1 case each of ${slowNames} — same per-case price.\n\nTotal: $${fmt(totalInvoice)} + we fund $${coopBoost} Instagram boost.\n\n${swapText}\n\nGives you 2 limited flavors no other shop in your zone gets. Worth a try?`;
+  const phone = `Bigger play this quarter: I want to make you the only retailer in your zone carrying ${slowNames}. Bundle is ${anchorMc} MC of ${anchor.name} + 1 MC of each new flavor. Same per-MC price all the way through — total $${fmt(totalInvoice)}. We add $${coopBoost} for a one-week Instagram launch and I drop off the artwork. ${swapText} Three flavors, one invoice, one launch — your customers see a fresh menu without you changing prices.`;
+  const sms = clampSms(`Launch: ${anchorMc} MC ${anchor.name} + 1 MC ea ${slowNames}. $${fmt(totalInvoice)} + $${coopBoost} IG fund. Zone exclusive. YES?`);
+  const whatsapp = `Quarterly launch idea 🎁\n\n${anchorMc} MC ${anchor.name} + 1 MC each of ${slowNames} — same per-MC price.\n\nTotal: $${fmt(totalInvoice)} + we fund $${coopBoost} Instagram boost.\n\n${swapText}\n\nGives you 2 limited flavors no other shop in your zone gets. Worth a try?`;
 
   return {
     templateId: "variety",
     templateName: "The Variety Builder",
     templateTag: "Multi-flavor launch",
     templateIcon: Gift,
+    primarySlowId: slowList[0].id,
     forLine: `for ${slowNames}`,
     headline,
     bundle: [
-      { label: `Cases of bestseller (${anchor.name})`, value: String(anchorMc) },
-      { label: "Cases of slow flavors (1 each)",       value: `${slowMc} (${slowNames})` },
-      { label: "Per-case price (unchanged)",            value: `$${fmt(k.pricePerMc)}` },
+      { label: `Mastercases of bestseller (${anchor.name})`, value: `${anchorMc} MC` },
+      { label: "Mastercases of slow flavors (1 each)", value: `${slowMc} MC (${slowNames})` },
+      { label: "Per-mastercase price (unchanged)",      value: `$${fmt(k.pricePerMc)} / MC` },
       { label: "Total invoice",                          value: `$${fmt(totalInvoice)}` },
       { label: "Marketing fund we add",                  value: `$${fmt(coopBoost)} (Instagram launch)` },
       { label: "Swap promise",                           value: k.swapClause === "coop" ? `Bundled into the $${fmt(coopBoost, 0)} fund` : `${k.swapClause} days, 1-for-1` },
@@ -244,7 +259,7 @@ function buildVarietyBuilder(slows: SkuIntel[], anchor: SkuIntel, k: Knobs): Dec
     ],
     whyYes: [
       `Two limited flavors no other retailer in your zone gets — your shelf looks fresher than the competition's.`,
-      `Same per-case price on all 3 flavors — no awkward discount conversation with your accountant.`,
+      `Same per-MC price on all 3 flavors — no awkward discount conversation with your accountant.`,
       `$${coopBoost} Instagram fund covers a full week of paid posts — pulls customers in instead of pushing product onto them.`,
     ],
     catches: [
@@ -263,8 +278,8 @@ function buildSubscriptionLock(slow: SkuIntel, anchor: SkuIntel, k: Knobs): Deck
   const weeklySlow = 1;
   const totalAnchor = weeklyAnchor * weeks;
   const totalSlow = weeklySlow * weeks;
-  // Subscription's promise is "1 FREE case slow per week" — only the bestseller
-  // cases hit the invoice. The slow cases are the program's loyalty incentive.
+  // Subscription's promise is "1 FREE slow MC per week" — only the bestseller
+  // mastercases hit the invoice. The slow MC are the program's loyalty incentive.
   const billedInvoice = totalAnchor * k.pricePerMc;
   const slowGiftValue = totalSlow * k.pricePerMc;
   const coop = k.pricePerMc * 0.06 * totalSlow;
@@ -273,24 +288,25 @@ function buildSubscriptionLock(slow: SkuIntel, anchor: SkuIntel, k: Knobs): Deck
   const appeal = rateAppeal(appealScore(k, k.size === "Small" ? -5 : 5));
   const swapText = swapWordy(k.swapClause, slow.name, coop);
 
-  const headline = `Commit to ${weeklyAnchor} cases of ${anchor.name} every week for 4 weeks. Each shipment includes 1 case of ${slow.name} at no extra charge.`;
+  const headline = `Commit to ${weeklyAnchor} mastercases of ${anchor.name} every week for 4 weeks. Each shipment includes 1 MC of ${slow.name} at no extra charge.`;
 
-  const phone = `Different angle: instead of one big order, let's do a 4-week program. Every week I deliver ${weeklyAnchor} cases of ${anchor.name} and I throw in 1 case of ${slow.name} on the same shipment — no extra charge. After 4 weeks: $${fmt(billedInvoice)} total invoice (you only pay for the bestseller cases — the slow ones are on us, $${fmt(slowGiftValue)} retail value). Paid weekly so it's easy on cash flow. ${swapText} Two big wins for you: your shelf is locked for a month so my competitors can't get in, and you discover whether ${slow.name} works for your customer without a big upfront bet.`;
-  const sms = clampSms(`4-wk program: ${weeklyAnchor}× ${anchor.name}/wk + 1 FREE ${slow.name}/wk. Pay only $${fmt(billedInvoice)} (bestseller). Weekly billing. Locks shelf. YES?`);
-  const whatsapp = `4-week subscription plan 🔁\n\nWeekly: ${weeklyAnchor} cases ${anchor.name} + 1 FREE case ${slow.name}.\nYou pay: $${fmt(billedInvoice)} over 4 weeks (bestseller only — slow cases are on us, $${fmt(slowGiftValue)} retail value).\nBilled weekly — easier cash flow.\n\n${swapText}\n\nLocks your shelf for a month, blocks competing reps, and you find out if ${slow.name} clicks with your customers.`;
+  const phone = `Different angle: instead of one big order, let's do a 4-week program. Every week I deliver ${weeklyAnchor} MC of ${anchor.name} and I throw in 1 MC of ${slow.name} on the same shipment — no extra charge. After 4 weeks: $${fmt(billedInvoice)} total invoice (you only pay for the bestseller MC — the slow MC are on us, $${fmt(slowGiftValue)} retail value). Paid weekly so it's easy on cash flow. ${swapText} Two big wins for you: your shelf is locked for a month so my competitors can't get in, and you discover whether ${slow.name} works for your customer without a big upfront bet.`;
+  const sms = clampSms(`4-wk: ${weeklyAnchor} MC ${anchor.name}/wk + 1 FREE MC ${slow.name}/wk. Pay $${fmt(billedInvoice)} (bestseller MC only). Weekly bill. Locks shelf. YES?`);
+  const whatsapp = `4-week subscription plan 🔁\n\nWeekly: ${weeklyAnchor} MC ${anchor.name} + 1 FREE MC ${slow.name}.\nYou pay: $${fmt(billedInvoice)} over 4 weeks (bestseller MC only — slow MC are on us, $${fmt(slowGiftValue)} retail value).\nBilled weekly — easier cash flow.\n\n${swapText}\n\nLocks your shelf for a month, blocks competing reps, and you find out if ${slow.name} clicks with your customers.`;
 
   return {
     templateId: "subscription",
     templateName: "The Subscription Lock",
     templateTag: "4-week recurring",
     templateIcon: Repeat,
+    primarySlowId: slow.id,
     forLine: `for ${slow.name} (${slow.weight})`,
     headline,
     bundle: [
       { label: "Program length",                            value: "4 weeks" },
-      { label: `Weekly: bestseller (${anchor.name})`,       value: `${weeklyAnchor} cases × 4 = ${totalAnchor} (billed)` },
-      { label: `Weekly: slow flavor (${slow.name})`,        value: `1 case × 4 = ${totalSlow} (FREE — on us)` },
-      { label: "Per-case price (unchanged)",                 value: `$${fmt(k.pricePerMc)}` },
+      { label: `Weekly: bestseller (${anchor.name})`,       value: `${weeklyAnchor} MC × 4 = ${totalAnchor} MC (billed)` },
+      { label: `Weekly: slow flavor (${slow.name})`,        value: `1 MC × 4 = ${totalSlow} MC (FREE — on us)` },
+      { label: "Per-mastercase price (unchanged)",           value: `$${fmt(k.pricePerMc)} / MC` },
       { label: "Total invoice (you pay)",                    value: `$${fmt(billedInvoice)}` },
       { label: "Slow-flavor gift value",                     value: `$${fmt(slowGiftValue)} (retail)` },
       { label: "Billing",                                    value: "Weekly invoices, easier cash flow" },
@@ -322,23 +338,24 @@ function buildCafeStarter(slow: SkuIntel, anchor: SkuIntel, k: Knobs): Deck {
   const appeal = rateAppeal(appealScore(k, 15));                // small cafés love this
   const swapText = swapWordy(k.swapClause, slow.name, coop);
 
-  const headline = `Smallest bundle: 3 cases of ${anchor.name} + 1 case of ${slow.name}. Plus a free Friday-night hookah-master demo at your café (worth $${demoValue}).`;
+  const headline = `Smallest bundle: 3 mastercases of ${anchor.name} + 1 MC of ${slow.name}. Plus a free Friday-night hookah-master demo at your café (worth $${demoValue}).`;
 
-  const phone = `For your café specifically — small bundle, big experience. 3 cases of ${anchor.name} + 1 case of ${slow.name}, total $${fmt(totalInvoice)}. Same per-case price. The kicker: I send our hookah-master to your café for one Friday-night demo session — that's a $${demoValue} package on us. He builds a crowd around the new flavor, you sell hookahs and food all night, and the slow case sells itself by Saturday. ${swapText} One of the easiest "yes" deals I have.`;
-  const sms = clampSms(`Café deal: 3× ${anchor.name} + 1× ${slow.name} = $${fmt(totalInvoice)}. + FREE Friday hookah-master demo ($${demoValue}). Limited slots. YES?`);
-  const whatsapp = `Café-sized bundle ☕\n\n3 cases ${anchor.name} + 1 case ${slow.name} = $${fmt(totalInvoice)}.\n\n+ FREE hookah-master Friday-night demo at your café (worth $${demoValue}).\n\n${swapText}\n\nDemo brings new customers in, slow flavor sells itself by Saturday. Want a slot this month?`;
+  const phone = `For your café specifically — small bundle, big experience. 3 MC of ${anchor.name} + 1 MC of ${slow.name}, total $${fmt(totalInvoice)}. Same per-MC price. The kicker: I send our hookah-master to your café for one Friday-night demo session — that's a $${demoValue} package on us. He builds a crowd around the new flavor, you sell hookahs and food all night, and the slow MC sells itself by Saturday. ${swapText} One of the easiest "yes" deals I have.`;
+  const sms = clampSms(`Café deal: 3 MC ${anchor.name} + 1 MC ${slow.name} = $${fmt(totalInvoice)}. + FREE Fri hookah-master demo ($${demoValue}). Limited slots. YES?`);
+  const whatsapp = `Café-sized bundle ☕\n\n3 MC ${anchor.name} + 1 MC ${slow.name} = $${fmt(totalInvoice)}.\n\n+ FREE hookah-master Friday-night demo at your café (worth $${demoValue}).\n\n${swapText}\n\nDemo brings new customers in, slow flavor sells itself by Saturday. Want a slot this month?`;
 
   return {
     templateId: "cafe",
     templateName: "The Café Starter Pack",
     templateTag: "Small-account entry",
     templateIcon: Coffee,
+    primarySlowId: slow.id,
     forLine: `for ${slow.name} (${slow.weight})`,
     headline,
     bundle: [
-      { label: `Cases of bestseller (${anchor.name})`, value: String(anchorMc) },
-      { label: `Cases of slow flavor (${slow.name})`,  value: String(slowMc) },
-      { label: "Per-case price (unchanged)",            value: `$${fmt(k.pricePerMc)}` },
+      { label: `Mastercases of bestseller (${anchor.name})`, value: `${anchorMc} MC` },
+      { label: `Mastercases of slow flavor (${slow.name})`, value: `${slowMc} MC` },
+      { label: "Per-mastercase price (unchanged)",      value: `$${fmt(k.pricePerMc)} / MC` },
       { label: "Total invoice",                          value: `$${fmt(totalInvoice)}` },
       { label: "What we add",                            value: `Free Friday-night hookah-master demo (worth $${demoValue})` },
       { label: "Swap promise",                           value: k.swapClause === "coop" ? `$${fmt(coop, 0)} co-op fund` : `${k.swapClause} days, 1-for-1` },
@@ -351,7 +368,7 @@ function buildCafeStarter(slow: SkuIntel, anchor: SkuIntel, k: Knobs): Deck {
     ],
     catches: [
       "Demo costs us real money — only worth it for cafés that can host on a Friday night and have a real customer base.",
-      "Single-bundle clears just 1 case from our warehouse — needs many small accounts to move a meaningful chunk.",
+      "Single-bundle clears just 1 MC from our warehouse — needs many small accounts to move a meaningful chunk.",
     ],
     ourRisk,
     retailerAppeal: appeal,
@@ -369,23 +386,24 @@ function buildTerritoryExclusive(slow: SkuIntel, anchor: SkuIntel, k: Knobs): De
   const appeal = rateAppeal(appealScore(k, 15));
   const swapText = swapWordy(k.swapClause, slow.name, coop);
 
-  const headline = `Mega bundle: 20 cases of ${anchor.name} + 5 cases of ${slow.name}. Plus 90-day exclusive territory rights for ${slow.name} in your zone.`;
+  const headline = `Mega bundle: 20 mastercases of ${anchor.name} + 5 MC of ${slow.name}. Plus 90-day exclusive territory rights for ${slow.name} in your zone.`;
 
-  const phone = `Reserved for our top distributors only. Bundle is 20 cases ${anchor.name} + 5 cases ${slow.name} — same per-case price all the way, total $${fmt(totalInvoice)}. The big lever: you get 90-day exclusive territory rights for ${slow.name} in your zone. No other distributor can carry that flavor in your area for three months. We also book a quarterly business review with our planning lead — early access to new flavors before they hit the country. ${swapText} You scale, we scale, and your competitors are locked out of a flavor for a quarter.`;
-  const sms = clampSms(`Master deal: 20× ${anchor.name} + 5× ${slow.name} = $${fmt(totalInvoice)}. + 90d EXCLUSIVE zone for ${slow.name} + quarterly review. Reply CALL.`);
-  const whatsapp = `Reserved for top distributors 👑\n\n20 cases ${anchor.name} + 5 cases ${slow.name} = $${fmt(totalInvoice)} (same per-case price).\n\n+ 90-day EXCLUSIVE territory rights for ${slow.name} in your zone (no other distributor can carry it).\n+ Quarterly business review with our planning lead.\n\n${swapText}\n\nLet's set up a call to walk through it.`;
+  const phone = `Reserved for our top distributors only. Bundle is 20 MC ${anchor.name} + 5 MC ${slow.name} — same per-MC price all the way, total $${fmt(totalInvoice)}. The big lever: you get 90-day exclusive territory rights for ${slow.name} in your zone. No other distributor can carry that flavor in your area for three months. We also book a quarterly business review with our planning lead — early access to new flavors before they hit the country. ${swapText} You scale, we scale, and your competitors are locked out of a flavor for a quarter.`;
+  const sms = clampSms(`Master deal: 20 MC ${anchor.name} + 5 MC ${slow.name} = $${fmt(totalInvoice)}. + 90d EXCLUSIVE zone for ${slow.name} + quarterly review. Reply CALL.`);
+  const whatsapp = `Reserved for top distributors 👑\n\n20 MC ${anchor.name} + 5 MC ${slow.name} = $${fmt(totalInvoice)} (same per-MC price).\n\n+ 90-day EXCLUSIVE territory rights for ${slow.name} in your zone (no other distributor can carry it).\n+ Quarterly business review with our planning lead.\n\n${swapText}\n\nLet's set up a call to walk through it.`;
 
   return {
     templateId: "territory",
     templateName: "The Territory Exclusive",
     templateTag: "Master distributor deal",
     templateIcon: Crown,
+    primarySlowId: slow.id,
     forLine: `for ${slow.name} (${slow.weight})`,
     headline,
     bundle: [
-      { label: `Cases of bestseller (${anchor.name})`, value: String(anchorMc) },
-      { label: `Cases of slow flavor (${slow.name})`,  value: String(slowMc) },
-      { label: "Per-case price (unchanged)",            value: `$${fmt(k.pricePerMc)}` },
+      { label: `Mastercases of bestseller (${anchor.name})`, value: `${anchorMc} MC` },
+      { label: `Mastercases of slow flavor (${slow.name})`, value: `${slowMc} MC` },
+      { label: "Per-mastercase price (unchanged)",      value: `$${fmt(k.pricePerMc)} / MC` },
       { label: "Total invoice",                          value: `$${fmt(totalInvoice)}` },
       { label: "Exclusive territory rights",            value: `90 days for ${slow.name}` },
       { label: "Bonus",                                  value: "Quarterly business review + early access to new flavors" },
@@ -395,10 +413,10 @@ function buildTerritoryExclusive(slow: SkuIntel, anchor: SkuIntel, k: Knobs): De
     whyYes: [
       `Only distributor in your zone with ${slow.name} for 90 days — your competition can't list it at any price.`,
       "Quarterly business review = early access to new flavors before the rest of the country sees them.",
-      "Largest bundle = best per-case logistics for your warehouse run.",
+      "Largest bundle = best per-MC logistics for your warehouse run.",
     ],
     catches: [
-      "Big upfront commitment — your warehouse needs to absorb 25 cases. Make sure the retailer has the cash and the shelf.",
+      "Big upfront commitment — your warehouse needs to absorb 25 MC. Make sure the retailer has the cash and the shelf.",
       "Exclusivity ends at day 90; renewal requires hitting 60% sell-through on the slow flavor.",
     ],
     ourRisk,
@@ -406,6 +424,17 @@ function buildTerritoryExclusive(slow: SkuIntel, anchor: SkuIntel, k: Knobs): De
     scripts: { phone, sms, whatsapp },
   };
 }
+
+// Channel → which deck templates to surface, in order.  "all" surfaces every
+// template; the channel-specific lists hide decks that don't fit and reorder
+// the rest so the most-relevant pitch sits at the top.
+const CHANNEL_DECK_PRIORITY: Record<Channel, Deck["templateId"][]> = {
+  all:         ["rideAlong", "variety", "subscription", "cafe", "territory"],
+  horeca:      ["cafe", "rideAlong", "subscription"],
+  modern:      ["variety", "rideAlong", "subscription"],
+  traditional: ["rideAlong", "subscription"],
+  wholesale:   ["territory", "variety", "rideAlong"],
+};
 
 // Build up to 5 ready-to-apply decks given the slow-SKU list and an anchor.
 function buildAllDecks(slowList: SkuIntel[], anchor: SkuIntel, k: Knobs): Deck[] {
@@ -426,7 +455,8 @@ function buildAllDecks(slowList: SkuIntel[], anchor: SkuIntel, k: Knobs): Deck[]
 const GLOSSARY: { term: string; meaning: string }[] = [
   { term: "Bestseller",     meaning: "The SKU your customer is already moving fast — the engine of every offer here." },
   { term: "Slow flavor",    meaning: "A SKU sitting in the warehouse longer than your stock-month threshold (the slider above)." },
-  { term: "Mix ratio",      meaning: "How many cases of bestseller go with each case of slow. e.g. 10:1 means \"10 bestseller + 1 slow per bundle\"." },
+  { term: "Mastercase (MC)", meaning: "One full mastercase from the warehouse — the unit every order, invoice and bundle on this page is denominated in." },
+  { term: "Mix ratio",      meaning: "How many mastercases of bestseller go with each MC of slow. e.g. 10:1 means \"10 bestseller MC + 1 slow MC per bundle\"." },
   { term: "Mix portion",    meaning: "The slow flavor's $ value as a % of the bestseller's $ value. The slider drives the mix ratio." },
   { term: "Swap promise",   meaning: "How many days the retailer has to return unsold slow stock for any bestseller, no questions asked." },
   { term: "Co-op fund",     meaning: "Money we deposit with the retailer for marketing (Instagram boost, café night) instead of a swap." },
@@ -613,16 +643,18 @@ export default function TradeOffersPage() {
   const [swapClause, setSwapClause] = useState<SwapClause>("90");
   const [size, setSize] = useState<RetailerSize>("Medium");
 
+  // Trade channel — controls which deck templates to surface.
+  const [channel, setChannel] = useState<Channel>("all");
+
   // Advanced knobs — collapsed by default.
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [mixPct, setMixPct] = useState(10);
   const [pricePerMc, setPricePerMc] = useState(127);
-  const [unitsPerMc, setUnitsPerMc] = useState(60);
   const [pricingGuard, setPricingGuard] = useState<PricingGuard>("STRICT");
 
   const [glossaryOpen, setGlossaryOpen] = useState(false);
 
-  const knobs: Knobs = { thresholdMonths, swapClause, size, mixPct, pricePerMc, unitsPerMc, pricingGuard };
+  const knobs: Knobs = { thresholdMonths, swapClause, size, mixPct, pricePerMc, pricingGuard };
 
   const { slowList, anchor, summary } = useMemo(() => {
     if (!data?.skuIntel) return { slowList: [] as (SkuIntel & { moc: number })[], anchor: null as SkuIntel | null, summary: null as null | { totalSlow: number; totalSlowStock: number } };
@@ -654,7 +686,18 @@ export default function TradeOffersPage() {
     if (!anchor || slowList.length === 0) return [] as Deck[];
     return buildAllDecks(slowList, anchor, knobs);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slowList, anchor, knobs.thresholdMonths, knobs.swapClause, knobs.size, knobs.mixPct, knobs.pricePerMc, knobs.unitsPerMc, knobs.pricingGuard]);
+  }, [slowList, anchor, knobs.thresholdMonths, knobs.swapClause, knobs.size, knobs.mixPct, knobs.pricePerMc, knobs.pricingGuard]);
+
+  // Filter + reorder decks to match the trade channel.  When channel === "all"
+  // we surface every deck in the original (simplest → biggest) order.
+  const visibleDecks = useMemo(() => {
+    if (channel === "all") return decks;
+    const order = CHANNEL_DECK_PRIORITY[channel];
+    const allowed = new Set(order);
+    return decks
+      .filter(d => allowed.has(d.templateId))
+      .sort((a, b) => order.indexOf(a.templateId) - order.indexOf(b.templateId));
+  }, [decks, channel]);
 
   const slowMocBySku = useMemo(() => {
     const m = new Map<number, number>();
@@ -677,6 +720,26 @@ export default function TradeOffersPage() {
           Up to 5 ready-to-send offer decks for {country}. Every deck piggybacks the slow flavor onto your bestseller — your customer's existing volume drags it through.
           <span className="block mt-1 text-xs">As of <strong>{data?.targetMonth} {data?.targetYear}</strong> · proposals only — nothing is saved.</span>
         </p>
+        <div className="mt-3 flex items-center gap-2 flex-wrap">
+          <Badge
+            className={`border ${
+              channel === "all"
+                ? "bg-muted text-muted-foreground border-muted-foreground/20"
+                : "bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-900/40 dark:text-blue-200 dark:border-blue-700"
+            }`}
+          >
+            Pitching to: <strong className="ml-1">{CHANNEL_LABEL[channel]}</strong>
+          </Badge>
+          {channel !== "all" && (
+            <button
+              type="button"
+              onClick={() => setChannel("all")}
+              className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+            >
+              show all channels
+            </button>
+          )}
+        </div>
       </div>
 
       <GlossaryPanel open={glossaryOpen} onToggle={() => setGlossaryOpen(o => !o)} />
@@ -688,7 +751,7 @@ export default function TradeOffersPage() {
             <div>
               <div className="uppercase tracking-wider text-[10px] text-muted-foreground">Bestseller (the engine)</div>
               <div className="font-semibold mt-1">{anchor.name} <span className="text-muted-foreground">({anchor.weight})</span></div>
-              <div className="text-muted-foreground">{fmt(anchor.avg3m)} cases / month (last 3M avg)</div>
+              <div className="text-muted-foreground">{fmt(anchor.avg3m)} mastercases / month (last 3M avg)</div>
             </div>
             <div>
               <div className="uppercase tracking-wider text-[10px] text-muted-foreground">Slow flavors detected</div>
@@ -697,8 +760,8 @@ export default function TradeOffersPage() {
             </div>
             <div>
               <div className="uppercase tracking-wider text-[10px] text-muted-foreground">Total slow stock</div>
-              <div className="font-semibold mt-1">{fmt(summary.totalSlowStock)} units</div>
-              <div className="text-muted-foreground">({fmt(summary.totalSlowStock / unitsPerMc)} mastercases on hand)</div>
+              <div className="font-semibold mt-1">{fmt(summary.totalSlowStock)} mastercases</div>
+              <div className="text-muted-foreground">on hand across all slow flavors</div>
             </div>
           </CardContent>
         </Card>
@@ -710,7 +773,20 @@ export default function TradeOffersPage() {
           <CardTitle className="text-base">Offer settings</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="space-y-2">
+              <Label className="text-xs font-semibold">Trade channel</Label>
+              <Select value={channel} onValueChange={v => setChannel(v as Channel)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All channels (every deck)</SelectItem>
+                  <SelectItem value="horeca">HoReCa (cafés &amp; lounges)</SelectItem>
+                  <SelectItem value="modern">Modern trade (supermarkets)</SelectItem>
+                  <SelectItem value="traditional">Traditional trade (shops, kiosks)</SelectItem>
+                  <SelectItem value="wholesale">Wholesale (master distributors)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <div className="space-y-2">
               <Label className="text-xs font-semibold">Show flavors with more than…</Label>
               <Select value={String(thresholdMonths)} onValueChange={v => setThresholdMonths(Number(v))}>
@@ -787,15 +863,10 @@ export default function TradeOffersPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="space-y-2">
-                    <Label className="text-xs font-semibold">$ / case</Label>
-                    <Input type="number" inputMode="decimal" value={pricePerMc} onChange={e => setPricePerMc(Number(e.target.value) || 0)} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-xs font-semibold">Units / case</Label>
-                    <Input type="number" inputMode="numeric" value={unitsPerMc} onChange={e => setUnitsPerMc(Math.max(1, Number(e.target.value) || 1))} />
-                  </div>
+                <div className="space-y-2">
+                  <Label className="text-xs font-semibold">$ / mastercase (WS list price)</Label>
+                  <Input type="number" inputMode="decimal" value={pricePerMc} onChange={e => setPricePerMc(Number(e.target.value) || 0)} />
+                  <p className="text-[10px] text-muted-foreground">Drives every $ figure on this page (invoices, swap claims, co-op funds, gift values).</p>
                 </div>
               </div>
             )}
@@ -829,15 +900,40 @@ export default function TradeOffersPage() {
             </div>
           </CardContent>
         </Card>
+      ) : visibleDecks.length === 0 ? (
+        <Card>
+          <CardContent className="p-6 text-sm text-muted-foreground space-y-2">
+            <p>None of the ready decks fit the <strong>{CHANNEL_LABEL[channel]}</strong> channel.</p>
+            <p className="text-xs">Switch the channel filter to <em>All channels</em> to see every option, or pick a different channel that matches the account you're pitching.</p>
+            <button
+              type="button"
+              onClick={() => setChannel("all")}
+              className="text-xs font-semibold text-primary hover:underline"
+            >
+              Show all channels
+            </button>
+          </CardContent>
+        </Card>
       ) : (
         <div className="space-y-4">
-          <div className="flex items-center gap-2 text-sm">
+          <div className="flex items-center gap-2 text-sm flex-wrap">
             <Sparkles className="h-4 w-4 text-amber-500" />
-            <span><strong>{decks.length}</strong> ready-to-apply offer{decks.length === 1 ? "" : "s"}, ranked from simplest to biggest commitment.</span>
+            <span>
+              <strong>{visibleDecks.length}</strong> ready-to-apply offer{visibleDecks.length === 1 ? "" : "s"}
+              {channel === "all"
+                ? <>, ranked from simplest to biggest commitment.</>
+                : <> for <strong>{CHANNEL_LABEL[channel]}</strong> — most-relevant deck first.</>}
+            </span>
+            {channel !== "all" && decks.length > visibleDecks.length && (
+              <span className="text-xs text-muted-foreground">
+                ({decks.length - visibleDecks.length} other deck{decks.length - visibleDecks.length === 1 ? "" : "s"} hidden as a poor fit for this channel)
+              </span>
+            )}
           </div>
-          {decks.map((d, i) => {
-            const slowId = d.templateId === "variety" ? slowList[0]?.id : (d.templateId === "cafe" && slowList.length >= 3 ? slowList[slowList.length - 1].id : slowList[0]?.id);
-            const moc = slowId !== undefined ? slowMocBySku.get(slowId) ?? null : null;
+          {visibleDecks.map((d, i) => {
+            // Severity badge tracks the slow SKU each builder picked — no need
+            // to re-derive it from templateId here.
+            const moc = slowMocBySku.get(d.primarySlowId) ?? null;
             return <DeckCard key={`${d.templateId}-${i}`} deck={d} slowMonthsOfStock={moc} />;
           })}
         </div>
