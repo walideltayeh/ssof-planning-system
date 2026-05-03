@@ -44,11 +44,26 @@ type SkuIntel = {
   weight: string;
   category: string;
   flavor: string;
+  packagingType: "Old" | "New";
   avg3m: number;
   trend: number;
   trendDirection: "growing" | "stable" | "declining";
   currentClosingStock: number;
 };
+
+type PackagingLock = "any" | "New" | "Old";
+
+// Per-country anchor lock defaults — the user said for Syria the offer base
+// MUST be Double Apple (New packaging) across every weight, paired with the
+// slow movers.  Other countries fall back to Auto (scarcity-weighted pick).
+type AnchorLock = { flavor: string | "auto"; packaging: PackagingLock };
+const DEFAULT_ANCHOR_LOCK: Record<string, AnchorLock> = {
+  Syria: { flavor: "Double Apple", packaging: "New" },
+};
+function defaultAnchorLockFor(country: string | null | undefined): AnchorLock {
+  if (!country) return { flavor: "auto", packaging: "any" };
+  return DEFAULT_ANCHOR_LOCK[country] ?? { flavor: "auto", packaging: "any" };
+}
 
 // Anchor scarcity tier — drives whether the offer leads with a "lock-in supply"
 // scarcity hook (SCARCE / TIGHT) or a standard ride-along pitch (HEALTHY).
@@ -725,86 +740,137 @@ export default function TradeOffersPage() {
 
   const [glossaryOpen, setGlossaryOpen] = useState(false);
 
+  // Anchor lock — country-defaulted (Syria = Double Apple New) but the planner
+  // can override.  When flavor === "auto" we fall back to scarcity-weighted
+  // pick across every active SKU.
+  const initialLock = defaultAnchorLockFor(country);
+  const [anchorFlavor, setAnchorFlavor] = useState<string>(initialLock.flavor);
+  const [anchorPackaging, setAnchorPackaging] = useState<PackagingLock>(initialLock.packaging);
+  // Re-apply country default whenever the country changes (planner can still
+  // override after).  Tracked via a ref-like effect-less guard: when country
+  // shifts and the current lock matches the previous country's default, swap
+  // to the new country's default.
+  const [lockCountryKey, setLockCountryKey] = useState<string | null>(country ?? null);
+  if (country && country !== lockCountryKey) {
+    const next = defaultAnchorLockFor(country);
+    setAnchorFlavor(next.flavor);
+    setAnchorPackaging(next.packaging);
+    setLockCountryKey(country);
+  }
+
   const knobs: Knobs = { thresholdMonths, swapClause, size, mixPct, pricePerMc, pricingGuard };
 
-  const { slowList, anchor, anchorAlternates, summary } = useMemo(() => {
-    type Empty = {
-      slowList: (SkuIntel & { moc: number; overhang: number })[];
-      anchor: Anchor | null;
-      anchorAlternates: Anchor[];
-      summary: null | { totalSlow: number; totalSlowStock: number; totalSlowDollars: number };
-    };
-    const empty: Empty = { slowList: [], anchor: null, anchorAlternates: [], summary: null };
-    if (!data?.skuIntel) return empty;
+  // All SKUs with their MOC + tier + overhang, computed once and reused for
+  // both the anchor pool and the slow list (and the available-flavors menu).
+  const enriched = useMemo(() => {
+    if (!data?.skuIntel) return [] as (SkuIntel & { moc: number; overhang: number; tier: AnchorTier })[];
     const intel = data.skuIntel as SkuIntel[];
-    // Defensive numeric coercion — upstream data is typed but the API surface
-    // is TS-as-any-cast, so a null avg3m or closingStock would otherwise
-    // poison the moc / overhang sort with NaN.
-    const withMoc = intel.map(s => {
+    return intel.map(s => {
       const avg3m = Number(s.avg3m) || 0;
       const closing = Number(s.currentClosingStock) || 0;
+      const moc = avg3m > 0 ? closing / avg3m : (closing > 0 ? 999 : 0);
       return {
         ...s,
         avg3m,
         currentClosingStock: closing,
-        moc: avg3m > 0 ? closing / avg3m : (closing > 0 ? 999 : 0),
+        moc,
+        tier: anchorTierOf(moc),
+        overhang: closing * pricePerMc,
       };
     });
+  }, [data, pricePerMc]);
+
+  // Distinct flavors for the anchor-flavor dropdown — sorted by total avg3m
+  // so the busiest flavors float to the top.
+  const flavorOptions = useMemo(() => {
+    const acc = new Map<string, number>();
+    for (const s of enriched) acc.set(s.flavor, (acc.get(s.flavor) ?? 0) + s.avg3m);
+    return [...acc.entries()].sort((a, b) => b[1] - a[1]).map(([f]) => f);
+  }, [enriched]);
+
+  const { slowList, anchorList, summary } = useMemo(() => {
+    type Empty = {
+      slowList: (SkuIntel & { moc: number; overhang: number })[];
+      anchorList: Anchor[];
+      summary: null | { totalSlow: number; totalSlowStock: number; totalSlowDollars: number };
+    };
+    const empty: Empty = { slowList: [], anchorList: [], summary: null };
+    if (enriched.length === 0) return empty;
 
     // SLOW = anything above the user's threshold.  Rank by DOLLAR OVERHANG
-    // (closing stock × $/MC) descending — tackles the biggest cash drag first
-    // — then by MOC as a tiebreaker so genuinely dead SKUs still rise.
-    const slow = withMoc
+    // (closing stock × $/MC) DESC then MOC DESC, so the biggest cash drag
+    // rises first instead of just the slowest %.
+    const slow = enriched
       .filter(s => s.currentClosingStock > 0 && s.moc > thresholdMonths)
-      .map(s => ({ ...s, overhang: s.currentClosingStock * pricePerMc }))
       .sort((a, b) => b.overhang - a.overhang || b.moc - a.moc);
 
-    // ANCHOR = highest scarcity-weighted velocity SKU that ISN'T itself slow.
-    // A fast-mover that's running out (low MOC) gives the rep real leverage —
-    // "lock supply now or you'll stock out".  A fast-mover sitting on healthy
-    // stock has no urgency, so we down-weight high-MOC anchors.
+    // ANCHOR POOL = SKUs that aren't themselves slow.  When the planner has
+    // locked a flavor (default for Syria = "Double Apple" + "New"), we filter
+    // to ONLY matching SKUs and surface every weight as its own anchor — the
+    // user explicitly wanted "ALL the Double Apple New Packaging regardless
+    // of weight" as the base.  When unlocked, we fall back to the highest
+    // scarcity-weighted SKU and its top alternates.
     const slowIds = new Set(slow.map(s => s.id));
-    const anchorPool: Anchor[] = withMoc
+    const candidates: Anchor[] = enriched
       .filter(s => s.avg3m > 0 && !slowIds.has(s.id))
-      .map(s => ({ ...s, tier: anchorTierOf(s.moc) }))
-      .sort((a, b) => (b.avg3m * scarcityMultiplier(b.moc)) - (a.avg3m * scarcityMultiplier(a.moc)));
-    const anchorChoice = anchorPool[0] ?? null;
-    const altChoices = anchorPool.slice(1, 4);
+      .map(s => ({ ...s }) as Anchor);
+
+    let anchorList: Anchor[];
+    if (anchorFlavor !== "auto") {
+      anchorList = candidates
+        .filter(c => c.flavor === anchorFlavor)
+        .filter(c => anchorPackaging === "any" || c.packagingType === anchorPackaging)
+        // Within the locked flavor: pitch the most-scarce/highest-velocity
+        // weight first so the rep leads with the strongest lever.
+        .sort((a, b) => (b.avg3m * scarcityMultiplier(b.moc)) - (a.avg3m * scarcityMultiplier(a.moc)));
+    } else {
+      anchorList = candidates
+        .sort((a, b) => (b.avg3m * scarcityMultiplier(b.moc)) - (a.avg3m * scarcityMultiplier(a.moc)))
+        .slice(0, 4);
+    }
 
     return {
       slowList: slow,
-      anchor: anchorChoice,
-      anchorAlternates: altChoices,
+      anchorList,
       summary: {
         totalSlow: slow.length,
         totalSlowStock: slow.reduce((sum, s) => sum + s.currentClosingStock, 0),
         totalSlowDollars: slow.reduce((sum, s) => sum + s.overhang, 0),
       },
     };
-  }, [data, thresholdMonths, pricePerMc]);
+  }, [enriched, thresholdMonths, anchorFlavor, anchorPackaging]);
 
-  const decks = useMemo(() => {
-    if (!anchor || slowList.length === 0) return [] as Deck[];
-    return buildAllDecks(slowList, anchor, knobs);
+  // Build deck sets — one per anchor in anchorList.  Every deck for every
+  // anchor pulls from the same slow list (the planner is targeting the same
+  // dead stock from every angle).
+  const deckSets = useMemo(() => {
+    if (anchorList.length === 0 || slowList.length === 0) return [] as { anchor: Anchor; decks: Deck[] }[];
+    return anchorList.map(a => ({ anchor: a, decks: buildAllDecks(slowList, a, knobs) }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slowList, anchor, knobs.thresholdMonths, knobs.swapClause, knobs.size, knobs.mixPct, knobs.pricePerMc, knobs.pricingGuard]);
+  }, [anchorList, slowList, knobs.thresholdMonths, knobs.swapClause, knobs.size, knobs.mixPct, knobs.pricePerMc, knobs.pricingGuard]);
 
-  // Filter + reorder decks to match the trade channel.  When channel === "all"
-  // we surface every deck in the original (simplest → biggest) order.
-  const visibleDecks = useMemo(() => {
-    if (channel === "all") return decks;
-    const order = CHANNEL_DECK_PRIORITY[channel];
-    const allowed = new Set(order);
-    return decks
-      .filter(d => allowed.has(d.templateId))
-      .sort((a, b) => order.indexOf(a.templateId) - order.indexOf(b.templateId));
-  }, [decks, channel]);
+  // Channel filter is applied PER deck-set so each anchor's decks are
+  // reordered consistently and incompatible templates are hidden.
+  const visibleDeckSets = useMemo(() => {
+    return deckSets.map(({ anchor, decks }) => {
+      if (channel === "all") return { anchor, decks, hidden: 0 };
+      const order = CHANNEL_DECK_PRIORITY[channel];
+      const allowed = new Set(order);
+      const filtered = decks
+        .filter(d => allowed.has(d.templateId))
+        .sort((a, b) => order.indexOf(a.templateId) - order.indexOf(b.templateId));
+      return { anchor, decks: filtered, hidden: decks.length - filtered.length };
+    });
+  }, [deckSets, channel]);
 
   const slowMocBySku = useMemo(() => {
     const m = new Map<number, number>();
     for (const s of slowList) m.set(s.id, s.moc);
     return m;
   }, [slowList]);
+
+  const totalVisibleDecks = visibleDeckSets.reduce((sum, s) => sum + s.decks.length, 0);
+  const lockActive = anchorFlavor !== "auto";
 
   if (!country) {
     return <div className="p-6 text-sm text-muted-foreground">Select a country to view trade-offer recommendations.</div>;
@@ -846,17 +912,22 @@ export default function TradeOffersPage() {
       <GlossaryPanel open={glossaryOpen} onToggle={() => setGlossaryOpen(o => !o)} />
 
       {/* Status banner */}
-      {anchor && summary && (
+      {anchorList.length > 0 && summary && (
         <Card className="border-2 border-primary/30 bg-primary/5">
           <CardContent className="p-4 grid sm:grid-cols-3 gap-3 text-xs">
             <div>
-              <div className="uppercase tracking-wider text-[10px] text-muted-foreground">Bestseller anchor (the leverage)</div>
+              <div className="uppercase tracking-wider text-[10px] text-muted-foreground">
+                {lockActive ? `Anchor lock: ${anchorFlavor}${anchorPackaging !== "any" ? ` (${anchorPackaging} packaging)` : ""}` : "Bestseller anchor (the leverage)"}
+              </div>
               <div className="font-semibold mt-1 flex items-center gap-2 flex-wrap">
-                {anchor.name} <span className="text-muted-foreground">({anchor.weight})</span>
-                <Badge className={`border text-[10px] ${ANCHOR_TIER_TONE[anchor.tier]}`}>{ANCHOR_TIER_LABEL[anchor.tier]}</Badge>
+                {anchorList[0].name} <span className="text-muted-foreground">({anchorList[0].weight})</span>
+                <Badge className={`border text-[10px] ${ANCHOR_TIER_TONE[anchorList[0].tier]}`}>{ANCHOR_TIER_LABEL[anchorList[0].tier]}</Badge>
+                {anchorList.length > 1 && (
+                  <span className="text-[10px] text-muted-foreground">+ {anchorList.length - 1} more weight{anchorList.length - 1 === 1 ? "" : "s"}</span>
+                )}
               </div>
               <div className="text-muted-foreground">
-                {fmt(anchor.avg3m)} MC/month · {stockRunwayPhrase(anchor.moc)}
+                {fmt(anchorList[0].avg3m)} MC/month · {stockRunwayPhrase(anchorList[0].moc)}
               </div>
             </div>
             <div>
@@ -874,7 +945,7 @@ export default function TradeOffersPage() {
       )}
 
       {/* Stock Snapshot — shows the data behind the anchor + slow picks. */}
-      {(anchor || slowList.length > 0) && (
+      {(anchorList.length > 0 || slowList.length > 0) && (
         <Card className="border-dashed">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
@@ -885,29 +956,31 @@ export default function TradeOffersPage() {
           <CardContent className="grid md:grid-cols-2 gap-4 text-xs">
             <div>
               <div className="font-semibold mb-2 text-muted-foreground uppercase tracking-wider text-[10px]">
-                Fast-movers (anchor candidates, scarcity-weighted)
+                {lockActive
+                  ? `Locked anchor weights — ${anchorFlavor}${anchorPackaging !== "any" ? ` (${anchorPackaging} packaging)` : ""}`
+                  : "Fast-movers (anchor candidates, scarcity-weighted)"}
               </div>
               <div className="space-y-1.5">
-                {anchor && (
-                  <div className="flex items-center justify-between gap-2 rounded-md border bg-primary/5 px-2 py-1.5">
+                {anchorList.map((a, i) => (
+                  <div
+                    key={a.id}
+                    className={`flex items-center justify-between gap-2 rounded-md border px-2 py-1.5 ${i === 0 ? "bg-primary/5" : ""}`}
+                  >
                     <div className="min-w-0 flex-1">
-                      <div className="font-semibold truncate">★ {anchor.name} <span className="text-muted-foreground font-normal">({anchor.weight})</span></div>
-                      <div className="text-muted-foreground">{fmt(anchor.avg3m)} MC/mo · {stockRunwayPhrase(anchor.moc)}</div>
-                    </div>
-                    <Badge className={`border text-[10px] shrink-0 ${ANCHOR_TIER_TONE[anchor.tier]}`}>{anchor.tier}</Badge>
-                  </div>
-                )}
-                {anchorAlternates.map(a => (
-                  <div key={a.id} className="flex items-center justify-between gap-2 rounded-md border px-2 py-1.5">
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate">{a.name} <span className="text-muted-foreground">({a.weight})</span></div>
+                      <div className={`truncate ${i === 0 ? "font-semibold" : ""}`}>
+                        {i === 0 && "★ "}{a.name} <span className="text-muted-foreground font-normal">({a.weight})</span>
+                      </div>
                       <div className="text-muted-foreground">{fmt(a.avg3m)} MC/mo · {stockRunwayPhrase(a.moc)}</div>
                     </div>
-                    <Badge variant="outline" className={`border text-[10px] shrink-0 ${ANCHOR_TIER_TONE[a.tier]}`}>{a.tier}</Badge>
+                    <Badge variant={i === 0 ? "default" : "outline"} className={`border text-[10px] shrink-0 ${ANCHOR_TIER_TONE[a.tier]}`}>{a.tier}</Badge>
                   </div>
                 ))}
-                {!anchor && anchorAlternates.length === 0 && (
-                  <div className="text-muted-foreground italic">No fast-mover available outside the slow list.</div>
+                {anchorList.length === 0 && (
+                  <div className="text-muted-foreground italic">
+                    {lockActive
+                      ? `No active ${anchorFlavor}${anchorPackaging !== "any" ? ` (${anchorPackaging})` : ""} SKUs in ${country}. Switch to Auto or pick another flavor.`
+                      : "No fast-mover available outside the slow list."}
+                  </div>
                 )}
               </div>
             </div>
@@ -948,6 +1021,45 @@ export default function TradeOffersPage() {
           <CardTitle className="text-base">Offer settings</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          {/* Anchor lock — pin the offer base to a specific flavor + packaging
+              (e.g. Syria defaults to Double Apple New across every weight). */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-3 rounded-md border border-primary/20 bg-primary/5">
+            <div className="space-y-2 md:col-span-2">
+              <Label className="text-xs font-semibold flex items-center gap-2">
+                Anchor flavor (the offer base)
+                {lockActive && (
+                  <Badge variant="outline" className="text-[10px] border-primary/40 text-primary">LOCKED</Badge>
+                )}
+              </Label>
+              <Select value={anchorFlavor} onValueChange={v => setAnchorFlavor(v)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">Auto — scarcity-weighted top pick</SelectItem>
+                  {flavorOptions.map(f => (
+                    <SelectItem key={f} value={f}>{f}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[10px] text-muted-foreground">
+                {lockActive
+                  ? `Every deck below is built on ${anchorFlavor} (one section per weight) paired with the worst slow movers.`
+                  : "Auto picks the highest scarcity-weighted SKU — fast-movers running out of stock win."}
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-semibold">Packaging</Label>
+              <Select value={anchorPackaging} onValueChange={v => setAnchorPackaging(v as PackagingLock)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="any">Any packaging</SelectItem>
+                  <SelectItem value="New">New packaging only</SelectItem>
+                  <SelectItem value="Old">Old packaging only</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[10px] text-muted-foreground">Filters which SKUs of the chosen flavor qualify as the base.</p>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="space-y-2">
               <Label className="text-xs font-semibold">Trade channel</Label>
@@ -1056,17 +1168,22 @@ export default function TradeOffersPage() {
         </div>
       ) : isError ? (
         <Card><CardContent className="p-6 text-sm text-destructive">Failed to load: {String(error?.message ?? "unknown")}</CardContent></Card>
-      ) : !anchor ? (
+      ) : anchorList.length === 0 ? (
         <Card>
           <CardContent className="p-6 text-sm text-muted-foreground space-y-1">
-            <p>No bestseller SKU available in {country} to anchor an offer against.</p>
+            <p>
+              {lockActive
+                ? <>No active <strong>{anchorFlavor}</strong>{anchorPackaging !== "any" && <> ({anchorPackaging} packaging)</>} SKU available in {country} to anchor an offer against.</>
+                : <>No bestseller SKU available in {country} to anchor an offer against.</>}
+            </p>
             <p className="text-xs">
-              Either no SKU has recent sales (add IMS data first), <em>or</em> every SKU with sales activity is itself above your <strong>{thresholdMonths}-month</strong> stock threshold —
-              meaning the whole catalog is overstocked. Try lowering the threshold to free up an anchor, or run a country-wide clearance instead of bundle plays.
+              {lockActive
+                ? <>Either the locked flavor has no recent sales, or every matching SKU is itself above your <strong>{thresholdMonths}-month</strong> stock threshold. Switch the anchor flavor back to <em>Auto</em>, change the packaging filter, or pick a different flavor.</>
+                : <>Either no SKU has recent sales (add IMS data first), <em>or</em> every SKU with sales activity is itself above your <strong>{thresholdMonths}-month</strong> stock threshold — meaning the whole catalog is overstocked. Try lowering the threshold to free up an anchor, or run a country-wide clearance instead of bundle plays.</>}
             </p>
           </CardContent>
         </Card>
-      ) : decks.length === 0 ? (
+      ) : slowList.length === 0 ? (
         <Card>
           <CardContent className="p-6 text-sm text-muted-foreground flex items-start gap-3">
             <TrendingDown className="h-5 w-5 text-emerald-500 shrink-0 mt-0.5" />
@@ -1075,7 +1192,7 @@ export default function TradeOffersPage() {
             </div>
           </CardContent>
         </Card>
-      ) : visibleDecks.length === 0 ? (
+      ) : totalVisibleDecks === 0 ? (
         <Card>
           <CardContent className="p-6 text-sm text-muted-foreground space-y-2">
             <p>None of the ready decks fit the <strong>{CHANNEL_LABEL[channel]}</strong> channel.</p>
@@ -1090,27 +1207,51 @@ export default function TradeOffersPage() {
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-6">
           <div className="flex items-center gap-2 text-sm flex-wrap">
             <Sparkles className="h-4 w-4 text-amber-500" />
             <span>
-              <strong>{visibleDecks.length}</strong> ready-to-apply offer{visibleDecks.length === 1 ? "" : "s"}
+              <strong>{totalVisibleDecks}</strong> ready-to-apply offer{totalVisibleDecks === 1 ? "" : "s"}
+              {visibleDeckSets.length > 1 && <> across <strong>{visibleDeckSets.length}</strong> anchor weight{visibleDeckSets.length === 1 ? "" : "s"}</>}
               {channel === "all"
                 ? <>, ranked from simplest to biggest commitment.</>
                 : <> for <strong>{CHANNEL_LABEL[channel]}</strong> — most-relevant deck first.</>}
             </span>
-            {channel !== "all" && decks.length > visibleDecks.length && (
-              <span className="text-xs text-muted-foreground">
-                ({decks.length - visibleDecks.length} other deck{decks.length - visibleDecks.length === 1 ? "" : "s"} hidden as a poor fit for this channel)
-              </span>
-            )}
           </div>
-          {visibleDecks.map((d, i) => {
-            // Severity badge tracks the slow SKU each builder picked — no need
-            // to re-derive it from templateId here.
-            const moc = slowMocBySku.get(d.primarySlowId) ?? null;
-            return <DeckCard key={`${d.templateId}-${i}`} deck={d} slowMonthsOfStock={moc} />;
-          })}
+          {visibleDeckSets.map(({ anchor: a, decks: ds, hidden }, sectionIdx) => (
+            <div key={a.id} className="space-y-3">
+              {/* Per-anchor section header — only render when there's more than
+                  one anchor weight (otherwise the status banner already says it). */}
+              {visibleDeckSets.length > 1 && (
+                <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-dashed">
+                  <Badge className="bg-primary text-primary-foreground text-[10px]">ANCHOR {sectionIdx + 1}</Badge>
+                  <span className="font-semibold text-sm">{a.name} <span className="text-muted-foreground font-normal">({a.weight})</span></span>
+                  <Badge className={`border text-[10px] ${ANCHOR_TIER_TONE[a.tier]}`}>{ANCHOR_TIER_LABEL[a.tier]}</Badge>
+                  <span className="text-xs text-muted-foreground">
+                    {fmt(a.avg3m)} MC/mo · {stockRunwayPhrase(a.moc)}
+                  </span>
+                </div>
+              )}
+              {ds.length === 0 ? (
+                <Card>
+                  <CardContent className="p-4 text-xs text-muted-foreground">
+                    No deck for {a.name} ({a.weight}) fits the {CHANNEL_LABEL[channel]} channel
+                    {hidden > 0 && <> ({hidden} other deck{hidden === 1 ? "" : "s"} hidden)</>}.
+                  </CardContent>
+                </Card>
+              ) : (
+                ds.map((d, i) => {
+                  const moc = slowMocBySku.get(d.primarySlowId) ?? null;
+                  return <DeckCard key={`${a.id}-${d.templateId}-${i}`} deck={d} slowMonthsOfStock={moc} />;
+                })
+              )}
+              {channel !== "all" && hidden > 0 && ds.length > 0 && (
+                <p className="text-[10px] text-muted-foreground italic">
+                  {hidden} other deck{hidden === 1 ? "" : "s"} hidden as a poor fit for {CHANNEL_LABEL[channel]}.
+                </p>
+              )}
+            </div>
+          ))}
         </div>
       )}
 
