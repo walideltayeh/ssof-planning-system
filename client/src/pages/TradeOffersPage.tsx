@@ -50,6 +50,56 @@ type SkuIntel = {
   currentClosingStock: number;
 };
 
+// Anchor scarcity tier — drives whether the offer leads with a "lock-in supply"
+// scarcity hook (SCARCE / TIGHT) or a standard ride-along pitch (HEALTHY).
+type AnchorTier = "SCARCE" | "TIGHT" | "HEALTHY" | "OVERSTOCKED";
+
+type Anchor = SkuIntel & { moc: number; tier: AnchorTier };
+
+function anchorTierOf(moc: number): AnchorTier {
+  if (moc < 1)  return "SCARCE";
+  if (moc < 2)  return "TIGHT";
+  if (moc < 6)  return "HEALTHY";
+  return "OVERSTOCKED";
+}
+
+// Scarcity multiplier — boost fast-movers that are running out (real leverage),
+// penalise fast-movers sitting on a mountain of stock (no urgency for retailer).
+function scarcityMultiplier(moc: number): number {
+  if (moc < 1)  return 2.0; // SCARCE  — running out, max leverage
+  if (moc < 2)  return 1.5; // TIGHT   — running low, strong leverage
+  if (moc < 6)  return 1.0; // HEALTHY — normal pitch
+  return 0.4;               // OVERSTOCKED — also a problem, kill its anchor priority
+}
+
+const ANCHOR_TIER_TONE: Record<AnchorTier, string> = {
+  SCARCE:      "bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-900/40 dark:text-rose-200",
+  TIGHT:       "bg-orange-100 text-orange-800 border-orange-300 dark:bg-orange-900/40 dark:text-orange-200",
+  HEALTHY:     "bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-900/40 dark:text-emerald-200",
+  OVERSTOCKED: "bg-yellow-100 text-yellow-800 border-yellow-300 dark:bg-yellow-900/40 dark:text-yellow-200",
+};
+
+const ANCHOR_TIER_LABEL: Record<AnchorTier, string> = {
+  SCARCE:      "SCARCE — running out",
+  TIGHT:       "TIGHT — running low",
+  HEALTHY:     "HEALTHY supply",
+  OVERSTOCKED: "OVERSTOCKED",
+};
+
+// Convert months-of-stock to a friendly weeks-or-months phrase for scripts.
+function stockRunwayPhrase(moc: number): string {
+  if (!Number.isFinite(moc) || moc <= 0) return "almost no buffer left";
+  if (moc < 1) {
+    const weeks = Math.max(1, Math.round(moc * 4));
+    return `about ${weeks} week${weeks === 1 ? "" : "s"} of cover left`;
+  }
+  if (moc < 2) {
+    const weeks = Math.round(moc * 4);
+    return `roughly ${weeks} weeks of cover`;
+  }
+  return `${moc.toFixed(1)} months of cover`;
+}
+
 type Knobs = {
   thresholdMonths: number;
   swapClause: SwapClause;
@@ -172,7 +222,7 @@ function calcMixRatio(k: Knobs): number {
   return clamp(Math.ceil(100 / Math.max(1, k.mixPct)), 5, 15);
 }
 
-function buildRideAlong(slow: SkuIntel, anchor: SkuIntel, k: Knobs): Deck {
+function buildRideAlong(slow: SkuIntel, anchor: Anchor, k: Knobs): Deck {
   const ratio = calcMixRatio(k);
   const slowMc = 1;
   const anchorMc = ratio;
@@ -185,9 +235,26 @@ function buildRideAlong(slow: SkuIntel, anchor: SkuIntel, k: Knobs): Deck {
   const swapText = swapWordy(k.swapClause, slow.name, coop);
   const headline = `For every ${ratio} mastercases of ${anchor.name} you order, we add 1 mastercase of ${slow.name} at the same per-MC price.`;
 
-  const phone = `Hi — quick one. You're already moving ${fmt(anchor.avg3m)} mastercases of ${anchor.name} a month. Easiest deal I have this quarter: order ${ratio} MC of ${anchor.name} like you usually do, and I add 1 MC of ${slow.name} on the same invoice at the SAME $${fmt(k.pricePerMc, 0)} per MC. Total comes to $${fmt(totalInvoice)}. ${swapText} Same per-MC price you've been paying — just a different mix. Want me to write it up?`;
-  const sms = clampSms(`Order ${ratio} MC ${anchor.name} + 1 MC ${slow.name} at same $/MC. ${k.swapClause === "coop" ? `$${fmt(coop, 0)} co-op` : `${k.swapClause}d swap`}. YES to lock.`);
-  const whatsapp = `Hey 👋\n\nQuick offer for ${anchor.name}: order ${ratio} mastercases (your usual), and we add 1 MC of ${slow.name} at the same per-MC price.\n\nTotal: $${fmt(totalInvoice)}.\n${swapText}\n\nWant me to add it to your next order?`;
+  // Scarcity hook — when the anchor is running out, lead with that. The retailer
+  // already wants the bestseller; we're just making sure the slow MC ride along.
+  const scarcityIntro =
+    anchor.tier === "SCARCE"
+      ? `Heads up — at your current run rate (${fmt(anchor.avg3m)} mastercases/month) you've got ${stockRunwayPhrase(anchor.moc)} on ${anchor.name}. This is your window to lock supply before the next batch.`
+      : anchor.tier === "TIGHT"
+      ? `Quick heads up — ${anchor.name} is running tight (${stockRunwayPhrase(anchor.moc)} at your ${fmt(anchor.avg3m)} MC/month pace). Worth locking your next order now.`
+      : `You're already moving ${fmt(anchor.avg3m)} mastercases of ${anchor.name} a month.`;
+  // Same scarcity hook flows into all three channels — it's the whole point of
+  // anchor scarcity tiering. SMS uses a tight prefix to stay under 160 chars.
+  const isScarce = anchor.tier === "SCARCE" || anchor.tier === "TIGHT";
+  const smsPrefix = isScarce ? `LOW STOCK ${anchor.name}: ` : "";
+  const waPrefix = anchor.tier === "SCARCE"
+    ? `⚠️ ${anchor.name} is running out (${stockRunwayPhrase(anchor.moc)}) — lock supply now.\n\n`
+    : anchor.tier === "TIGHT"
+    ? `⚠️ ${anchor.name} is running tight (${stockRunwayPhrase(anchor.moc)}).\n\n`
+    : "";
+  const phone = `Hi — quick one. ${scarcityIntro} Easiest deal I have this quarter: order ${ratio} MC of ${anchor.name} like you usually do, and I add 1 MC of ${slow.name} on the same invoice at the SAME $${fmt(k.pricePerMc, 0)} per MC. Total comes to $${fmt(totalInvoice)}. ${swapText} Same per-MC price you've been paying — just a different mix. Want me to write it up?`;
+  const sms = clampSms(`${smsPrefix}Order ${ratio} MC ${anchor.name} + 1 MC ${slow.name} at same $/MC. ${k.swapClause === "coop" ? `$${fmt(coop, 0)} co-op` : `${k.swapClause}d swap`}. YES to lock.`);
+  const whatsapp = `${waPrefix}Hey 👋\n\nQuick offer for ${anchor.name}: order ${ratio} mastercases (your usual), and we add 1 MC of ${slow.name} at the same per-MC price.\n\nTotal: $${fmt(totalInvoice)}.\n${swapText}\n\nWant me to add it to your next order?`;
 
   return {
     templateId: "rideAlong",
@@ -206,7 +273,9 @@ function buildRideAlong(slow: SkuIntel, anchor: SkuIntel, k: Knobs): Deck {
       { label: "Pricing approach",                       value: pricingGuardLabel(k.pricingGuard) },
     ],
     whyYes: [
-      "Same per-MC price on every line — nothing on the invoice looks like a discount.",
+      anchor.tier === "SCARCE" || anchor.tier === "TIGHT"
+        ? `${anchor.name} is running out (${stockRunwayPhrase(anchor.moc)}) — locking this order guarantees your supply doesn't break.`
+        : "Same per-MC price on every line — nothing on the invoice looks like a discount.",
       `${anchor.name} is your fastest-mover; the slow mastercase rides along with no extra effort.`,
       k.swapClause === "coop"
         ? "Co-op fund pays for an Instagram boost — pulls customers into the new flavor."
@@ -222,7 +291,7 @@ function buildRideAlong(slow: SkuIntel, anchor: SkuIntel, k: Knobs): Deck {
   };
 }
 
-function buildVarietyBuilder(slows: SkuIntel[], anchor: SkuIntel, k: Knobs): Deck {
+function buildVarietyBuilder(slows: SkuIntel[], anchor: Anchor, k: Knobs): Deck {
   const slowList = slows.slice(0, 2);
   const anchorMc = clamp(Math.ceil(200 / Math.max(1, k.mixPct)), 6, 12); // two slows; double the bestseller
   const slowMc = slowList.length;
@@ -272,7 +341,7 @@ function buildVarietyBuilder(slows: SkuIntel[], anchor: SkuIntel, k: Knobs): Dec
   };
 }
 
-function buildSubscriptionLock(slow: SkuIntel, anchor: SkuIntel, k: Knobs): Deck {
+function buildSubscriptionLock(slow: SkuIntel, anchor: Anchor, k: Knobs): Deck {
   const weeks = 4;
   const weeklyAnchor = Math.max(2, Math.ceil(calcMixRatio(k) / 2));
   const weeklySlow = 1;
@@ -327,7 +396,7 @@ function buildSubscriptionLock(slow: SkuIntel, anchor: SkuIntel, k: Knobs): Deck
   };
 }
 
-function buildCafeStarter(slow: SkuIntel, anchor: SkuIntel, k: Knobs): Deck {
+function buildCafeStarter(slow: SkuIntel, anchor: Anchor, k: Knobs): Deck {
   const anchorMc = 3;
   const slowMc = 1;
   const totalInvoice = (anchorMc + slowMc) * k.pricePerMc;
@@ -376,7 +445,7 @@ function buildCafeStarter(slow: SkuIntel, anchor: SkuIntel, k: Knobs): Deck {
   };
 }
 
-function buildTerritoryExclusive(slow: SkuIntel, anchor: SkuIntel, k: Knobs): Deck {
+function buildTerritoryExclusive(slow: SkuIntel, anchor: Anchor, k: Knobs): Deck {
   const anchorMc = 20;
   const slowMc = 5;
   const totalInvoice = (anchorMc + slowMc) * k.pricePerMc;
@@ -437,7 +506,7 @@ const CHANNEL_DECK_PRIORITY: Record<Channel, Deck["templateId"][]> = {
 };
 
 // Build up to 5 ready-to-apply decks given the slow-SKU list and an anchor.
-function buildAllDecks(slowList: SkuIntel[], anchor: SkuIntel, k: Knobs): Deck[] {
+function buildAllDecks(slowList: SkuIntel[], anchor: Anchor, k: Knobs): Deck[] {
   const decks: Deck[] = [];
   if (slowList[0]) decks.push(buildRideAlong(slowList[0], anchor, k));
   if (slowList.length >= 2) decks.push(buildVarietyBuilder(slowList, anchor, k));
@@ -453,8 +522,10 @@ function buildAllDecks(slowList: SkuIntel[], anchor: SkuIntel, k: Knobs): Deck[]
 // ────────────────────────────────────────────────────────────────────────────
 
 const GLOSSARY: { term: string; meaning: string }[] = [
-  { term: "Bestseller",     meaning: "The SKU your customer is already moving fast — the engine of every offer here." },
-  { term: "Slow flavor",    meaning: "A SKU sitting in the warehouse longer than your stock-month threshold (the slider above)." },
+  { term: "Bestseller anchor", meaning: "The SKU your customer is already moving fast — the engine of every offer. Picked by velocity weighted by scarcity (a fast-mover that's running OUT beats one sitting on healthy stock — it gives you real leverage)." },
+  { term: "Anchor scarcity tier", meaning: "SCARCE (<1 month cover), TIGHT (1–2 mo), HEALTHY (2–6 mo), OVERSTOCKED (≥6 mo). When SCARCE/TIGHT, the phone script leads with a 'lock supply now' hook." },
+  { term: "Slow flavor",    meaning: "A SKU sitting in the warehouse longer than your stock-month threshold (the slider above). Ranked by $ overhang (closing stock × $/MC) so the biggest cash drag rises first." },
+  { term: "Dollar overhang", meaning: "Closing stock × $/MC for a slow flavor — how much cash is tied up in that SKU. Drives the slow-list ranking." },
   { term: "Mastercase (MC)", meaning: "One full mastercase from the warehouse — the unit every order, invoice and bundle on this page is denominated in." },
   { term: "Mix ratio",      meaning: "How many mastercases of bestseller go with each MC of slow. e.g. 10:1 means \"10 bestseller MC + 1 slow MC per bundle\"." },
   { term: "Mix portion",    meaning: "The slow flavor's $ value as a % of the bestseller's $ value. The slider drives the mix ratio." },
@@ -656,31 +727,61 @@ export default function TradeOffersPage() {
 
   const knobs: Knobs = { thresholdMonths, swapClause, size, mixPct, pricePerMc, pricingGuard };
 
-  const { slowList, anchor, summary } = useMemo(() => {
-    if (!data?.skuIntel) return { slowList: [] as (SkuIntel & { moc: number })[], anchor: null as SkuIntel | null, summary: null as null | { totalSlow: number; totalSlowStock: number } };
+  const { slowList, anchor, anchorAlternates, summary } = useMemo(() => {
+    type Empty = {
+      slowList: (SkuIntel & { moc: number; overhang: number })[];
+      anchor: Anchor | null;
+      anchorAlternates: Anchor[];
+      summary: null | { totalSlow: number; totalSlowStock: number; totalSlowDollars: number };
+    };
+    const empty: Empty = { slowList: [], anchor: null, anchorAlternates: [], summary: null };
+    if (!data?.skuIntel) return empty;
     const intel = data.skuIntel as SkuIntel[];
-    const withMoc = intel.map(s => ({
-      ...s,
-      moc: s.avg3m > 0 ? s.currentClosingStock / s.avg3m : (s.currentClosingStock > 0 ? 999 : 0),
-    }));
+    // Defensive numeric coercion — upstream data is typed but the API surface
+    // is TS-as-any-cast, so a null avg3m or closingStock would otherwise
+    // poison the moc / overhang sort with NaN.
+    const withMoc = intel.map(s => {
+      const avg3m = Number(s.avg3m) || 0;
+      const closing = Number(s.currentClosingStock) || 0;
+      return {
+        ...s,
+        avg3m,
+        currentClosingStock: closing,
+        moc: avg3m > 0 ? closing / avg3m : (closing > 0 ? 999 : 0),
+      };
+    });
+
+    // SLOW = anything above the user's threshold.  Rank by DOLLAR OVERHANG
+    // (closing stock × $/MC) descending — tackles the biggest cash drag first
+    // — then by MOC as a tiebreaker so genuinely dead SKUs still rise.
     const slow = withMoc
       .filter(s => s.currentClosingStock > 0 && s.moc > thresholdMonths)
-      .sort((a, b) => b.moc - a.moc);
-    const candidates = intel.filter(s => s.avg3m > 0).sort((a, b) => b.avg3m - a.avg3m);
-    // Anchor must not itself be one of the slow SKUs. If every active SKU is
-    // overstocked, return null and the page will show an explicit empty state
-    // rather than fall back to a self-bundle.
+      .map(s => ({ ...s, overhang: s.currentClosingStock * pricePerMc }))
+      .sort((a, b) => b.overhang - a.overhang || b.moc - a.moc);
+
+    // ANCHOR = highest scarcity-weighted velocity SKU that ISN'T itself slow.
+    // A fast-mover that's running out (low MOC) gives the rep real leverage —
+    // "lock supply now or you'll stock out".  A fast-mover sitting on healthy
+    // stock has no urgency, so we down-weight high-MOC anchors.
     const slowIds = new Set(slow.map(s => s.id));
-    const anchor = candidates.find(c => !slowIds.has(c.id)) ?? null;
+    const anchorPool: Anchor[] = withMoc
+      .filter(s => s.avg3m > 0 && !slowIds.has(s.id))
+      .map(s => ({ ...s, tier: anchorTierOf(s.moc) }))
+      .sort((a, b) => (b.avg3m * scarcityMultiplier(b.moc)) - (a.avg3m * scarcityMultiplier(a.moc)));
+    const anchorChoice = anchorPool[0] ?? null;
+    const altChoices = anchorPool.slice(1, 4);
+
     return {
       slowList: slow,
-      anchor,
+      anchor: anchorChoice,
+      anchorAlternates: altChoices,
       summary: {
         totalSlow: slow.length,
         totalSlowStock: slow.reduce((sum, s) => sum + s.currentClosingStock, 0),
+        totalSlowDollars: slow.reduce((sum, s) => sum + s.overhang, 0),
       },
     };
-  }, [data, thresholdMonths]);
+  }, [data, thresholdMonths, pricePerMc]);
 
   const decks = useMemo(() => {
     if (!anchor || slowList.length === 0) return [] as Deck[];
@@ -749,9 +850,14 @@ export default function TradeOffersPage() {
         <Card className="border-2 border-primary/30 bg-primary/5">
           <CardContent className="p-4 grid sm:grid-cols-3 gap-3 text-xs">
             <div>
-              <div className="uppercase tracking-wider text-[10px] text-muted-foreground">Bestseller (the engine)</div>
-              <div className="font-semibold mt-1">{anchor.name} <span className="text-muted-foreground">({anchor.weight})</span></div>
-              <div className="text-muted-foreground">{fmt(anchor.avg3m)} mastercases / month (last 3M avg)</div>
+              <div className="uppercase tracking-wider text-[10px] text-muted-foreground">Bestseller anchor (the leverage)</div>
+              <div className="font-semibold mt-1 flex items-center gap-2 flex-wrap">
+                {anchor.name} <span className="text-muted-foreground">({anchor.weight})</span>
+                <Badge className={`border text-[10px] ${ANCHOR_TIER_TONE[anchor.tier]}`}>{ANCHOR_TIER_LABEL[anchor.tier]}</Badge>
+              </div>
+              <div className="text-muted-foreground">
+                {fmt(anchor.avg3m)} MC/month · {stockRunwayPhrase(anchor.moc)}
+              </div>
             </div>
             <div>
               <div className="uppercase tracking-wider text-[10px] text-muted-foreground">Slow flavors detected</div>
@@ -759,9 +865,78 @@ export default function TradeOffersPage() {
               <div className="text-muted-foreground">above {thresholdMonths} months of stock</div>
             </div>
             <div>
-              <div className="uppercase tracking-wider text-[10px] text-muted-foreground">Total slow stock</div>
-              <div className="font-semibold mt-1">{fmt(summary.totalSlowStock)} mastercases</div>
-              <div className="text-muted-foreground">on hand across all slow flavors</div>
+              <div className="uppercase tracking-wider text-[10px] text-muted-foreground">Total slow stock at risk</div>
+              <div className="font-semibold mt-1">${fmt(summary.totalSlowDollars)}</div>
+              <div className="text-muted-foreground">{fmt(summary.totalSlowStock)} mastercases on hand</div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Stock Snapshot — shows the data behind the anchor + slow picks. */}
+      {(anchor || slowList.length > 0) && (
+        <Card className="border-dashed">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <TrendingDown className="h-4 w-4 text-primary" />
+              Stock snapshot — why these SKUs were picked
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="grid md:grid-cols-2 gap-4 text-xs">
+            <div>
+              <div className="font-semibold mb-2 text-muted-foreground uppercase tracking-wider text-[10px]">
+                Fast-movers (anchor candidates, scarcity-weighted)
+              </div>
+              <div className="space-y-1.5">
+                {anchor && (
+                  <div className="flex items-center justify-between gap-2 rounded-md border bg-primary/5 px-2 py-1.5">
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold truncate">★ {anchor.name} <span className="text-muted-foreground font-normal">({anchor.weight})</span></div>
+                      <div className="text-muted-foreground">{fmt(anchor.avg3m)} MC/mo · {stockRunwayPhrase(anchor.moc)}</div>
+                    </div>
+                    <Badge className={`border text-[10px] shrink-0 ${ANCHOR_TIER_TONE[anchor.tier]}`}>{anchor.tier}</Badge>
+                  </div>
+                )}
+                {anchorAlternates.map(a => (
+                  <div key={a.id} className="flex items-center justify-between gap-2 rounded-md border px-2 py-1.5">
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate">{a.name} <span className="text-muted-foreground">({a.weight})</span></div>
+                      <div className="text-muted-foreground">{fmt(a.avg3m)} MC/mo · {stockRunwayPhrase(a.moc)}</div>
+                    </div>
+                    <Badge variant="outline" className={`border text-[10px] shrink-0 ${ANCHOR_TIER_TONE[a.tier]}`}>{a.tier}</Badge>
+                  </div>
+                ))}
+                {!anchor && anchorAlternates.length === 0 && (
+                  <div className="text-muted-foreground italic">No fast-mover available outside the slow list.</div>
+                )}
+              </div>
+            </div>
+            <div>
+              <div className="font-semibold mb-2 text-muted-foreground uppercase tracking-wider text-[10px]">
+                Slow stockpiles (ranked by $ overhang)
+              </div>
+              <div className="space-y-1.5">
+                {slowList.slice(0, 5).map(s => {
+                  const sev = SEVERITY(s.moc);
+                  return (
+                    <div key={s.id} className="flex items-center justify-between gap-2 rounded-md border px-2 py-1.5">
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate">{s.name} <span className="text-muted-foreground">({s.weight})</span></div>
+                        <div className="text-muted-foreground">
+                          {fmt(s.currentClosingStock)} MC · ${fmt(s.overhang)} tied up · {s.moc >= 100 ? "100+" : s.moc.toFixed(1)} mo
+                        </div>
+                      </div>
+                      <Badge className={`border text-[10px] shrink-0 ${sev.tone}`}>{sev.label}</Badge>
+                    </div>
+                  );
+                })}
+                {slowList.length === 0 && (
+                  <div className="text-muted-foreground italic">No flavors above {thresholdMonths} months of stock.</div>
+                )}
+                {slowList.length > 5 && (
+                  <div className="text-[10px] text-muted-foreground italic">+{slowList.length - 5} more below the top 5</div>
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -941,7 +1116,7 @@ export default function TradeOffersPage() {
 
       <Card className="bg-muted/30">
         <CardContent className="p-4 text-xs text-muted-foreground space-y-1.5">
-          <p><strong>How this works.</strong> The page uses your live stock and trailing 3-month sales (Forecast Intelligence diagnostics). Months of stock = closing stock ÷ trailing 3-month sales. Slow flavors are anything above your threshold. The bestseller is the SKU with the highest recent sales (and never the slow flavor itself). Each deck is a different way to attach the slow flavor to a normal bestseller order so the retailer's existing demand drags it through.</p>
+          <p><strong>How this works.</strong> The page uses your live stock and trailing 3-month sales (Forecast Intelligence diagnostics). Months of stock = closing stock ÷ trailing 3-month sales. <strong>Slow flavors</strong> are anything above your threshold, ranked by <em>dollar overhang</em> (stock × $/MC) so the biggest cash drag rises first. The <strong>bestseller anchor</strong> is the SKU with the highest scarcity-weighted velocity (avg3m × scarcity multiplier — SCARCE 2.0×, TIGHT 1.5×, HEALTHY 1.0×, OVERSTOCKED 0.4×) that isn't itself in the slow list — a fast-mover that's running out gives the rep real leverage. Each deck is a different way to attach the slow flavor to a normal bestseller order so the retailer's existing demand drags it through; when the anchor is SCARCE or TIGHT, the phone script leads with a "lock supply now" hook.</p>
           <p><strong>Read these as proposals.</strong> Nothing on this page writes to your database. Sales reps copy the script that fits the channel they're using; planning lead reviews the Risk and Appeal pills before sending.</p>
         </CardContent>
       </Card>
