@@ -288,11 +288,15 @@ function clearanceBasket(slowList: SkuIntel[], targetMc: number, k: Knobs, maxFl
 
 function basketBundleLine(basket: Basket): string {
   if (basket.items.length === 0) return "—";
-  return basket.items.map(i => `${i.mc} MC ${i.sku.name}`).join(" + ");
+  // Always include weight — when 50g/250g/1kg of the same flavor sit in the
+  // basket the bare flavor name reads as a duplicate ("1 MC Grape + 1 MC
+  // Grape + 1 MC Grape").  The rep needs the weight to actually pick stock
+  // off the warehouse shelf.
+  return basket.items.map(i => `${i.mc} MC ${i.sku.name} ${i.sku.weight}`).join(" + ");
 }
 
 function basketFlavorNames(basket: Basket): string {
-  const names = basket.items.map(i => i.sku.name);
+  const names = basket.items.map(i => `${i.sku.name} ${i.sku.weight}`);
   if (names.length === 0) return "";
   if (names.length === 1) return names[0];
   if (names.length === 2) return `${names[0]} and ${names[1]}`;
