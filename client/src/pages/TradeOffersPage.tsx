@@ -840,26 +840,31 @@ export default function TradeOffersPage() {
     };
   }, [enriched, thresholdMonths, anchorFlavor, anchorPackaging]);
 
-  // Build deck sets — one per anchor in anchorList.  Every deck for every
-  // anchor pulls from the same slow list (the planner is targeting the same
-  // dead stock from every angle).
+  // Build deck sets — one per anchor in anchorList.  Slow SKUs of the SAME
+  // flavor as the anchor are excluded per anchor (e.g. when the anchor is
+  // Double Apple, pairing it with Double Apple Frosty or another Double
+  // Apple weight adds zero variety to the retailer's invoice — the rep
+  // needs a *different* flavor to drag through).
   const deckSets = useMemo(() => {
-    if (anchorList.length === 0 || slowList.length === 0) return [] as { anchor: Anchor; decks: Deck[] }[];
-    return anchorList.map(a => ({ anchor: a, decks: buildAllDecks(slowList, a, knobs) }));
+    if (anchorList.length === 0 || slowList.length === 0) return [] as { anchor: Anchor; decks: Deck[]; eligibleSlow: number }[];
+    return anchorList.map(a => {
+      const eligibleSlow = slowList.filter(s => s.flavor !== a.flavor);
+      return { anchor: a, decks: buildAllDecks(eligibleSlow, a, knobs), eligibleSlow: eligibleSlow.length };
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [anchorList, slowList, knobs.thresholdMonths, knobs.swapClause, knobs.size, knobs.mixPct, knobs.pricePerMc, knobs.pricingGuard]);
 
   // Channel filter is applied PER deck-set so each anchor's decks are
   // reordered consistently and incompatible templates are hidden.
   const visibleDeckSets = useMemo(() => {
-    return deckSets.map(({ anchor, decks }) => {
-      if (channel === "all") return { anchor, decks, hidden: 0 };
+    return deckSets.map(({ anchor, decks, eligibleSlow }) => {
+      if (channel === "all") return { anchor, decks, hidden: 0, eligibleSlow };
       const order = CHANNEL_DECK_PRIORITY[channel];
       const allowed = new Set(order);
       const filtered = decks
         .filter(d => allowed.has(d.templateId))
         .sort((a, b) => order.indexOf(a.templateId) - order.indexOf(b.templateId));
-      return { anchor, decks: filtered, hidden: decks.length - filtered.length };
+      return { anchor, decks: filtered, hidden: decks.length - filtered.length, eligibleSlow };
     });
   }, [deckSets, channel]);
 
@@ -1218,7 +1223,7 @@ export default function TradeOffersPage() {
                 : <> for <strong>{CHANNEL_LABEL[channel]}</strong> — most-relevant deck first.</>}
             </span>
           </div>
-          {visibleDeckSets.map(({ anchor: a, decks: ds, hidden }, sectionIdx) => (
+          {visibleDeckSets.map(({ anchor: a, decks: ds, hidden, eligibleSlow }, sectionIdx) => (
             <div key={a.id} className="space-y-3">
               {/* Per-anchor section header — only render when there's more than
                   one anchor weight (otherwise the status banner already says it). */}
@@ -1235,8 +1240,9 @@ export default function TradeOffersPage() {
               {ds.length === 0 ? (
                 <Card>
                   <CardContent className="p-4 text-xs text-muted-foreground">
-                    No deck for {a.name} ({a.weight}) fits the {CHANNEL_LABEL[channel]} channel
-                    {hidden > 0 && <> ({hidden} other deck{hidden === 1 ? "" : "s"} hidden)</>}.
+                    {eligibleSlow === 0
+                      ? <>No different-flavor slow SKU available to pair with <strong>{a.flavor}</strong> in {country}. Every slow flavor on the list is itself a {a.flavor} variant — pairing the same flavor adds no variety to the retailer's invoice.</>
+                      : <>No deck for {a.name} ({a.weight}) fits the {CHANNEL_LABEL[channel]} channel{hidden > 0 && <> ({hidden} other deck{hidden === 1 ? "" : "s"} hidden)</>}.</>}
                   </CardContent>
                 </Card>
               ) : (
