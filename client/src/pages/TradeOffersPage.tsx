@@ -237,29 +237,108 @@ function calcMixRatio(k: Knobs): number {
   return clamp(Math.ceil(100 / Math.max(1, k.mixPct)), 5, 15);
 }
 
-function buildRideAlong(slow: SkuIntel, anchor: Anchor, k: Knobs): Deck {
+// ────────────────────────────────────────────────────────────────────────────
+// Clearance basket — the multi-flavor slow side of every offer.
+//
+// The user's mandate: "I want the offer to deplete all the dead stock."  So
+// every deck now carries a BASKET of slow flavors (not just 1 SKU), with MC
+// per flavor allocated proportional to that SKU's overhang share.  The basket
+// is also capped per-SKU by the actual closingStock available, so we never
+// promise more dead stock than we have.
+//
+// `targetMc` is the total slow MC we want to fit into ONE offer; the deck
+// builders compute it differently (Ride-Along ≈ anchor MC, Cafe = small,
+// Territory = large, etc.).  `cyclesToClear` (computed via depletionInfo)
+// then tells the rep how many times this offer needs to run to drain the
+// full pile.
+type BasketItem = { sku: SkuIntel; mc: number };
+type Basket = { items: BasketItem[]; totalMc: number; totalDollar: number };
+
+function clearanceBasket(slowList: SkuIntel[], targetMc: number, k: Knobs, maxFlavors = 6): Basket {
+  if (slowList.length === 0 || targetMc <= 0) return { items: [], totalMc: 0, totalDollar: 0 };
+  const top = slowList.slice(0, maxFlavors);
+  const totalOverhang = top.reduce((s, x) => s + x.currentClosingStock, 0);
+  if (totalOverhang <= 0) return { items: [], totalMc: 0, totalDollar: 0 };
+
+  // First pass: proportional allocation, floor with a min of 1 MC per flavor,
+  // capped by each SKU's closing stock.
+  const items: BasketItem[] = top.map(sku => {
+    const share = (sku.currentClosingStock / totalOverhang) * targetMc;
+    const cap = Math.max(0, Math.floor(sku.currentClosingStock));
+    return { sku, mc: Math.min(cap, Math.max(1, Math.floor(share))) };
+  });
+
+  // Distribute leftover MC to whoever still has room (favouring the
+  // largest-overhang SKUs — already at the front of `top`).
+  let leftover = targetMc - items.reduce((s, x) => s + x.mc, 0);
+  let guard = 0;
+  while (leftover > 0 && guard < items.length * 8) {
+    const it = items[guard % items.length];
+    if (it.mc < Math.floor(it.sku.currentClosingStock)) {
+      it.mc += 1;
+      leftover -= 1;
+    }
+    guard += 1;
+  }
+
+  const final = items.filter(it => it.mc > 0);
+  const totalMc = final.reduce((s, x) => s + x.mc, 0);
+  return { items: final, totalMc, totalDollar: totalMc * k.pricePerMc };
+}
+
+function basketBundleLine(basket: Basket): string {
+  if (basket.items.length === 0) return "—";
+  return basket.items.map(i => `${i.mc} MC ${i.sku.name}`).join(" + ");
+}
+
+function basketFlavorNames(basket: Basket): string {
+  const names = basket.items.map(i => i.sku.name);
+  if (names.length === 0) return "";
+  if (names.length === 1) return names[0];
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return names.slice(0, -1).join(", ") + " and " + names[names.length - 1];
+}
+
+function depletionInfo(basket: Basket, slowList: SkuIntel[], k: Knobs) {
+  const totalSlowMc = Math.floor(slowList.reduce((s, x) => s + x.currentClosingStock, 0));
+  const totalSlowDollar = totalSlowMc * k.pricePerMc;
+  const cycles = basket.totalMc > 0 ? Math.ceil(totalSlowMc / basket.totalMc) : 0;
+  return { totalSlowMc, totalSlowDollar, cycles };
+}
+
+function depletionBundleRow(basket: Basket, slowList: SkuIntel[], k: Knobs) {
+  const { totalSlowMc, totalSlowDollar, cycles } = depletionInfo(basket, slowList, k);
+  return [
+    { label: "Total dead stock targeted", value: `${fmt(totalSlowMc)} MC · $${fmt(totalSlowDollar)}` },
+    { label: "Cycles to clear it all",    value: cycles > 0 ? `~${cycles} offer${cycles === 1 ? "" : "s"} like this` : "—" },
+  ];
+}
+
+function buildRideAlong(slowList: SkuIntel[], anchor: Anchor, k: Knobs): Deck | null {
   const ratio = calcMixRatio(k);
-  const slowMc = 1;
   const anchorMc = ratio;
+  // Ride-Along basket: target ≈ anchor MC (roughly 1:1) so the offer stays
+  // digestible for one retailer but moves real volume of slow stock per shot.
+  const basket = clearanceBasket(slowList, Math.max(2, anchorMc), k);
+  if (basket.items.length === 0) return null;
+  const slowMc = basket.totalMc;
   const totalInvoice = (anchorMc + slowMc) * k.pricePerMc;
-  const coop = k.pricePerMc * 0.06;
+  const coop = k.pricePerMc * 0.06 * slowMc;
+  const dep = depletionInfo(basket, slowList, k);
 
   const ourRisk = rateRisk(riskScore(slowMc, anchorMc, k));
   const appeal = rateAppeal(appealScore(k, ratio <= 8 ? 5 : 0));
 
-  const swapText = swapWordy(k.swapClause, slow.name, coop);
-  const headline = `For every ${ratio} mastercases of ${anchor.name} you order, we add 1 mastercase of ${slow.name} at the same per-MC price.`;
+  const flavorNames = basketFlavorNames(basket);
+  const swapText = swapWordy(k.swapClause, flavorNames, coop);
+  const headline = `For every ${anchorMc} mastercases of ${anchor.name} you order, we add a ${slowMc}-MC clearance basket: ${basketBundleLine(basket)}. Same per-MC price across every line.`;
 
-  // Scarcity hook — when the anchor is running out, lead with that. The retailer
-  // already wants the bestseller; we're just making sure the slow MC ride along.
   const scarcityIntro =
     anchor.tier === "SCARCE"
       ? `Heads up — at your current run rate (${fmt(anchor.avg3m)} mastercases/month) you've got ${stockRunwayPhrase(anchor.moc)} on ${anchor.name}. This is your window to lock supply before the next batch.`
       : anchor.tier === "TIGHT"
       ? `Quick heads up — ${anchor.name} is running tight (${stockRunwayPhrase(anchor.moc)} at your ${fmt(anchor.avg3m)} MC/month pace). Worth locking your next order now.`
       : `You're already moving ${fmt(anchor.avg3m)} mastercases of ${anchor.name} a month.`;
-  // Same scarcity hook flows into all three channels — it's the whole point of
-  // anchor scarcity tiering. SMS uses a tight prefix to stay under 160 chars.
   const isScarce = anchor.tier === "SCARCE" || anchor.tier === "TIGHT";
   const smsPrefix = isScarce ? `LOW STOCK ${anchor.name}: ` : "";
   const waPrefix = anchor.tier === "SCARCE"
@@ -267,23 +346,25 @@ function buildRideAlong(slow: SkuIntel, anchor: Anchor, k: Knobs): Deck {
     : anchor.tier === "TIGHT"
     ? `⚠️ ${anchor.name} is running tight (${stockRunwayPhrase(anchor.moc)}).\n\n`
     : "";
-  const phone = `Hi — quick one. ${scarcityIntro} Easiest deal I have this quarter: order ${ratio} MC of ${anchor.name} like you usually do, and I add 1 MC of ${slow.name} on the same invoice at the SAME $${fmt(k.pricePerMc, 0)} per MC. Total comes to $${fmt(totalInvoice)}. ${swapText} Same per-MC price you've been paying — just a different mix. Want me to write it up?`;
-  const sms = clampSms(`${smsPrefix}Order ${ratio} MC ${anchor.name} + 1 MC ${slow.name} at same $/MC. ${k.swapClause === "coop" ? `$${fmt(coop, 0)} co-op` : `${k.swapClause}d swap`}. YES to lock.`);
-  const whatsapp = `${waPrefix}Hey 👋\n\nQuick offer for ${anchor.name}: order ${ratio} mastercases (your usual), and we add 1 MC of ${slow.name} at the same per-MC price.\n\nTotal: $${fmt(totalInvoice)}.\n${swapText}\n\nWant me to add it to your next order?`;
+
+  const phone = `Hi — quick one. ${scarcityIntro} Easiest deal I have this quarter: order ${anchorMc} MC of ${anchor.name} like you usually do, and I add a ${slowMc}-MC clearance basket — ${basketBundleLine(basket)} — on the same invoice at the SAME $${fmt(k.pricePerMc, 0)} per MC. Total comes to $${fmt(totalInvoice)}. ${swapText} Same per-MC price you've been paying — just a wider mix. We've got ${fmt(dep.totalSlowMc)} MC of slow stock to clear country-wide; this offer alone, run ~${dep.cycles}× across your peers, drains it. Want me to write it up?`;
+  const sms = clampSms(`${smsPrefix}${anchorMc} MC ${anchor.name} + ${slowMc}-MC mix (${flavorNames}) at same $/MC. ${k.swapClause === "coop" ? `$${fmt(coop, 0)} co-op` : `${k.swapClause}d swap`}. YES to lock.`);
+  const whatsapp = `${waPrefix}Hey 👋\n\nQuick offer for ${anchor.name}: order ${anchorMc} mastercases (your usual), and we add a ${slowMc}-MC clearance basket at the same per-MC price.\n\nBasket: ${basketBundleLine(basket)}.\nTotal: $${fmt(totalInvoice)}.\n${swapText}\n\nWant me to add it to your next order?`;
 
   return {
     templateId: "rideAlong",
     templateName: "The Ride-Along",
     templateTag: "Simplest piggyback",
     templateIcon: Bike,
-    primarySlowId: slow.id,
-    forLine: `for ${slow.name} (${slow.weight})`,
+    primarySlowId: basket.items[0].sku.id,
+    forLine: `for ${flavorNames}`,
     headline,
     bundle: [
       { label: `Mastercases of bestseller (${anchor.name})`, value: `${anchorMc} MC` },
-      { label: `Mastercases of slow flavor (${slow.name})`, value: `${slowMc} MC` },
+      { label: `Slow clearance basket (${basket.items.length} flavor${basket.items.length === 1 ? "" : "s"})`, value: `${slowMc} MC — ${basketBundleLine(basket)}` },
       { label: "Per-mastercase price (unchanged)",      value: `$${fmt(k.pricePerMc)} / MC` },
       { label: "Total invoice",                          value: `$${fmt(totalInvoice)}` },
+      ...depletionBundleRow(basket, slowList, k),
       { label: "Swap promise",                           value: k.swapClause === "coop" ? `$${fmt(coop, 0)} co-op fund` : `${k.swapClause} days, 1-for-1` },
       { label: "Pricing approach",                       value: pricingGuardLabel(k.pricingGuard) },
     ],
@@ -291,14 +372,12 @@ function buildRideAlong(slow: SkuIntel, anchor: Anchor, k: Knobs): Deck {
       anchor.tier === "SCARCE" || anchor.tier === "TIGHT"
         ? `${anchor.name} is running out (${stockRunwayPhrase(anchor.moc)}) — locking this order guarantees your supply doesn't break.`
         : "Same per-MC price on every line — nothing on the invoice looks like a discount.",
-      `${anchor.name} is your fastest-mover; the slow mastercase rides along with no extra effort.`,
-      k.swapClause === "coop"
-        ? "Co-op fund pays for an Instagram boost — pulls customers into the new flavor."
-        : `Risk-free: ${k.swapClause}-day swap means no dead stock if it doesn't move.`,
+      `${anchor.name} is your fastest-mover; ${slowMc} MC of variety stock rides along with no extra effort.`,
+      `Clears ~${Math.round((basket.totalMc / Math.max(1, dep.totalSlowMc)) * 100)}% of the country's dead stock per offer — repeat across peers and the warehouse drains in ~${dep.cycles} cycles.`,
     ],
     catches: [
-      ratio >= 13 ? `Bestseller-to-slow ratio is ${ratio}:1 — sharp buyers may sniff a giveaway and push for more. Hold the line.` : `Bestseller-to-slow ratio is ${ratio}:1 — fair-looking on both sides.`,
-      slow.avg3m <= 2 ? "Slow flavor's historical sell-through is very low — expect swap claims at day 90." : "Slow flavor still has some pulse — a single round usually clears.",
+      `Bundled slow MC is ${slowMc} (across ${basket.items.length} flavor${basket.items.length === 1 ? "" : "s"}) vs ${anchorMc} MC bestseller — ratio ${(anchorMc / slowMc).toFixed(1)}:1. Sharp buyers may push for more; hold the line.`,
+      basket.items.some(i => i.sku.avg3m <= 2) ? "At least one basket flavor has near-zero historical sell-through — expect swap claims at day 90." : "All basket flavors still have some pulse — a single round usually clears.",
     ],
     ourRisk,
     retailerAppeal: appeal,
@@ -306,48 +385,54 @@ function buildRideAlong(slow: SkuIntel, anchor: Anchor, k: Knobs): Deck {
   };
 }
 
-function buildVarietyBuilder(slows: SkuIntel[], anchor: Anchor, k: Knobs): Deck {
-  const slowList = slows.slice(0, 2);
-  const anchorMc = clamp(Math.ceil(200 / Math.max(1, k.mixPct)), 6, 12); // two slows; double the bestseller
-  const slowMc = slowList.length;
+function buildVarietyBuilder(slowList: SkuIntel[], anchor: Anchor, k: Knobs): Deck | null {
+  const anchorMc = clamp(Math.ceil(200 / Math.max(1, k.mixPct)), 6, 12);
+  // Variety is the "go wide" play — bigger basket (~anchorMc MC) across as
+  // many flavors as we can fit (cap 6) so the retailer's shelf gets a full
+  // refresh, not just a token bottle.
+  const basket = clearanceBasket(slowList, anchorMc, k, 6);
+  if (basket.items.length === 0) return null;
+  const slowMc = basket.totalMc;
   const totalInvoice = (anchorMc + slowMc) * k.pricePerMc;
-  const coopBoost = 50 * slowMc;
+  const coopBoost = 50 * basket.items.length;
+  const dep = depletionInfo(basket, slowList, k);
 
   const ourRisk = rateRisk(riskScore(slowMc, anchorMc, k, 10));
   const appeal = rateAppeal(appealScore(k, 12));
-  const slowNames = slowList.map(s => s.name).join(" and ");
-  const swapText = swapWordy(k.swapClause, slowNames, coopBoost);
+  const flavorNames = basketFlavorNames(basket);
+  const swapText = swapWordy(k.swapClause, flavorNames, coopBoost);
 
-  const headline = `Bundle ${anchorMc} mastercases of ${anchor.name} + 1 MC each of ${slowNames}. Same per-MC price across all flavors. We add a $${coopBoost} Instagram launch fund.`;
+  const headline = `Bundle ${anchorMc} mastercases of ${anchor.name} + a ${slowMc}-MC variety basket: ${basketBundleLine(basket)}. Same per-MC price across all flavors. We add a $${coopBoost} Instagram launch fund.`;
 
-  const phone = `Bigger play this quarter: I want to make you the only retailer in your zone carrying ${slowNames}. Bundle is ${anchorMc} MC of ${anchor.name} + 1 MC of each new flavor. Same per-MC price all the way through — total $${fmt(totalInvoice)}. We add $${coopBoost} for a one-week Instagram launch and I drop off the artwork. ${swapText} Three flavors, one invoice, one launch — your customers see a fresh menu without you changing prices.`;
-  const sms = clampSms(`Launch: ${anchorMc} MC ${anchor.name} + 1 MC ea ${slowNames}. $${fmt(totalInvoice)} + $${coopBoost} IG fund. Zone exclusive. YES?`);
-  const whatsapp = `Quarterly launch idea 🎁\n\n${anchorMc} MC ${anchor.name} + 1 MC each of ${slowNames} — same per-MC price.\n\nTotal: $${fmt(totalInvoice)} + we fund $${coopBoost} Instagram boost.\n\n${swapText}\n\nGives you 2 limited flavors no other shop in your zone gets. Worth a try?`;
+  const phone = `Bigger play this quarter: I want to make you the only retailer in your zone carrying ${flavorNames}. Bundle is ${anchorMc} MC of ${anchor.name} + a ${slowMc}-MC variety basket (${basketBundleLine(basket)}). Same per-MC price all the way through — total $${fmt(totalInvoice)}. We add $${coopBoost} for a one-week Instagram launch and I drop off the artwork. ${swapText} ${basket.items.length + 1} flavors, one invoice, one launch — your customers see a fresh menu without you changing prices. This single bundle clears ~${Math.round((basket.totalMc / Math.max(1, dep.totalSlowMc)) * 100)}% of our country dead-stock pile.`;
+  const sms = clampSms(`Launch: ${anchorMc} MC ${anchor.name} + ${slowMc} MC mix (${flavorNames}). $${fmt(totalInvoice)} + $${coopBoost} IG fund. Zone exclusive. YES?`);
+  const whatsapp = `Quarterly launch idea 🎁\n\n${anchorMc} MC ${anchor.name} + ${slowMc}-MC variety basket — same per-MC price.\n\nBasket: ${basketBundleLine(basket)}.\nTotal: $${fmt(totalInvoice)} + we fund $${coopBoost} Instagram boost.\n\n${swapText}\n\nGives you ${basket.items.length} limited flavors no other shop in your zone gets. Worth a try?`;
 
   return {
     templateId: "variety",
     templateName: "The Variety Builder",
     templateTag: "Multi-flavor launch",
     templateIcon: Gift,
-    primarySlowId: slowList[0].id,
-    forLine: `for ${slowNames}`,
+    primarySlowId: basket.items[0].sku.id,
+    forLine: `for ${flavorNames}`,
     headline,
     bundle: [
       { label: `Mastercases of bestseller (${anchor.name})`, value: `${anchorMc} MC` },
-      { label: "Mastercases of slow flavors (1 each)", value: `${slowMc} MC (${slowNames})` },
+      { label: `Variety basket (${basket.items.length} flavors)`, value: `${slowMc} MC — ${basketBundleLine(basket)}` },
       { label: "Per-mastercase price (unchanged)",      value: `$${fmt(k.pricePerMc)} / MC` },
       { label: "Total invoice",                          value: `$${fmt(totalInvoice)}` },
+      ...depletionBundleRow(basket, slowList, k),
       { label: "Marketing fund we add",                  value: `$${fmt(coopBoost)} (Instagram launch)` },
       { label: "Swap promise",                           value: k.swapClause === "coop" ? `Bundled into the $${fmt(coopBoost, 0)} fund` : `${k.swapClause} days, 1-for-1` },
       { label: "Pricing approach",                       value: pricingGuardLabel(k.pricingGuard) },
     ],
     whyYes: [
-      `Two limited flavors no other retailer in your zone gets — your shelf looks fresher than the competition's.`,
-      `Same per-MC price on all 3 flavors — no awkward discount conversation with your accountant.`,
-      `$${coopBoost} Instagram fund covers a full week of paid posts — pulls customers in instead of pushing product onto them.`,
+      `${basket.items.length} limited flavors no other retailer in your zone gets — your shelf looks fresher than the competition's.`,
+      `Same per-MC price on all ${basket.items.length + 1} flavors — no awkward discount conversation with your accountant.`,
+      `$${coopBoost} Instagram fund covers a week+ of paid posts — pulls customers in instead of pushing product onto them.`,
     ],
     catches: [
-      "Two slow flavors at once = double swap-back exposure if neither moves. Make sure the retailer can run the launch within 30 days.",
+      `${basket.items.length} slow flavors at once = ${basket.items.length}× swap-back exposure if none move. Make sure the retailer can run the launch within 30 days.`,
       `Bigger commitment than the simple Ride-Along — only pitch this to retailers who already trust you with ${anchor.name} volume.`,
     ],
     ourRisk,
@@ -356,53 +441,61 @@ function buildVarietyBuilder(slows: SkuIntel[], anchor: Anchor, k: Knobs): Deck 
   };
 }
 
-function buildSubscriptionLock(slow: SkuIntel, anchor: Anchor, k: Knobs): Deck {
+function buildSubscriptionLock(slowList: SkuIntel[], anchor: Anchor, k: Knobs): Deck | null {
   const weeks = 4;
   const weeklyAnchor = Math.max(2, Math.ceil(calcMixRatio(k) / 2));
-  const weeklySlow = 1;
+  // Subscription's basket is the FULL 4-week pile — distribute across up to
+  // 4 flavors so each weekly drop carries some variety (totalMc/weeks per
+  // shipment).  The user pays for bestseller MC only; slow MC are the loyalty
+  // gift.
+  const weeklySlowTarget = Math.max(2, Math.ceil(weeklyAnchor / 2));
+  const totalSlowTarget = weeklySlowTarget * weeks;
+  const basket = clearanceBasket(slowList, totalSlowTarget, k, 4);
+  if (basket.items.length === 0) return null;
+  const totalSlow = basket.totalMc;
   const totalAnchor = weeklyAnchor * weeks;
-  const totalSlow = weeklySlow * weeks;
-  // Subscription's promise is "1 FREE slow MC per week" — only the bestseller
-  // mastercases hit the invoice. The slow MC are the program's loyalty incentive.
   const billedInvoice = totalAnchor * k.pricePerMc;
   const slowGiftValue = totalSlow * k.pricePerMc;
   const coop = k.pricePerMc * 0.06 * totalSlow;
+  const dep = depletionInfo(basket, slowList, k);
 
   const ourRisk = rateRisk(riskScore(totalSlow, totalAnchor, k, -5));
   const appeal = rateAppeal(appealScore(k, k.size === "Small" ? -5 : 5));
-  const swapText = swapWordy(k.swapClause, slow.name, coop);
+  const flavorNames = basketFlavorNames(basket);
+  const swapText = swapWordy(k.swapClause, flavorNames, coop);
 
-  const headline = `Commit to ${weeklyAnchor} mastercases of ${anchor.name} every week for 4 weeks. Each shipment includes 1 MC of ${slow.name} at no extra charge.`;
+  const headline = `Commit to ${weeklyAnchor} mastercases of ${anchor.name} every week for 4 weeks. Across the program we throw in a ${totalSlow}-MC slow basket at no extra charge: ${basketBundleLine(basket)}.`;
 
-  const phone = `Different angle: instead of one big order, let's do a 4-week program. Every week I deliver ${weeklyAnchor} MC of ${anchor.name} and I throw in 1 MC of ${slow.name} on the same shipment — no extra charge. After 4 weeks: $${fmt(billedInvoice)} total invoice (you only pay for the bestseller MC — the slow MC are on us, $${fmt(slowGiftValue)} retail value). Paid weekly so it's easy on cash flow. ${swapText} Two big wins for you: your shelf is locked for a month so my competitors can't get in, and you discover whether ${slow.name} works for your customer without a big upfront bet.`;
-  const sms = clampSms(`4-wk: ${weeklyAnchor} MC ${anchor.name}/wk + 1 FREE MC ${slow.name}/wk. Pay $${fmt(billedInvoice)} (bestseller MC only). Weekly bill. Locks shelf. YES?`);
-  const whatsapp = `4-week subscription plan 🔁\n\nWeekly: ${weeklyAnchor} MC ${anchor.name} + 1 FREE MC ${slow.name}.\nYou pay: $${fmt(billedInvoice)} over 4 weeks (bestseller MC only — slow MC are on us, $${fmt(slowGiftValue)} retail value).\nBilled weekly — easier cash flow.\n\n${swapText}\n\nLocks your shelf for a month, blocks competing reps, and you find out if ${slow.name} clicks with your customers.`;
+  const phone = `Different angle: instead of one big order, let's do a 4-week program. Every week I deliver ${weeklyAnchor} MC of ${anchor.name} and across the month I throw in a ${totalSlow}-MC variety basket — ${basketBundleLine(basket)} — at no extra charge. After 4 weeks: $${fmt(billedInvoice)} total invoice (you only pay for the bestseller MC — the slow basket is on us, $${fmt(slowGiftValue)} retail value). Paid weekly so it's easy on cash flow. ${swapText} Two big wins: your shelf is locked for a month so my competitors can't get in, and you discover which of these flavors clicks with your customers without a big upfront bet. This program alone, repeated ~${dep.cycles}× across our key accounts, drains the country dead pile.`;
+  const sms = clampSms(`4-wk: ${weeklyAnchor} MC ${anchor.name}/wk + ${totalSlow} FREE MC mix (${flavorNames}) over the program. Pay $${fmt(billedInvoice)}. Weekly bill. YES?`);
+  const whatsapp = `4-week subscription plan 🔁\n\nWeekly: ${weeklyAnchor} MC ${anchor.name}.\nAcross the month: ${totalSlow}-MC FREE variety basket — ${basketBundleLine(basket)}.\nYou pay: $${fmt(billedInvoice)} over 4 weeks (bestseller MC only — slow basket on us, $${fmt(slowGiftValue)} retail value).\nBilled weekly — easier cash flow.\n\n${swapText}\n\nLocks your shelf for a month, blocks competing reps, and you find out which new flavor clicks with your customers.`;
 
   return {
     templateId: "subscription",
     templateName: "The Subscription Lock",
     templateTag: "4-week recurring",
     templateIcon: Repeat,
-    primarySlowId: slow.id,
-    forLine: `for ${slow.name} (${slow.weight})`,
+    primarySlowId: basket.items[0].sku.id,
+    forLine: `for ${flavorNames}`,
     headline,
     bundle: [
       { label: "Program length",                            value: "4 weeks" },
       { label: `Weekly: bestseller (${anchor.name})`,       value: `${weeklyAnchor} MC × 4 = ${totalAnchor} MC (billed)` },
-      { label: `Weekly: slow flavor (${slow.name})`,        value: `1 MC × 4 = ${totalSlow} MC (FREE — on us)` },
+      { label: `Slow basket across program (${basket.items.length} flavors)`, value: `${totalSlow} MC FREE — ${basketBundleLine(basket)}` },
       { label: "Per-mastercase price (unchanged)",           value: `$${fmt(k.pricePerMc)} / MC` },
       { label: "Total invoice (you pay)",                    value: `$${fmt(billedInvoice)}` },
-      { label: "Slow-flavor gift value",                     value: `$${fmt(slowGiftValue)} (retail)` },
+      { label: "Slow-basket gift value",                     value: `$${fmt(slowGiftValue)} (retail)` },
+      ...depletionBundleRow(basket, slowList, k),
       { label: "Billing",                                    value: "Weekly invoices, easier cash flow" },
       { label: "Pricing approach",                           value: pricingGuardLabel(k.pricingGuard) },
     ],
     whyYes: [
       "Smooths cash flow — no big single payment, billed weekly as you sell.",
       "Locks the shelf for a month — competing reps can't get an order in until day 28.",
-      "You discover whether the new flavor works for your customer without a big upfront bet.",
+      `You discover which of ${basket.items.length} new flavors works for your customer without a big upfront bet.`,
     ],
     catches: [
-      "Requires a 4-week commitment — if the retailer cancels mid-program, the deal becomes a regular Ride-Along (no penalty, but no free flavor either).",
+      "Requires a 4-week commitment — if the retailer cancels mid-program, the deal becomes a regular Ride-Along (no penalty, but no free flavors either).",
       "Need a clean weekly logistics slot — confirm delivery day before you sign.",
     ],
     ourRisk,
@@ -411,48 +504,55 @@ function buildSubscriptionLock(slow: SkuIntel, anchor: Anchor, k: Knobs): Deck {
   };
 }
 
-function buildCafeStarter(slow: SkuIntel, anchor: Anchor, k: Knobs): Deck {
+function buildCafeStarter(slowList: SkuIntel[], anchor: Anchor, k: Knobs): Deck | null {
   const anchorMc = 3;
-  const slowMc = 1;
+  // Cafe is the smallest entry — 2-MC sample basket across up to 2 flavors so
+  // a small café can taste-test without a real commitment.
+  const basket = clearanceBasket(slowList, 2, k, 2);
+  if (basket.items.length === 0) return null;
+  const slowMc = basket.totalMc;
   const totalInvoice = (anchorMc + slowMc) * k.pricePerMc;
   const demoValue = 150;
-  const coop = k.pricePerMc * 0.06;
+  const coop = k.pricePerMc * 0.06 * slowMc;
+  const dep = depletionInfo(basket, slowList, k);
 
-  const ourRisk = rateRisk(riskScore(slowMc, anchorMc, k, 10)); // demo costs us real money
-  const appeal = rateAppeal(appealScore(k, 15));                // small cafés love this
-  const swapText = swapWordy(k.swapClause, slow.name, coop);
+  const ourRisk = rateRisk(riskScore(slowMc, anchorMc, k, 10));
+  const appeal = rateAppeal(appealScore(k, 15));
+  const flavorNames = basketFlavorNames(basket);
+  const swapText = swapWordy(k.swapClause, flavorNames, coop);
 
-  const headline = `Smallest bundle: 3 mastercases of ${anchor.name} + 1 MC of ${slow.name}. Plus a free Friday-night hookah-master demo at your café (worth $${demoValue}).`;
+  const headline = `Smallest bundle: 3 mastercases of ${anchor.name} + a ${slowMc}-MC sample basket (${basketBundleLine(basket)}). Plus a free Friday-night hookah-master demo at your café (worth $${demoValue}).`;
 
-  const phone = `For your café specifically — small bundle, big experience. 3 MC of ${anchor.name} + 1 MC of ${slow.name}, total $${fmt(totalInvoice)}. Same per-MC price. The kicker: I send our hookah-master to your café for one Friday-night demo session — that's a $${demoValue} package on us. He builds a crowd around the new flavor, you sell hookahs and food all night, and the slow MC sells itself by Saturday. ${swapText} One of the easiest "yes" deals I have.`;
-  const sms = clampSms(`Café deal: 3 MC ${anchor.name} + 1 MC ${slow.name} = $${fmt(totalInvoice)}. + FREE Fri hookah-master demo ($${demoValue}). Limited slots. YES?`);
-  const whatsapp = `Café-sized bundle ☕\n\n3 MC ${anchor.name} + 1 MC ${slow.name} = $${fmt(totalInvoice)}.\n\n+ FREE hookah-master Friday-night demo at your café (worth $${demoValue}).\n\n${swapText}\n\nDemo brings new customers in, slow flavor sells itself by Saturday. Want a slot this month?`;
+  const phone = `For your café specifically — small bundle, big experience. 3 MC of ${anchor.name} + a ${slowMc}-MC sample basket (${basketBundleLine(basket)}), total $${fmt(totalInvoice)}. Same per-MC price. The kicker: I send our hookah-master to your café for one Friday-night demo session — that's a $${demoValue} package on us. He builds a crowd around the new flavors, you sell hookahs and food all night, and the slow basket sells itself by Saturday. ${swapText} One of the easiest "yes" deals I have.`;
+  const sms = clampSms(`Café deal: 3 MC ${anchor.name} + ${slowMc} MC mix (${flavorNames}) = $${fmt(totalInvoice)}. + FREE Fri demo ($${demoValue}). YES?`);
+  const whatsapp = `Café-sized bundle ☕\n\n3 MC ${anchor.name} + ${slowMc}-MC sample basket (${basketBundleLine(basket)}) = $${fmt(totalInvoice)}.\n\n+ FREE hookah-master Friday-night demo at your café (worth $${demoValue}).\n\n${swapText}\n\nDemo brings new customers in, basket sells itself by Saturday. Want a slot this month?`;
 
   return {
     templateId: "cafe",
     templateName: "The Café Starter Pack",
     templateTag: "Small-account entry",
     templateIcon: Coffee,
-    primarySlowId: slow.id,
-    forLine: `for ${slow.name} (${slow.weight})`,
+    primarySlowId: basket.items[0].sku.id,
+    forLine: `for ${flavorNames}`,
     headline,
     bundle: [
       { label: `Mastercases of bestseller (${anchor.name})`, value: `${anchorMc} MC` },
-      { label: `Mastercases of slow flavor (${slow.name})`, value: `${slowMc} MC` },
+      { label: `Sample basket (${basket.items.length} flavor${basket.items.length === 1 ? "" : "s"})`, value: `${slowMc} MC — ${basketBundleLine(basket)}` },
       { label: "Per-mastercase price (unchanged)",      value: `$${fmt(k.pricePerMc)} / MC` },
       { label: "Total invoice",                          value: `$${fmt(totalInvoice)}` },
       { label: "What we add",                            value: `Free Friday-night hookah-master demo (worth $${demoValue})` },
+      ...depletionBundleRow(basket, slowList, k),
       { label: "Swap promise",                           value: k.swapClause === "coop" ? `$${fmt(coop, 0)} co-op fund` : `${k.swapClause} days, 1-for-1` },
       { label: "Pricing approach",                       value: pricingGuardLabel(k.pricingGuard) },
     ],
     whyYes: [
       "Smallest bundle we offer — fits a single shelf and one weekend's traffic.",
-      "Free hookah-master demo brings new customers in — the slow flavor sells itself by Saturday.",
+      "Free hookah-master demo brings new customers in — the sample basket sells itself by Saturday.",
       "No commitment beyond this one bundle — pitch it as a no-brainer.",
     ],
     catches: [
       "Demo costs us real money — only worth it for cafés that can host on a Friday night and have a real customer base.",
-      "Single-bundle clears just 1 MC from our warehouse — needs many small accounts to move a meaningful chunk.",
+      `Cafe-sized basket clears ${slowMc} MC per offer — needs ~${dep.cycles} small-café accounts to drain the full pile.`,
     ],
     ourRisk,
     retailerAppeal: appeal,
@@ -460,48 +560,57 @@ function buildCafeStarter(slow: SkuIntel, anchor: Anchor, k: Knobs): Deck {
   };
 }
 
-function buildTerritoryExclusive(slow: SkuIntel, anchor: Anchor, k: Knobs): Deck {
+function buildTerritoryExclusive(slowList: SkuIntel[], anchor: Anchor, k: Knobs): Deck | null {
   const anchorMc = 20;
-  const slowMc = 5;
+  // Territory is the "big distributor takes a real chunk" play — big basket
+  // (~20 MC) across many flavors; one 90-day exclusivity covers the lead
+  // flavor (largest piece of the basket).
+  const basket = clearanceBasket(slowList, 20, k, 6);
+  if (basket.items.length === 0) return null;
+  const slowMc = basket.totalMc;
   const totalInvoice = (anchorMc + slowMc) * k.pricePerMc;
   const coop = k.pricePerMc * 0.06 * slowMc;
+  const dep = depletionInfo(basket, slowList, k);
+  const leadFlavor = basket.items[0].sku;
 
   const ourRisk = rateRisk(riskScore(slowMc, anchorMc, k, 10));
   const appeal = rateAppeal(appealScore(k, 15));
-  const swapText = swapWordy(k.swapClause, slow.name, coop);
+  const flavorNames = basketFlavorNames(basket);
+  const swapText = swapWordy(k.swapClause, flavorNames, coop);
 
-  const headline = `Mega bundle: 20 mastercases of ${anchor.name} + 5 MC of ${slow.name}. Plus 90-day exclusive territory rights for ${slow.name} in your zone.`;
+  const headline = `Mega bundle: 20 mastercases of ${anchor.name} + a ${slowMc}-MC clearance basket (${basketBundleLine(basket)}). Plus 90-day exclusive territory rights for ${leadFlavor.name} in your zone.`;
 
-  const phone = `Reserved for our top distributors only. Bundle is 20 MC ${anchor.name} + 5 MC ${slow.name} — same per-MC price all the way, total $${fmt(totalInvoice)}. The big lever: you get 90-day exclusive territory rights for ${slow.name} in your zone. No other distributor can carry that flavor in your area for three months. We also book a quarterly business review with our planning lead — early access to new flavors before they hit the country. ${swapText} You scale, we scale, and your competitors are locked out of a flavor for a quarter.`;
-  const sms = clampSms(`Master deal: 20 MC ${anchor.name} + 5 MC ${slow.name} = $${fmt(totalInvoice)}. + 90d EXCLUSIVE zone for ${slow.name} + quarterly review. Reply CALL.`);
-  const whatsapp = `Reserved for top distributors 👑\n\n20 MC ${anchor.name} + 5 MC ${slow.name} = $${fmt(totalInvoice)} (same per-MC price).\n\n+ 90-day EXCLUSIVE territory rights for ${slow.name} in your zone (no other distributor can carry it).\n+ Quarterly business review with our planning lead.\n\n${swapText}\n\nLet's set up a call to walk through it.`;
+  const phone = `Reserved for our top distributors only. Bundle is 20 MC ${anchor.name} + a ${slowMc}-MC clearance basket — ${basketBundleLine(basket)} — same per-MC price all the way, total $${fmt(totalInvoice)}. The big lever: you get 90-day exclusive territory rights for ${leadFlavor.name} in your zone. No other distributor can carry that flavor in your area for three months. We also book a quarterly business review with our planning lead — early access to new flavors before they hit the country. ${swapText} You scale, we scale, and your competitors are locked out. This single bundle clears ~${Math.round((basket.totalMc / Math.max(1, dep.totalSlowMc)) * 100)}% of our country dead pile in one shot.`;
+  const sms = clampSms(`Master deal: 20 MC ${anchor.name} + ${slowMc} MC mix (${flavorNames}) = $${fmt(totalInvoice)}. + 90d EXCLUSIVE ${leadFlavor.name}. Reply CALL.`);
+  const whatsapp = `Reserved for top distributors 👑\n\n20 MC ${anchor.name} + ${slowMc}-MC clearance basket = $${fmt(totalInvoice)} (same per-MC price).\n\nBasket: ${basketBundleLine(basket)}.\n+ 90-day EXCLUSIVE territory rights for ${leadFlavor.name} in your zone.\n+ Quarterly business review with our planning lead.\n\n${swapText}\n\nLet's set up a call to walk through it.`;
 
   return {
     templateId: "territory",
     templateName: "The Territory Exclusive",
     templateTag: "Master distributor deal",
     templateIcon: Crown,
-    primarySlowId: slow.id,
-    forLine: `for ${slow.name} (${slow.weight})`,
+    primarySlowId: leadFlavor.id,
+    forLine: `for ${flavorNames}`,
     headline,
     bundle: [
       { label: `Mastercases of bestseller (${anchor.name})`, value: `${anchorMc} MC` },
-      { label: `Mastercases of slow flavor (${slow.name})`, value: `${slowMc} MC` },
+      { label: `Clearance basket (${basket.items.length} flavors)`, value: `${slowMc} MC — ${basketBundleLine(basket)}` },
       { label: "Per-mastercase price (unchanged)",      value: `$${fmt(k.pricePerMc)} / MC` },
       { label: "Total invoice",                          value: `$${fmt(totalInvoice)}` },
-      { label: "Exclusive territory rights",            value: `90 days for ${slow.name}` },
+      { label: "Exclusive territory rights",            value: `90 days for ${leadFlavor.name}` },
       { label: "Bonus",                                  value: "Quarterly business review + early access to new flavors" },
+      ...depletionBundleRow(basket, slowList, k),
       { label: "Swap promise",                           value: k.swapClause === "coop" ? `$${fmt(coop, 0)} co-op fund` : `${k.swapClause} days, 1-for-1` },
       { label: "Pricing approach",                       value: pricingGuardLabel(k.pricingGuard) },
     ],
     whyYes: [
-      `Only distributor in your zone with ${slow.name} for 90 days — your competition can't list it at any price.`,
+      `Only distributor in your zone with ${leadFlavor.name} for 90 days — your competition can't list it at any price.`,
       "Quarterly business review = early access to new flavors before the rest of the country sees them.",
-      "Largest bundle = best per-MC logistics for your warehouse run.",
+      `Largest single-shot clearance — ${slowMc} MC of slow stock moved per bundle (~${Math.round((basket.totalMc / Math.max(1, dep.totalSlowMc)) * 100)}% of country dead pile).`,
     ],
     catches: [
-      "Big upfront commitment — your warehouse needs to absorb 25 MC. Make sure the retailer has the cash and the shelf.",
-      "Exclusivity ends at day 90; renewal requires hitting 60% sell-through on the slow flavor.",
+      `Big upfront commitment — your warehouse needs to absorb ${anchorMc + slowMc} MC. Make sure the retailer has the cash and the shelf.`,
+      `Exclusivity ends at day 90; renewal requires hitting 60% sell-through on ${leadFlavor.name}.`,
     ],
     ourRisk,
     retailerAppeal: appeal,
@@ -521,15 +630,17 @@ const CHANNEL_DECK_PRIORITY: Record<Channel, Deck["templateId"][]> = {
 };
 
 // Build up to 5 ready-to-apply decks given the slow-SKU list and an anchor.
+// Each builder may return null when the basket comes up empty (e.g. all
+// candidates have closingStock === 0 after capping); we silently drop those.
 function buildAllDecks(slowList: SkuIntel[], anchor: Anchor, k: Knobs): Deck[] {
-  const decks: Deck[] = [];
-  if (slowList[0]) decks.push(buildRideAlong(slowList[0], anchor, k));
-  if (slowList.length >= 2) decks.push(buildVarietyBuilder(slowList, anchor, k));
-  if (slowList[0]) decks.push(buildSubscriptionLock(slowList[0], anchor, k));
-  const moderate = slowList.length >= 3 ? slowList[slowList.length - 1] : slowList[0];
-  if (moderate) decks.push(buildCafeStarter(moderate, anchor, k));
-  if (slowList[0]) decks.push(buildTerritoryExclusive(slowList[0], anchor, k));
-  return decks;
+  const builders = [
+    () => buildRideAlong(slowList, anchor, k),
+    () => slowList.length >= 2 ? buildVarietyBuilder(slowList, anchor, k) : null,
+    () => buildSubscriptionLock(slowList, anchor, k),
+    () => buildCafeStarter(slowList, anchor, k),
+    () => buildTerritoryExclusive(slowList, anchor, k),
+  ];
+  return builders.map(b => b()).filter((d): d is Deck => d !== null);
 }
 
 // ────────────────────────────────────────────────────────────────────────────
