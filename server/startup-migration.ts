@@ -51,13 +51,7 @@ export async function runStartupMigration() {
     // Ensure any new columns exist in the schema (idempotent)
     await ensureSchemaColumns(dbInstance);
 
-    // Check if DB is already seeded
     const { getSkusForCountry, restoreSnapshot, importClearanceEvent } = db;
-    const existing = await getSkusForCountry("Lebanon");
-    if (existing.length > 0) {
-      console.log(`[Migration] DB already seeded (${existing.length} Lebanon SKUs found). Skipping.`);
-      return;
-    }
 
     const seedFilePath = path.join(__dirname, "seed-data.json");
     if (!fs.existsSync(seedFilePath)) {
@@ -65,7 +59,6 @@ export async function runStartupMigration() {
       return;
     }
 
-    console.log("[Migration] DB is empty. Running startup seed migration...");
     const raw = fs.readFileSync(seedFilePath, "utf-8");
     const payload = JSON.parse(raw);
 
@@ -74,30 +67,50 @@ export async function runStartupMigration() {
       return;
     }
 
+    // PER-COUNTRY seed: only restore countries that have zero SKUs in the
+    // target DB. This handles the case where a deployment's DB was hand-seeded
+    // with one country's data (e.g. Lebanon only) and never got the other
+    // markets — without this, the original "if Lebanon exists, skip everything"
+    // gate would leave Syria/Libya/KSA permanently empty.
     const countries = ["Lebanon", "Syria", "Libya", "KSA"] as const;
     const combined: any = {
       skus: [], periods: [], forecast: [], ims: [],
       shipment: [], arrival: [], planningFg: [],
     };
+    const countriesToSeed: string[] = [];
     for (const country of countries) {
-      const snap = payload.snapshots[country];
-      if (snap) {
-        combined.skus.push(...(snap.skus ?? []));
-        combined.periods.push(...(snap.periods ?? []));
-        combined.forecast.push(...(snap.forecast ?? []));
-        combined.ims.push(...(snap.ims ?? []));
-        combined.shipment.push(...(snap.shipment ?? []));
-        combined.arrival.push(...(snap.arrival ?? []));
-        combined.planningFg.push(...(snap.planningFg ?? []));
+      const existing = await getSkusForCountry(country);
+      if (existing.length > 0) {
+        console.log(`[Migration] ${country}: ${existing.length} SKUs already present. Skipping.`);
+        continue;
       }
+      const snap = payload.snapshots[country];
+      if (!snap) {
+        console.log(`[Migration] ${country}: no seed snapshot in seed-data.json. Skipping.`);
+        continue;
+      }
+      countriesToSeed.push(country);
+      combined.skus.push(...(snap.skus ?? []));
+      combined.periods.push(...(snap.periods ?? []));
+      combined.forecast.push(...(snap.forecast ?? []));
+      combined.ims.push(...(snap.ims ?? []));
+      combined.shipment.push(...(snap.shipment ?? []));
+      combined.arrival.push(...(snap.arrival ?? []));
+      combined.planningFg.push(...(snap.planningFg ?? []));
     }
 
+    if (countriesToSeed.length === 0) {
+      console.log("[Migration] All countries already seeded. Skipping.");
+      return;
+    }
+
+    console.log(`[Migration] Seeding missing countries: ${countriesToSeed.join(", ")}...`);
     await restoreSnapshot(combined);
-    console.log(`[Migration] Restored ${combined.skus.length} SKUs, ${combined.periods.length} periods.`);
+    console.log(`[Migration] Restored ${combined.skus.length} SKUs, ${combined.periods.length} periods across ${countriesToSeed.length} country(ies).`);
 
     if (payload.clearanceEvents) {
       let evCount = 0;
-      for (const country of countries) {
+      for (const country of countriesToSeed) {
         const events = payload.clearanceEvents[country];
         if (!events?.length) continue;
         for (const ev of events) {
