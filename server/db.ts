@@ -1,7 +1,7 @@
 import { eq, and, asc, inArray, sql, desc, gt } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { InsertUser, users, skus, periods, forecastData, imsData, shipmentData, arrivalData, planningFgData, uploadHistory, auditTrail, ssofVersions, versionComments, revisedForecastData, clearanceEvents, appUsers, competitorData, appSettings } from "../drizzle/schema";
+import { InsertUser, users, skus, periods, forecastData, imsData, shipmentData, arrivalData, planningFgData, uploadHistory, auditTrail, ssofVersions, versionComments, actualProductionData, clearanceEvents, appUsers, competitorData, appSettings } from "../drizzle/schema";
 import type { AuditTrail, InsertAuditTrail, InsertSsofVersion, Country, ClearanceEvent, AppUserRow, InsertAppUser } from "../drizzle/schema";
 import type { Sku, InsertSku, Period, ForecastData, ImsData, ShipmentData, ArrivalData, PlanningFgData, SsofVersion } from "../drizzle/schema";
 import { ENV } from './_core/env';
@@ -183,7 +183,7 @@ export async function createSkuForCountry(country: Country, data: { name: string
     const skuId = result.id;
     await db.insert(forecastData).values(allPeriods.map(p => ({ skuId, periodId: p.id, value: "0" })));
     await db.insert(imsData).values(allPeriods.map(p => ({ skuId, periodId: p.id, value: "0", isActual: false })));
-    await db.insert(revisedForecastData).values(allPeriods.map(p => ({ skuId, periodId: p.id, value: "0" })));
+    await db.insert(actualProductionData).values(allPeriods.map(p => ({ skuId, periodId: p.id, value: "0" })));
     await db.insert(shipmentData).values(allPeriods.map(p => ({ skuId, periodId: p.id, week1: "0", week2: "0", week3: "0", week4: "0" })));
     await db.insert(arrivalData).values(allPeriods.map(p => ({ skuId, periodId: p.id, week1: "0", week2: "0", week3: "0", week4: "0" })));
     await db.insert(planningFgData).values(allPeriods.map(p => ({ skuId, periodId: p.id, openingStock: "0", adjustments: "0", invoiced: "0", arrivals: "0" })));
@@ -217,28 +217,28 @@ export async function getForecastDataForCountry(country: Country) {
   return db.select().from(forecastData).where(inArray(forecastData.skuId, skuIds)).orderBy(asc(forecastData.skuId), asc(forecastData.periodId));
 }
 
-export async function getRevisedForecastDataForCountry(country: Country) {
+export async function getActualProductionDataForCountry(country: Country) {
   const db = await getDb();
   if (!db) return [];
   const countrySkus = await getSkusForCountry(country);
   const skuIds = countrySkus.map(s => s.id);
   if (skuIds.length === 0) return [];
-  return db.select().from(revisedForecastData).where(inArray(revisedForecastData.skuId, skuIds)).orderBy(asc(revisedForecastData.skuId), asc(revisedForecastData.periodId));
+  return db.select().from(actualProductionData).where(inArray(actualProductionData.skuId, skuIds)).orderBy(asc(actualProductionData.skuId), asc(actualProductionData.periodId));
 }
 
-export async function upsertRevisedForecastData(skuId: number, periodId: number, value: string) {
+export async function upsertActualProductionData(skuId: number, periodId: number, value: string) {
   const db = await getDb();
   if (!db) return;
-  const existing = await db.select().from(revisedForecastData)
-    .where(and(eq(revisedForecastData.skuId, skuId), eq(revisedForecastData.periodId, periodId))).limit(1);
+  const existing = await db.select().from(actualProductionData)
+    .where(and(eq(actualProductionData.skuId, skuId), eq(actualProductionData.periodId, periodId))).limit(1);
   if (existing.length > 0) {
-    await db.update(revisedForecastData).set({ value }).where(eq(revisedForecastData.id, existing[0].id));
+    await db.update(actualProductionData).set({ value }).where(eq(actualProductionData.id, existing[0].id));
   } else {
-    await db.insert(revisedForecastData).values({ skuId, periodId, value });
+    await db.insert(actualProductionData).values({ skuId, periodId, value });
   }
 }
 
-export async function bulkUpsertRevisedForecast(records: { skuId: number; periodId: number; value: string }[]) {
+export async function bulkUpsertActualProduction(records: { skuId: number; periodId: number; value: string }[]) {
   const pool = await getPool();
   if (!pool || records.length === 0) return;
   const batchSize = 500;
@@ -246,7 +246,7 @@ export async function bulkUpsertRevisedForecast(records: { skuId: number; period
     const batch = records.slice(i, i + batchSize);
     const values = batch.map((r, idx) => `($${idx * 3 + 1}, $${idx * 3 + 2}, $${idx * 3 + 3})`).join(",");
     const params = batch.flatMap(r => [r.skuId, r.periodId, r.value]);
-    await pool.query(`INSERT INTO revised_forecast_data ("skuId", "periodId", value) VALUES ${values} ON CONFLICT ("skuId", "periodId") DO UPDATE SET value = EXCLUDED.value`, params);
+    await pool.query(`INSERT INTO actual_production_data ("skuId", "periodId", value) VALUES ${values} ON CONFLICT ("skuId", "periodId") DO UPDATE SET value = EXCLUDED.value`, params);
   }
 }
 
@@ -297,7 +297,7 @@ export async function addYearForCountry(country: Country, year: number) {
     for (const sku of allSkus) {
       await db.insert(forecastData).values(createdPeriods.map(p => ({ skuId: sku.id, periodId: p.id, value: "0" })));
       await db.insert(imsData).values(createdPeriods.map(p => ({ skuId: sku.id, periodId: p.id, value: "0", isActual: false })));
-      await db.insert(revisedForecastData).values(createdPeriods.map(p => ({ skuId: sku.id, periodId: p.id, value: "0" })));
+      await db.insert(actualProductionData).values(createdPeriods.map(p => ({ skuId: sku.id, periodId: p.id, value: "0" })));
       await db.insert(shipmentData).values(createdPeriods.map(p => ({ skuId: sku.id, periodId: p.id, week1: "0", week2: "0", week3: "0", week4: "0" })));
       await db.insert(arrivalData).values(createdPeriods.map(p => ({ skuId: sku.id, periodId: p.id, week1: "0", week2: "0", week3: "0", week4: "0" })));
       await db.insert(planningFgData).values(createdPeriods.map(p => ({ skuId: sku.id, periodId: p.id, openingStock: "0", adjustments: "0", invoiced: "0", arrivals: "0" })));
@@ -836,7 +836,7 @@ export async function ensureDataIndexes() {
     await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS shipment_data_sku_period_idx ON shipment_data ("skuId", "periodId")`);
     await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS arrival_data_sku_period_idx ON arrival_data ("skuId", "periodId")`);
     await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS planning_fg_data_sku_period_idx ON planning_fg_data ("skuId", "periodId")`);
-    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS revised_forecast_data_sku_period_idx ON revised_forecast_data ("skuId", "periodId")`);
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS actual_production_data_sku_period_idx ON actual_production_data ("skuId", "periodId")`);
   } catch (err) {
     console.warn("[DB] Failed to create indexes (may already exist):", err);
   }
@@ -1067,14 +1067,14 @@ export async function getAuditLogs(opts?: { limit?: number; offset?: number; use
 // ==================== COMPUTED DATA ====================
 export async function getFullPlanningData(weightFilter?: string) {
   const db = await getDb();
-  if (!db) return { skus: [], periods: [], forecast: [], ims: [], shipment: [], arrival: [], planningFg: [], revisedForecast: [] };
+  if (!db) return { skus: [], periods: [], forecast: [], ims: [], shipment: [], arrival: [], planningFg: [], actualProduction: [] };
   
   let skuList = await getSkusForCountry('Lebanon');
   if (weightFilter) {
     skuList = skuList.filter(s => s.weight === weightFilter);
   }
   const skuIds = skuList.map(s => s.id);
-  if (skuIds.length === 0) return { skus: skuList, periods: await getPeriodsForCountry('Lebanon'), forecast: [], ims: [], shipment: [], arrival: [], planningFg: [], revisedForecast: [] };
+  if (skuIds.length === 0) return { skus: skuList, periods: await getPeriodsForCountry('Lebanon'), forecast: [], ims: [], shipment: [], arrival: [], planningFg: [], actualProduction: [] };
   
   const periodList = await getPeriodsForCountry('Lebanon');
   const forecast = await db.select().from(forecastData).where(inArray(forecastData.skuId, skuIds));
@@ -1082,9 +1082,9 @@ export async function getFullPlanningData(weightFilter?: string) {
   const shipment = await db.select().from(shipmentData).where(inArray(shipmentData.skuId, skuIds));
   const arrival = await db.select().from(arrivalData).where(inArray(arrivalData.skuId, skuIds));
   const planning = await db.select().from(planningFgData).where(inArray(planningFgData.skuId, skuIds));
-  const revised = await db.select().from(revisedForecastData).where(inArray(revisedForecastData.skuId, skuIds));
+  const revised = await db.select().from(actualProductionData).where(inArray(actualProductionData.skuId, skuIds));
   
-  return { skus: skuList, periods: periodList, forecast, ims, shipment, arrival, planningFg: planning, revisedForecast: revised };
+  return { skus: skuList, periods: periodList, forecast, ims, shipment, arrival, planningFg: planning, actualProduction: revised };
 }
 
 // ==================== SSOF VERSIONS ====================
@@ -2132,12 +2132,12 @@ export async function getStockSnapshot() {
 // ==================== COUNTRY-SCOPED PLANNING FG ====================
 export async function getFullPlanningDataForCountry(country: Country) {
   const db = await getDb();
-  if (!db) return { skus: [], periods: [], forecast: [], ims: [], shipment: [], arrival: [], planningFg: [], clearanceEvents: [], revisedForecast: [] };
+  if (!db) return { skus: [], periods: [], forecast: [], ims: [], shipment: [], arrival: [], planningFg: [], clearanceEvents: [], actualProduction: [] };
   const skuList = await getSkusForCountry(country);
   const skuIds = skuList.map(s => s.id);
   if (skuIds.length === 0) {
     const periodList = await getPeriodsForCountry(country);
-    return { skus: skuList, periods: periodList, forecast: [], ims: [], shipment: [], arrival: [], planningFg: [], clearanceEvents: [], revisedForecast: [] };
+    return { skus: skuList, periods: periodList, forecast: [], ims: [], shipment: [], arrival: [], planningFg: [], clearanceEvents: [], actualProduction: [] };
   }
   const periodList = await getPeriodsForCountry(country);
   const forecast = await db.select().from(forecastData).where(inArray(forecastData.skuId, skuIds));
@@ -2146,8 +2146,8 @@ export async function getFullPlanningDataForCountry(country: Country) {
   const arrival = await db.select().from(arrivalData).where(inArray(arrivalData.skuId, skuIds));
   const planning = await db.select().from(planningFgData).where(inArray(planningFgData.skuId, skuIds));
   const clearEvts = await db.select().from(clearanceEvents).where(inArray(clearanceEvents.skuId, skuIds));
-  const revised = await db.select().from(revisedForecastData).where(inArray(revisedForecastData.skuId, skuIds));
-  return { skus: skuList, periods: periodList, forecast, ims, shipment, arrival, planningFg: planning, clearanceEvents: clearEvts, revisedForecast: revised };
+  const revised = await db.select().from(actualProductionData).where(inArray(actualProductionData.skuId, skuIds));
+  return { skus: skuList, periods: periodList, forecast, ims, shipment, arrival, planningFg: planning, clearanceEvents: clearEvts, actualProduction: revised };
 }
 
 export async function upsertCountryPlanningFgCell(skuId: number, periodId: number, data: { openingStock?: string; adjustments?: string; invoiced?: string; arrivals?: string }) {
@@ -2369,25 +2369,25 @@ export async function getIntlAnalysis(country: "Syria" | "Libya" | "KSA") {
   // Per-SKU production breakdown
   // - Forecast data (revised forecast) -
   const forecastRows = await db.select().from(forecastData).where(inArray(forecastData.skuId, skuIds));
-  const revisedForecastRows = await db.select().from(revisedForecastData).where(inArray(revisedForecastData.skuId, skuIds));
+  const actualProductionRows = await db.select().from(actualProductionData).where(inArray(actualProductionData.skuId, skuIds));
 
   const monthlyForecast = new Map<string, number>();
-  const monthlyRevisedForecast = new Map<string, number>();
+  const monthlyActualProduction = new Map<string, number>();
   for (const row of forecastRows) {
     const p = periodMap.get(row.periodId);
     if (!p) continue;
     const val = parseFloat(row.value ?? '0') || 0;
     monthlyForecast.set(p.label, (monthlyForecast.get(p.label) ?? 0) + val);
   }
-  for (const row of revisedForecastRows) {
+  for (const row of actualProductionRows) {
     const p = periodMap.get(row.periodId);
     if (!p) continue;
     const val = parseFloat(row.value ?? '0') || 0;
-    monthlyRevisedForecast.set(p.label, (monthlyRevisedForecast.get(p.label) ?? 0) + val);
+    monthlyActualProduction.set(p.label, (monthlyActualProduction.get(p.label) ?? 0) + val);
   }
 
   const monthlyForecastSeries = periodLabels.map((lbl) => monthlyForecast.get(lbl) ?? 0);
-  const monthlyRevisedForecastSeries = periodLabels.map((lbl) => monthlyRevisedForecast.get(lbl) ?? 0);
+  const monthlyActualProductionSeries = periodLabels.map((lbl) => monthlyActualProduction.get(lbl) ?? 0);
 
   // Forecast accuracy: compare forecast vs actual production per period
   const forecastAccuracyByPeriod = periodLabels.map((lbl, i) => {
@@ -2541,7 +2541,7 @@ export async function getIntlAnalysis(country: "Syria" | "Libya" | "KSA") {
     monthlyImsSeries,
     monthlyClosingStockSeries,
     monthlyForecastSeries,
-    monthlyRevisedForecastSeries,
+    monthlyActualProductionSeries,
     periodLabels,
     skuProductionBreakdown,
     weightBreakdown: weights.map((w) => ({
@@ -3490,7 +3490,7 @@ export async function getCurrentMonthClosingStock(country: "Lebanon" | "Syria" |
   const periodList = await getPeriodsForCountry(country);
   const imsRows = await db.select().from(imsData).where(inArray(imsData.skuId, skuIds));
   const fcRows = await db.select().from(forecastData).where(inArray(forecastData.skuId, skuIds));
-  const revRows = await db.select().from(revisedForecastData).where(inArray(revisedForecastData.skuId, skuIds));
+  const revRows = await db.select().from(actualProductionData).where(inArray(actualProductionData.skuId, skuIds));
   const planRows = await db.select().from(planningFgData).where(inArray(planningFgData.skuId, skuIds));
   const arrRows = country === "Lebanon"
     ? await db.select().from(arrivalData).where(inArray(arrivalData.skuId, skuIds))

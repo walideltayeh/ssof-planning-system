@@ -121,7 +121,7 @@ vi.mock("./db", () => {
     // Country-scoped read endpoints (Task #20). Stubbed so handlers reach
     // the `requireCountryAccess` gate without needing a real DB.
     getForecastDataForCountry: vi.fn(async () => []),
-    getRevisedForecastDataForCountry: vi.fn(async () => []),
+    getActualProductionDataForCountry: vi.fn(async () => []),
     getImsDataForCountry: vi.fn(async () => []),
     getShipmentDataForCountry: vi.fn(async () => []),
     getArrivalDataForCountry: vi.fn(async () => []),

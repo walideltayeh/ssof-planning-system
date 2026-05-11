@@ -15,6 +15,21 @@ async function ensureSchemaColumns(dbInstance: any) {
     `ALTER TABLE clearance_events ADD COLUMN IF NOT EXISTS "invoiceRef" varchar(200)`,
     `ALTER TABLE clearance_events ADD COLUMN IF NOT EXISTS "containerRef" varchar(200)`,
     `ALTER TABLE app_users ADD COLUMN IF NOT EXISTS "email" varchar(320)`,
+    // May 2026: rename revised_forecast_data → actual_production_data.
+    // Idempotent: only runs if old table exists and new one does not.
+    `DO $$
+     BEGIN
+       IF to_regclass('public.revised_forecast_data') IS NOT NULL
+          AND to_regclass('public.actual_production_data') IS NULL THEN
+         EXECUTE 'ALTER TABLE revised_forecast_data RENAME TO actual_production_data';
+         BEGIN
+           EXECUTE 'ALTER INDEX revised_forecast_data_pkey RENAME TO actual_production_data_pkey';
+         EXCEPTION WHEN undefined_object THEN NULL; END;
+         BEGIN
+           EXECUTE 'ALTER INDEX revised_forecast_data_sku_period_idx RENAME TO actual_production_data_sku_period_idx';
+         EXCEPTION WHEN undefined_object THEN NULL; END;
+       END IF;
+     END $$`,
   ];
   for (const sql of alterStatements) {
     try {

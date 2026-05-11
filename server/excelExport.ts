@@ -1117,7 +1117,7 @@ export async function generateSingleSheetBuffer(sheet: string): Promise<Buffer> 
 export async function generateSingleSheetBufferForCountry(country: "Syria" | "Libya" | "KSA", sheet: string): Promise<Buffer> {
   const data = await db.getFullPlanningDataForCountry(country);
   const { skus: allSkus, periods: allPeriods, forecast, ims, arrival, planningFg } = data;
-  const revisedForecast = await db.getRevisedForecastDataForCountry(country);
+  const actualProduction = await db.getActualProductionDataForCountry(country);
   const sortedPeriods = [...allPeriods].sort((a, b) => a.sortOrder - b.sortOrder);
 
   const wb = new ExcelJS.Workbook();
@@ -1129,7 +1129,7 @@ export async function generateSingleSheetBufferForCountry(country: "Syria" | "Li
   } else if (sheet === "forecast") {
     buildIntlForecastSheet(wb, "Forecast Production", allSkus, sortedPeriods, forecast);
   } else if (sheet === "forecast-vs-actual") {
-    buildIntlForecastVsActualSheet(wb, allSkus, sortedPeriods, forecast, revisedForecast);
+    buildIntlForecastVsActualSheet(wb, allSkus, sortedPeriods, forecast, actualProduction);
   } else if (sheet.startsWith("planning-fg-")) {
     const weight = sheet.replace("planning-fg-", "");
     if (allSkus.some(s => s.weight === weight)) {
@@ -1249,14 +1249,14 @@ function buildIntlForecastSheet(
 function buildIntlForecastVsActualSheet(
   wb: ExcelJS.Workbook, allSkus: Sku[], sortedPeriods: Period[],
   forecast: { skuId: number; periodId: number; value: string | null }[],
-  revisedForecast: { skuId: number; periodId: number; value: string | null }[]
+  actualProduction: { skuId: number; periodId: number; value: string | null }[]
 ) {
   const ws = wb.addWorksheet("Forecast vs Actual");
   ws.views = [{ state: "frozen", xSplit: 3, ySplit: 1 }];
   const fMap = new Map<string, number>();
   const rfMap = new Map<string, number>();
   for (const d of forecast) fMap.set(`${d.skuId}-${d.periodId}`, parseFloat(d.value ?? "0") || 0);
-  for (const d of revisedForecast) rfMap.set(`${d.skuId}-${d.periodId}`, parseFloat(d.value ?? "0") || 0);
+  for (const d of actualProduction) rfMap.set(`${d.skuId}-${d.periodId}`, parseFloat(d.value ?? "0") || 0);
   const headerRow = ws.addRow(["SKU Name", "Weight", "Packaging", ...sortedPeriods.map(p => p.label), "Total"]);
   applyHeaderStyle(headerRow, 3 + sortedPeriods.length + 1);
   ws.getRow(1).height = 20;
@@ -1269,7 +1269,7 @@ function buildIntlForecastVsActualSheet(
     const ftc = fRow.getCell(4 + fVals.length); ftc.value = fTotal || null; ftc.font = { bold: true }; bd(ftc);
     const rfVals = sortedPeriods.map(p => rfMap.get(`${sku.id}-${p.id}`) ?? 0);
     const rfTotal = rfVals.reduce((s, v) => s + v, 0);
-    const rfRow = ws.addRow([sku.name + " — Revised", sku.weight, sku.packagingType ?? "New", ...rfVals, rfTotal]);
+    const rfRow = ws.addRow([sku.name + " — Actual", sku.weight, sku.packagingType ?? "New", ...rfVals, rfTotal]);
     rfRow.eachCell(c => { c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF9C4" } }; bd(c); });
     for (let i = 0; i < rfVals.length; i++) { const c = rfRow.getCell(4 + i); c.value = rfVals[i] || null; bd(c); }
     const rftc = rfRow.getCell(4 + rfVals.length); rftc.value = rfTotal || null; rftc.font = { bold: true }; bd(rftc);
@@ -1354,7 +1354,7 @@ function buildIntlPlanningFgSheet(
 export async function generateExcelBufferForCountry(country: "Syria" | "Libya" | "KSA"): Promise<Buffer> {
   const data = await db.getFullPlanningDataForCountry(country);
   const { skus: allSkus, periods: allPeriods, forecast, ims, arrival, planningFg } = data;
-  const revisedForecast = await db.getRevisedForecastDataForCountry(country);
+  const actualProduction = await db.getActualProductionDataForCountry(country);
   const sortedPeriods = [...allPeriods].sort((a, b) => a.sortOrder - b.sortOrder);
   const weights = ["50g", "250g", "1kg"];
   const wb = new ExcelJS.Workbook();
@@ -1362,7 +1362,7 @@ export async function generateExcelBufferForCountry(country: "Syria" | "Libya" |
   wb.created = new Date();
   buildIntlImsSheet(wb, allSkus, sortedPeriods, ims);
   buildIntlForecastSheet(wb, "Forecast Production", allSkus, sortedPeriods, forecast);
-  buildIntlForecastVsActualSheet(wb, allSkus, sortedPeriods, forecast, revisedForecast);
+  buildIntlForecastVsActualSheet(wb, allSkus, sortedPeriods, forecast, actualProduction);
   for (const w of weights) {
     if (allSkus.some(s => s.weight === w)) {
       buildIntlPlanningFgSheet(wb, w, allSkus, sortedPeriods, ims, planningFg, arrival);
@@ -1937,7 +1937,7 @@ export async function generateIntlAnalysisExcelBuffer(country: "Syria" | "Libya"
     { header: "Production", key: "production", width: 16 },
     { header: "IMS", key: "ims", width: 14 },
     { header: "Forecast", key: "forecast", width: 16 },
-    { header: "Revised Forecast", key: "revised", width: 18 },
+    { header: "Actual Production", key: "actual_prod", width: 18 },
   ];
   for (let i = 0; i < periodLabels.length; i++) {
     const r = wsMonthly.addRow({
@@ -1945,7 +1945,7 @@ export async function generateIntlAnalysisExcelBuffer(country: "Syria" | "Libya"
       production: (data.monthlyProductionSeries as number[])[i] ?? 0,
       ims: (data.monthlyImsSeries as number[])[i] ?? 0,
       forecast: (data.monthlyForecastSeries as number[])[i] ?? 0,
-      revised: (data.monthlyRevisedForecastSeries as number[])[i] ?? 0,
+      actual_prod: (data.monthlyActualProductionSeries as number[])[i] ?? 0,
     });
     for (let c = 2; c <= 5; c++) r.getCell(c).numFmt = "#,##0";
   }

@@ -2,7 +2,7 @@
  * One-time script: wipe all data rows for Syria and Libya.
  * Preserves: skus, periods, users, app_users, ssof_versions, version_comments, user_presence
  * Deletes: forecast_data, ims_data, shipment_data, arrival_data, planning_fg_data,
- *          clearance_events, revised_forecast_data, upload_history (Syria/Libya entries)
+ *          clearance_events, actual_production_data, upload_history (Syria/Libya entries)
  */
 import mysql from 'mysql2/promise';
 
@@ -29,7 +29,7 @@ try {
   }
 
   // Tables that reference skuId
-  const skuTables = ['forecast_data', 'ims_data', 'shipment_data', 'arrival_data', 'planning_fg_data', 'revised_forecast_data', 'clearance_events'];
+  const skuTables = ['forecast_data', 'ims_data', 'shipment_data', 'arrival_data', 'planning_fg_data', 'actual_production_data', 'clearance_events'];
   for (const table of skuTables) {
     const [res] = await conn.query(`DELETE FROM ${table} WHERE skuId IN (?)`, [allIds]);
     console.log(`Deleted ${res.affectedRows} rows from ${table}`);

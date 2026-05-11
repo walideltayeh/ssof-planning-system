@@ -238,7 +238,7 @@ export default function IntlAnalysisPage() {
     monthlyImsSeries,
     monthlyClosingStockSeries,
     monthlyForecastSeries,
-    monthlyRevisedForecastSeries,
+    monthlyActualProductionSeries,
     periodLabels,
     skuProductionBreakdown,
     weightBreakdown,
@@ -488,10 +488,10 @@ export default function IntlAnalysisPage() {
           />
         </div>
 
-        {/* Forecast vs Actual vs Revised chart */}
+        {/* Forecast vs Actual chart */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Forecast vs Actual Production vs Revised Forecast</CardTitle>
+            <CardTitle className="text-sm">Forecast vs Actual Production</CardTitle>
           </CardHeader>
           <CardContent>
             <StackedBarChart
@@ -500,12 +500,12 @@ export default function IntlAnalysisPage() {
                 values: {
                   actual: (monthlyProductionSeries as number[])[i] ?? 0,
                   forecast: ((monthlyForecastSeries as number[]) ?? [])[i] ?? 0,
-                  revised: ((monthlyRevisedForecastSeries as number[]) ?? [])[i] ?? 0,
+                  revised: ((monthlyActualProductionSeries as number[]) ?? [])[i] ?? 0,
                 },
               }))}
               keys={["forecast", "revised", "actual"]}
               colors={{ forecast: "#8b5cf6", revised: "#3b82f6", actual: "#f59e0b" }}
-              labels={{ forecast: "Forecast", revised: "Revised Forecast", actual: "Actual Production" }}
+              labels={{ forecast: "Forecast", revised: "Actual (Manual Entry)", actual: "Actual (from Shipment)" }}
               formatter={fmt}
             />
           </CardContent>
@@ -526,8 +526,8 @@ export default function IntlAnalysisPage() {
                     <tr className="border-b bg-muted">
                       <th className="px-2 py-1.5 text-left font-medium">Period</th>
                       <th className="px-2 py-1.5 text-right font-medium text-purple-700">Forecast</th>
-                      <th className="px-2 py-1.5 text-right font-medium text-blue-700">Revised Forecast</th>
-                      <th className="px-2 py-1.5 text-right font-medium text-amber-600">Actual Production</th>
+                      <th className="px-2 py-1.5 text-right font-medium text-blue-700">Actual (Manual)</th>
+                      <th className="px-2 py-1.5 text-right font-medium text-amber-600">Actual (Shipment)</th>
                       <th className="px-2 py-1.5 text-right font-medium">Variance</th>
                       <th className="px-2 py-1.5 text-center font-medium">Accuracy</th>
                     </tr>

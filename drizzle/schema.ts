@@ -64,15 +64,18 @@ export const forecastData = pgTable("forecast_data", {
 });
 export type ForecastData = typeof forecastData.$inferSelect;
 
-// Revised forecast data for Syria/Libya (Forecast vs Forecast comparison)
-export const revisedForecastData = pgTable("revised_forecast_data", {
+// Actual production data for Syria/Libya/KSA (Forecast vs Actual comparison)
+// Records what was actually produced/shipped per SKU per period, to compare
+// against the forecast plan. Renamed from `revised_forecast_data` in May 2026
+// when the Arrival page was reframed as Plan vs Actual.
+export const actualProductionData = pgTable("actual_production_data", {
   id: serial("id").primaryKey(),
   skuId: integer("skuId").notNull(),
   periodId: integer("periodId").notNull(),
   value: numeric("value", { precision: 12, scale: 2 }).default("0"),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
-export type RevisedForecastData = typeof revisedForecastData.$inferSelect;
+export type ActualProductionData = typeof actualProductionData.$inferSelect;
 
 // IMS (actual) data (monthly values per SKU)
 // `source` records how the value got there:

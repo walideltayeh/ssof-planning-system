@@ -456,7 +456,7 @@ export async function importPlanningFgSheet(buffer: Buffer, weight: string, coun
   return { updated: recordsList.length, skipped: [...new Set(skipped)], sheet: `Planning FG ${weight}` };
 }
 
-export async function importRevisedForecastSheet(buffer: Buffer, country: string, username: string): Promise<ImportResult> {
+export async function importActualProductionSheet(buffer: Buffer, country: string, username: string): Promise<ImportResult> {
   const wb = new ExcelJS.Workbook();
   await loadXlsxBuffer(wb, buffer);
   const ws = findWorksheet(wb, ["Forecast vs Actual", "Forecast vs Forecast", "Revised Forecast"]);
@@ -473,9 +473,11 @@ export async function importRevisedForecastSheet(buffer: Buffer, country: string
     const row = ws.getRow(r);
     const nameCell = normalizeStr(row.getCell(1).value);
     if (!nameCell) continue;
-    if (!nameCell.toLowerCase().includes("revised")) continue;
+    // Accept both new "— Actual" and legacy "— Revised" suffixes from older exports
+    const lower = nameCell.toLowerCase();
+    if (!lower.includes("actual") && !lower.includes("revised")) continue;
 
-    const skuName = nameCell.replace(/\s*—\s*Revised$/i, "").trim();
+    const skuName = nameCell.replace(/\s*—\s*(Actual|Revised)$/i, "").trim();
     const weight = header.weightCol ? normalizeStr(row.getCell(header.weightCol).value) : undefined;
     const packaging = header.packagingCol ? normalizeStr(row.getCell(header.packagingCol).value) : undefined;
     const sku = lookupSku(skuMap, skuName, weight, packaging || undefined);
@@ -490,7 +492,7 @@ export async function importRevisedForecastSheet(buffer: Buffer, country: string
   }
 
   if (records.length > 0) {
-    await db.bulkUpsertRevisedForecast(dedup(records));
+    await db.bulkUpsertActualProduction(dedup(records));
   }
 
   await db.logAudit({
@@ -498,7 +500,7 @@ export async function importRevisedForecastSheet(buffer: Buffer, country: string
     username,
     action: "import",
     sheet: "Forecast vs Actual",
-    details: `Imported ${records.length} revised forecast records from Excel. ${skipped.length} SKUs skipped.`,
+    details: `Imported ${records.length} actual production records from Excel. ${skipped.length} SKUs skipped.`,
   });
 
   return { updated: records.length, skipped: [...new Set(skipped)], sheet: "Forecast vs Actual" };
@@ -603,7 +605,7 @@ export async function handleImportSheet(
     case "planning-fg-1kg":
       return importPlanningFgSheet(buffer, "1kg", country, username);
     case "forecast-vs-actual":
-      return importRevisedForecastSheet(buffer, country, username);
+      return importActualProductionSheet(buffer, country, username);
     default:
       throw new Error(`Unknown sheet type: ${sheet}`);
   }

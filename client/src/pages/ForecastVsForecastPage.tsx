@@ -13,9 +13,9 @@ import ImportSheetButton from "@/components/ImportSheetButton";
 const WEIGHT_ORDER: Record<string, number> = { "1kg": 0, "250g": 1, "50g": 2 };
 
 /**
- * Forecast vs Forecast page (Syria & Libya only)
- * Compares the original Forecast Production (read-only) against a Revised Forecast (editable).
- * Variance = Revised - Original
+ * Forecast vs Actual page (Syria, Libya, KSA)
+ * Compares the original Forecast Production (read-only) against the Actual Production figure (editable).
+ * Variance = Actual - Forecast
  */
 export default function ForecastVsForecastPage() {
   const { user: appUser } = useAppAuth();
@@ -28,7 +28,7 @@ export default function ForecastVsForecastPage() {
     { enabled: country === "Syria" || country === "Libya" || country === "KSA", staleTime: 0, refetchOnWindowFocus: true }
   );
 
-  const updateRevisedForecast = trpc.country.updateRevisedForecast.useMutation({
+  const updateActualProduction = trpc.country.updateActualProduction.useMutation({
     onSuccess: () => utils.country.data.invalidate(),
     onError: (err) => toast.error("Failed to save: " + err.message),
   });
@@ -75,10 +75,10 @@ export default function ForecastVsForecastPage() {
     return map;
   }, [intlData]);
 
-  const revisedMap = useMemo(() => {
+  const actualMap = useMemo(() => {
     const map = new Map<string, string>();
-    if (intlData?.revisedForecast) {
-      for (const d of intlData.revisedForecast) map.set(`${d.skuId}-${d.periodId}`, d.value ?? "0");
+    if (intlData?.actualProduction) {
+      for (const d of intlData.actualProduction) map.set(`${d.skuId}-${d.periodId}`, d.value ?? "0");
     }
     return map;
   }, [intlData]);
@@ -149,7 +149,7 @@ export default function ForecastVsForecastPage() {
     const numVal = parseFloat(editValue) || 0;
     const sku = intlData?.skus.find(s => s.id === skuId);
     const period = intlData?.periods.find(p => p.id === periodId);
-    updateRevisedForecast.mutate({
+    updateActualProduction.mutate({
       skuId, periodId, value: numVal.toString(),
       country: country as "Syria" | "Libya" | "KSA",
       skuName: sku?.name,
@@ -157,7 +157,7 @@ export default function ForecastVsForecastPage() {
       oldValue,
     });
     setEditingCell(null);
-  }, [editValue, updateRevisedForecast, oldValue, intlData, appUser, country]);
+  }, [editValue, updateActualProduction, oldValue, intlData, appUser, country]);
 
   const handleCellKeyDown = useCallback((e: React.KeyboardEvent, skuId: number, periodId: number) => {
     if (e.key === "Enter") handleCellSave(skuId, periodId);
@@ -206,24 +206,24 @@ export default function ForecastVsForecastPage() {
 
   if (isLoading) return <TableSkeleton title="Forecast Production vs Actual" rows={10} cols={14} />;
   if (country !== "Syria" && country !== "Libya" && country !== "KSA") {
-    return <div className="p-4 text-sm text-muted-foreground">This page is only available for Syria and Libya.</div>;
+    return <div className="p-4 text-sm text-muted-foreground">This page is only available for Syria, Libya, and KSA.</div>;
   }
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">Forecast vs Forecast</h1>
+          <h1 className="text-xl font-semibold tracking-tight">Forecast vs Actual</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Compare original Forecast Production against Revised Forecast. Click Revised cells to edit.
-            <span className="inline-block w-3 h-3 bg-amber-50 border border-amber-200 rounded-sm align-middle mx-1 ml-2"></span>Original Forecast
-            <span className="inline-block w-3 h-3 bg-sky-50 border border-sky-200 rounded-sm align-middle mx-1 ml-2"></span>Revised Forecast
+            Compare original Forecast Production against Actual Production. Click Actual cells to edit.
+            <span className="inline-block w-3 h-3 bg-amber-50 border border-amber-200 rounded-sm align-middle mx-1 ml-2"></span>Forecast
+            <span className="inline-block w-3 h-3 bg-sky-50 border border-sky-200 rounded-sm align-middle mx-1 ml-2"></span>Actual Production
             <span className="inline-block w-3 h-3 bg-slate-100 border border-slate-200 rounded-sm align-middle mx-1 ml-2"></span>Variance
           </p>
         </div>
         <div className="flex items-center gap-1">
-          <ImportSheetButton sheet="forecast-vs-actual" country={country} label="Import Revised" />
-          <ExportSheetButton sheet="forecast-vs-actual" country={country} label="Export Revised" />
+          <ImportSheetButton sheet="forecast-vs-actual" country={country} label="Import Actual" />
+          <ExportSheetButton sheet="forecast-vs-actual" country={country} label="Export Actual" />
         </div>
       </div>
 
@@ -394,17 +394,17 @@ export default function ForecastVsForecastPage() {
                             })}
                           </tr>
 
-                          {/* Revised Forecast row (editable) */}
+                          {/* Actual Production row (editable) */}
                           <tr className={`border-b ${rowBg}`}>
-                            <td className="sticky left-[230px] z-10 bg-sky-50 px-2 py-1.5 text-sky-700 font-medium text-[10px] whitespace-nowrap border-r border-sky-200">Revised</td>
+                            <td className="sticky left-[230px] z-10 bg-sky-50 px-2 py-1.5 text-sky-700 font-medium text-[10px] whitespace-nowrap border-r border-sky-200">Actual</td>
                             {periodsByYear.map(({ year, periods: yPeriods }) => {
                               const isYearCollapsed = collapsedYears.has(year);
-                              const yearTotal = yPeriods.reduce((s, p) => s + (parseFloat(revisedMap.get(`${sku.id}-${p.id}`) ?? "0") || 0), 0);
+                              const yearTotal = yPeriods.reduce((s, p) => s + (parseFloat(actualMap.get(`${sku.id}-${p.id}`) ?? "0") || 0), 0);
                               return (
                                 <Fragment key={`rv-${sku.id}-y${year}`}>
                                   {!isYearCollapsed && yPeriods.map(p => {
                                     const cellKey = `${sku.id}-${p.id}`;
-                                    const rawVal = revisedMap.get(cellKey) ?? "0";
+                                    const rawVal = actualMap.get(cellKey) ?? "0";
                                     const numVal = parseFloat(rawVal) || 0;
                                     const isEditing = editingCell === cellKey;
                                     if (isEditing) {
@@ -442,13 +442,13 @@ export default function ForecastVsForecastPage() {
                             {periodsByYear.map(({ year, periods: yPeriods }) => {
                               const isYearCollapsed = collapsedYears.has(year);
                               const fcYear = yPeriods.reduce((s, p) => s + (parseFloat(forecastMap.get(`${sku.id}-${p.id}`) ?? "0") || 0), 0);
-                              const rvYear = yPeriods.reduce((s, p) => s + (parseFloat(revisedMap.get(`${sku.id}-${p.id}`) ?? "0") || 0), 0);
+                              const rvYear = yPeriods.reduce((s, p) => s + (parseFloat(actualMap.get(`${sku.id}-${p.id}`) ?? "0") || 0), 0);
                               const varYear = rvYear - fcYear;
                               return (
                                 <Fragment key={`var-${sku.id}-y${year}`}>
                                   {!isYearCollapsed && yPeriods.map(p => {
                                     const fc = parseFloat(forecastMap.get(`${sku.id}-${p.id}`) ?? "0") || 0;
-                                    const rv = parseFloat(revisedMap.get(`${sku.id}-${p.id}`) ?? "0") || 0;
+                                    const rv = parseFloat(actualMap.get(`${sku.id}-${p.id}`) ?? "0") || 0;
                                     const variance = rv - fc;
                                     return (
                                       <td key={`var-${sku.id}-${p.id}`} className={`px-1 py-1.5 text-right tabular-nums bg-slate-100 ${getVarianceColor(variance)}`}>
@@ -470,7 +470,7 @@ export default function ForecastVsForecastPage() {
                     ))}
 
                     {/* Category subtotals */}
-                    {(["Forecast", "Revised", "Variance"] as const).map(rowType => (
+                    {(["Forecast", "Actual", "Variance"] as const).map(rowType => (
                       <tr key={`subtot-${group.category}-${rowType}`} className={`font-semibold ${group.category === "Core" ? "bg-emerald-50" : "bg-violet-50"} ${rowType === "Variance" ? "border-b-2" : "border-b"}`}>
                         <td className="sticky left-0 z-10 px-2 py-1.5" style={{ backgroundColor: group.category === "Core" ? "rgb(236 253 245)" : "rgb(245 243 255)" }}></td>
                         <td className="sticky left-[50px] z-10 px-2 py-1.5 whitespace-nowrap text-xs" style={{ color: group.category === "Core" ? "#047857" : "#6d28d9" }}>
@@ -485,8 +485,8 @@ export default function ForecastVsForecastPage() {
                             <Fragment key={`subtot-${group.category}-${rowType}-${year}`}>
                               {!isYearCollapsed && yPeriods.map(p => {
                                 const fc = computeCatTotal(group.category, p.id, forecastMap);
-                                const rv = computeCatTotal(group.category, p.id, revisedMap);
-                                const val = rowType === "Forecast" ? fc : rowType === "Revised" ? rv : rv - fc;
+                                const rv = computeCatTotal(group.category, p.id, actualMap);
+                                const val = rowType === "Forecast" ? fc : rowType === "Actual" ? rv : rv - fc;
                                 return (
                                   <td key={`subtot-${group.category}-${rowType}-${p.id}`}
                                     className={`px-1 py-1.5 text-right tabular-nums ${rowType === "Variance" ? getVarianceColor(val) : ""}`}
@@ -500,8 +500,8 @@ export default function ForecastVsForecastPage() {
                               })}
                               {(() => {
                                 const fcY = computeCatYearTotal(group.category, year, forecastMap);
-                                const rvY = computeCatYearTotal(group.category, year, revisedMap);
-                                const val = rowType === "Forecast" ? fcY : rowType === "Revised" ? rvY : rvY - fcY;
+                                const rvY = computeCatYearTotal(group.category, year, actualMap);
+                                const val = rowType === "Forecast" ? fcY : rowType === "Actual" ? rvY : rvY - fcY;
                                 return (
                                   <td className={`px-1 py-1.5 text-right tabular-nums font-bold border-l-2 border-amber-300 bg-amber-50 ${rowType === "Variance" ? getVarianceColor(val) : "text-amber-900"}`}>
                                     {rowType === "Variance"
@@ -519,7 +519,7 @@ export default function ForecastVsForecastPage() {
                 ))}
 
                 {/* Grand Total rows */}
-                {(["Forecast", "Revised", "Variance"] as const).map(rowType => (
+                {(["Forecast", "Actual", "Variance"] as const).map(rowType => (
                   <tr key={`gt-${rowType}`} className={`border-t-2 ${rowType === "Forecast" ? "border-primary" : ""} bg-slate-100 font-bold`}>
                     <td className="sticky left-0 bg-slate-100 z-10 px-2 py-2"></td>
                     <td className="sticky left-[50px] bg-slate-100 z-10 px-2 py-2 whitespace-nowrap text-primary">
@@ -532,8 +532,8 @@ export default function ForecastVsForecastPage() {
                         <Fragment key={`gt-${rowType}-y${year}`}>
                           {!isYearCollapsed && yPeriods.map(p => {
                             const fc = computeGrandTotal(p.id, forecastMap);
-                            const rv = computeGrandTotal(p.id, revisedMap);
-                            const val = rowType === "Forecast" ? fc : rowType === "Revised" ? rv : rv - fc;
+                            const rv = computeGrandTotal(p.id, actualMap);
+                            const val = rowType === "Forecast" ? fc : rowType === "Actual" ? rv : rv - fc;
                             return (
                               <td key={`gt-${rowType}-${p.id}`} className={`px-1 py-2 text-right tabular-nums ${rowType === "Variance" ? getVarianceColor(val) : "text-primary"}`}>
                                 {rowType === "Variance"
@@ -544,8 +544,8 @@ export default function ForecastVsForecastPage() {
                           })}
                           {(() => {
                             const fcY = computeGrandYearTotal(year, forecastMap);
-                            const rvY = computeGrandYearTotal(year, revisedMap);
-                            const val = rowType === "Forecast" ? fcY : rowType === "Revised" ? rvY : rvY - fcY;
+                            const rvY = computeGrandYearTotal(year, actualMap);
+                            const val = rowType === "Forecast" ? fcY : rowType === "Actual" ? rvY : rvY - fcY;
                             return (
                               <td className={`px-1 py-2 text-right tabular-nums font-bold border-l-2 border-amber-400 bg-amber-100 ${rowType === "Variance" ? getVarianceColor(val) : "text-amber-900"}`}>
                                 {rowType === "Variance"

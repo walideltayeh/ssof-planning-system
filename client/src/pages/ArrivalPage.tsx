@@ -90,7 +90,7 @@ export default function ArrivalPage() {
   const data = isLebanon
     ? lbData
     : intlData
-      ? { skus: intlData.skus, periods: intlData.periods, data: intlData.arrival, shipment: intlData.shipment, revisedForecast: intlData.revisedForecast, forecast: intlData.forecast }
+      ? { skus: intlData.skus, periods: intlData.periods, data: intlData.arrival, shipment: intlData.shipment, actualProduction: intlData.actualProduction, forecast: intlData.forecast }
       : undefined;
   const isLoading = isLebanon ? lbLoading : intlLoading;
   const isSyncing = isLebanon ? lbFetching : intlFetching;
@@ -242,9 +242,9 @@ export default function ArrivalPage() {
     return map;
   }, [data]);
 
-  const revisedMap = useMemo(() => {
+  const actualMap = useMemo(() => {
     const m = new Map<string, number>();
-    for (const d of (data as any)?.revisedForecast ?? []) {
+    for (const d of (data as any)?.actualProduction ?? []) {
       const v = parseFloat(d.value ?? "0") || 0;
       if (v > 0) m.set(`${d.skuId}-${d.periodId}`, v);
     }
@@ -439,11 +439,27 @@ export default function ArrivalPage() {
   // SYRIA / LIBYA: Arrival driven by production offset
   // ============================================================
   if (!isLebanon) {
-    // Build list of production batches with arrival dates
+    // Build list of production batches with arrival dates.
+    //
+    // Plan vs Actual model (May 2026 rework):
+    //   plannedTotal  = forecast for the (sku, period) — what we said we'd make.
+    //   actualTotal   = manual Actual Production entry, or the sum of weekly
+    //                   shipment entries when no manual override exists.
+    //   isAwaitingActual = forecast was set but no actual production has been
+    //                      reported yet — surface as a greyed/dashed row so
+    //                      planners can see the gap.
+    //   total         = actualTotal when present, else plannedTotal — drives
+    //                   downstream sizing (cleared/pending qty, etc).
+    //   delta         = actualTotal - plannedTotal (only meaningful when both
+    //                   are non-zero).
       type Batch = {
         sku: typeof allSkus[0];
         period: Period;
         total: number;
+        plannedTotal: number;
+        actualTotal: number;
+        isAwaitingActual: boolean;
+        delta: number;
         arrivalOffsetValue: number;
         arrivalOffsetUnit: string;
         arrivalDate: Date | null;
@@ -457,26 +473,34 @@ export default function ArrivalPage() {
     const batches: Batch[] = [];
     for (const sku of sortedSkus) {
       for (const period of periods) {
-        const shipRow = shipmentMap.get(`${sku.id}-${period.id}`);
-        if (!shipRow) continue;
-        const shipTotal = (parseFloat(shipRow.week1) || 0) + (parseFloat(shipRow.week2) || 0) + (parseFloat(shipRow.week3) || 0) + (parseFloat(shipRow.week4) || 0);
         const key = `${sku.id}-${period.id}`;
-        const revisedProd = revisedMap.get(key);
-        // A batch only exists when there is ACTUAL production (weekly entries)
-        // or an explicitly entered revised production qty. We deliberately do
-        // NOT fall back to the IMS/sales forecast — that would synthesize
-        // phantom batches for periods where the planner forecasted demand but
-        // never produced anything (the bug Syria reported on April).
-        const total = revisedProd !== undefined ? revisedProd : shipTotal;
-        if (total === 0) continue;
-        const offVal = shipRow.arrivalOffsetValue ?? 0;
-        const offUnit = shipRow.arrivalOffsetUnit ?? "days";
+        const shipRow = shipmentMap.get(key);
+        const shipTotal = shipRow
+          ? (parseFloat(shipRow.week1) || 0) + (parseFloat(shipRow.week2) || 0) + (parseFloat(shipRow.week3) || 0) + (parseFloat(shipRow.week4) || 0)
+          : 0;
+        const actualEntered = actualMap.get(key);
+        const plannedTotal = forecastMap.get(key) ?? 0;
+        const actualTotal = actualEntered !== undefined ? actualEntered : shipTotal;
+        const isAwaitingActual = actualTotal === 0 && plannedTotal > 0;
+        // A batch surfaces when actual production exists OR a forecast plan
+        // exists (so planners can see "awaiting actual" rows). Skip when both
+        // are zero — nothing to track.
+        if (actualTotal === 0 && plannedTotal === 0) continue;
+        const total = actualTotal > 0 ? actualTotal : plannedTotal;
+        const delta = actualTotal > 0 && plannedTotal > 0 ? actualTotal - plannedTotal : 0;
+        const offVal = shipRow?.arrivalOffsetValue ?? 0;
+        const offUnit = shipRow?.arrivalOffsetUnit ?? "days";
         const arrivalDate = offVal > 0 ? computeArrivalDate(period.year, period.month, offVal, offUnit) : null;
-        const arrivalStatus = (shipRow.arrivalStatus as ArrivalStatus) ?? "Pending";
-        const clearedQty = shipRow.clearedQty != null ? parseFloat(shipRow.clearedQty) : null;
-        const clearedDate = shipRow.clearedDate ?? null;
-        const pendingClearDate = shipRow.pendingClearDate ?? null;
-        batches.push({ sku, period, total, arrivalOffsetValue: offVal, arrivalOffsetUnit: offUnit, arrivalDate, arrivalStatus, clearedQty, clearedDate, pendingClearDate, note: shipRow.note ?? null });
+        const arrivalStatus = (shipRow?.arrivalStatus as ArrivalStatus) ?? "Pending";
+        const clearedQty = shipRow?.clearedQty != null ? parseFloat(shipRow.clearedQty) : null;
+        const clearedDate = shipRow?.clearedDate ?? null;
+        const pendingClearDate = shipRow?.pendingClearDate ?? null;
+        batches.push({
+          sku, period, total, plannedTotal, actualTotal, isAwaitingActual, delta,
+          arrivalOffsetValue: offVal, arrivalOffsetUnit: offUnit, arrivalDate,
+          arrivalStatus, clearedQty, clearedDate, pendingClearDate,
+          note: shipRow?.note ?? null,
+        });
       }
     }
 
@@ -677,72 +701,59 @@ export default function ArrivalPage() {
 
           return (
             <div className="space-y-2">
-              {/* Row 1 — Clearance status (what has been processed) */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {/* Single row — 5 cards covering the full lifecycle */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
                 <StatCard
-                  label="Cleared"
-                  sublabel="fully cleared batches"
-                  count={clearedBatches.length}
-                  qty={sumCleared(clearedBatches)}
-                  qtyLabel="units cleared"
-                  accent="bg-emerald-50 border-emerald-200"
-                  note="✓ counts in Planning FG"
+                  label="In Transit"
+                  sublabel="en route to port"
+                  count={inTransitBatches.length}
+                  qty={sumQty(inTransitBatches)}
+                  qtyLabel={`${unitLabel} in transit`}
+                  accent="bg-blue-50 border-blue-200"
+                />
+                <StatCard
+                  label="Arrived at Port"
+                  sublabel="awaiting clearance process"
+                  count={arrivedBatches.length}
+                  qty={sumQty(arrivedBatches)}
+                  qtyLabel={`${unitLabel} at port`}
+                  accent="bg-amber-50 border-amber-200"
+                />
+                <StatCard
+                  label="Still to Clear"
+                  sublabel="ordered minus cleared"
+                  count={stillToClearBatches}
+                  qty={stillToClearQty}
+                  qtyLabel={`${unitLabel} pending clearance`}
+                  accent={stillToClearQty > 0 ? "bg-violet-50 border-violet-300" : "bg-muted/30 border-border"}
+                  highlight={stillToClearQty > 0}
                 />
                 <StatCard
                   label="Partially Cleared"
                   sublabel="partial clearance batches"
                   count={partialBatches.length}
                   qty={sumCleared(partialBatches)}
-                  qtyLabel="units cleared so far"
+                  qtyLabel={`${unitLabel} cleared so far`}
                   accent="bg-teal-50 border-teal-200"
                   note="✓ counts in Planning FG"
                 />
                 <StatCard
-                  label="Still to Clear"
-                  sublabel="at port, not yet cleared"
-                  count={stillToClearBatches}
-                  qty={stillToClearQty}
-                  qtyLabel="units pending clearance"
-                  accent={stillToClearQty > 0 ? "bg-violet-50 border-violet-300" : "bg-muted/30 border-border"}
-                  highlight={stillToClearQty > 0}
-                />
-                <StatCard
-                  label="Delayed at Port"
-                  sublabel=">7 days without clearance"
-                  count={delayedBatches.length}
-                  qty={delayedBatches.reduce((s, b) => s + b.total, 0)}
-                  qtyLabel="units affected"
-                  accent={delayedBatches.length > 0 ? "bg-red-50 border-red-300" : "bg-muted/30 border-border"}
-                  highlight={delayedBatches.length > 0}
+                  label="Cleared"
+                  sublabel="fully cleared batches"
+                  count={clearedBatches.length}
+                  qty={sumCleared(clearedBatches)}
+                  qtyLabel={`${unitLabel} cleared`}
+                  accent="bg-emerald-50 border-emerald-200"
+                  note="✓ counts in Planning FG"
                 />
               </div>
-              {/* Row 2 — Pipeline status (what is coming) */}
-              <div className="grid grid-cols-3 gap-2">
-                <StatCard
-                  label="Arrived at Port"
-                  sublabel="awaiting clearance process"
-                  count={arrivedBatches.length}
-                  qty={sumQty(arrivedBatches)}
-                  qtyLabel="units at port"
-                  accent="bg-amber-50 border-amber-200"
-                />
-                <StatCard
-                  label="In Transit"
-                  sublabel="en route to port"
-                  count={inTransitBatches.length}
-                  qty={sumQty(inTransitBatches)}
-                  qtyLabel="units in transit"
-                  accent="bg-blue-50 border-blue-200"
-                />
-                <StatCard
-                  label="Pending Clearance"
-                  sublabel="ordered minus cleared (same as Still to Clear)"
-                  count={stillToClearBatches}
-                  qty={stillToClearQty}
-                  qtyLabel="units pending clearance"
-                  accent={stillToClearQty > 0 ? "bg-violet-50 border-violet-300" : "bg-muted/30 border-border"}
-                />
-              </div>
+              {/* Inline alert when there is delayed cargo at port */}
+              {delayedBatches.length > 0 && (
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded border border-red-300 bg-red-50 text-[11px] text-red-700">
+                  <span className="font-bold">⚠ {delayedBatches.length} batch{delayedBatches.length === 1 ? "" : "es"} delayed at port</span>
+                  <span className="text-red-600/80">({formatVal(delayedBatches.reduce((s, b) => s + b.total, 0))} {unitLabel} sitting &gt;7 days without clearance)</span>
+                </div>
+              )}
             </div>
           );
         })()}
@@ -819,6 +830,7 @@ export default function ArrivalPage() {
 
               return (
                 <Card key={batchKey} className={`overflow-hidden border ${
+                  batch.isAwaitingActual ? "border-dashed border-slate-300 bg-slate-50/40" :
                   batch.arrivalStatus === "Cleared" ? "border-emerald-200" :
                   batch.arrivalStatus === "Partially Cleared" ? "border-teal-200" :
                   isDelayedAtPort ? "border-red-200" : "border-border"
@@ -826,7 +838,7 @@ export default function ArrivalPage() {
                   {/* ── Batch header row ── */}
                   <div
                     className={`flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-muted/30 transition-colors ${
-                      idx % 2 === 1 ? "bg-slate-50/50" : ""
+                      batch.isAwaitingActual ? "opacity-70" : (idx % 2 === 1 ? "bg-slate-50/50" : "")
                     }`}
                     onClick={() => toggleBatchExpand(batchKey)}
                   >
@@ -845,10 +857,31 @@ export default function ArrivalPage() {
                           ((batch.sku as any).packagingType ?? 'New') === 'New' ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-700'
                         }`}>{(batch.sku as any).packagingType ?? 'New'}</span>
                         <span className="text-[10px] text-muted-foreground">{batch.sku.category}</span>
+                        {batch.isAwaitingActual && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-700 border border-slate-400">
+                            Awaiting Actual
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-3 mt-0.5 text-[11px] text-muted-foreground flex-wrap">
                         <span>Period: <strong className="text-foreground">{batch.period.label}</strong></span>
-                        <span>Production: <strong className="text-foreground">{formatNumber(batch.total)}</strong></span>
+                        {/* Plan vs Actual production figures */}
+                        {batch.plannedTotal > 0 && (
+                          <span>Plan: <strong className="text-slate-700">{formatNumber(batch.plannedTotal)}</strong></span>
+                        )}
+                        <span>
+                          Actual:{" "}
+                          {batch.actualTotal > 0 ? (
+                            <strong className="text-foreground">{formatNumber(batch.actualTotal)}</strong>
+                          ) : (
+                            <strong className="text-slate-400 italic">—</strong>
+                          )}
+                        </span>
+                        {batch.delta !== 0 && (
+                          <span className={`font-semibold ${batch.delta > 0 ? "text-emerald-600" : "text-red-600"}`}>
+                            Δ {batch.delta > 0 ? "+" : ""}{formatNumber(batch.delta)}
+                          </span>
+                        )}
                         {batch.arrivalDate && <span>Est. Arrival: <strong className="text-amber-700">{formatArrivalDate(batch.arrivalDate)}</strong></span>}
                         {daysAtPort !== null && <span className={`font-semibold ${isDelayedAtPort ? "text-red-600" : "text-slate-600"}`}>{daysAtPort}d at port{isDelayedAtPort ? " ⚠" : ""}</span>}
                       </div>

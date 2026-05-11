@@ -29,7 +29,7 @@ vi.mock("./db", () => {
     bulkUpsertShipment: vi.fn(async () => undefined),
     bulkUpsertArrival: vi.fn(async () => undefined),
     bulkUpsertPlanningFgPartial: vi.fn(async () => undefined),
-    bulkUpsertRevisedForecast: vi.fn(async () => undefined),
+    bulkUpsertActualProduction: vi.fn(async () => undefined),
   };
 });
 
@@ -40,7 +40,7 @@ const {
   importShipmentSheet,
   importArrivalSheet,
   importPlanningFgSheet,
-  importRevisedForecastSheet,
+  importActualProductionSheet,
 } = await import("./excelImport");
 const dbModule = await import("./db");
 
@@ -108,7 +108,7 @@ function buildPlanningFgBuffer(weight: string): Promise<Buffer> {
   });
 }
 
-function buildRevisedForecastBuffer(): Promise<Buffer> {
+function buildActualProductionBuffer(): Promise<Buffer> {
   return workbookBuffer((wb) => {
     const ws = wb.addWorksheet("Forecast vs Actual");
     ws.addRow(["SKU Name", "Jan 25"]);
@@ -182,10 +182,10 @@ describe("excelImport audit-trail username forwarding", () => {
     expect(entry.sheet).toBe("Planning FG 250g");
   });
 
-  it("importRevisedForecastSheet logs the caller-supplied username", async () => {
-    const buf = await buildRevisedForecastBuffer();
+  it("importActualProductionSheet logs the caller-supplied username", async () => {
+    const buf = await buildActualProductionBuffer();
 
-    await importRevisedForecastSheet(buf, "Lebanon", "frank-revised");
+    await importActualProductionSheet(buf, "Lebanon", "frank-revised");
 
     expect(logAuditMock).toHaveBeenCalledTimes(1);
     const entry = logAuditMock.mock.calls[0][0];
@@ -209,8 +209,8 @@ describe("excelImport audit-trail username forwarding", () => {
       "Lebanon",
       oddName,
     );
-    await importRevisedForecastSheet(
-      await buildRevisedForecastBuffer(),
+    await importActualProductionSheet(
+      await buildActualProductionBuffer(),
       "Lebanon",
       oddName,
     );

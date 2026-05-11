@@ -439,7 +439,7 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
 
   const revisedMap = useMemo(() => {
     const m = new Map<string, number>();
-    for (const d of (data as any)?.revisedForecast ?? []) {
+    for (const d of (data as any)?.actualProduction ?? []) {
       const v = parseFloat(d.value ?? "0") || 0;
       if (v > 0) m.set(`${d.skuId}-${d.periodId}`, v);
     }

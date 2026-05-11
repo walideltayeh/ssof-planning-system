@@ -1304,16 +1304,16 @@ export const appRouter = router({
         await requireCountryAccess(ctx, input.country);
         const c = input.country;
         await db.ensurePeriodsForCountry(c);
-        const [countrySkus, countryPeriods, forecast, revisedForecast, ims, shipment, arrival] = await Promise.all([
+        const [countrySkus, countryPeriods, forecast, actualProduction, ims, shipment, arrival] = await Promise.all([
           db.getSkusForCountry(c),
           db.getPeriodsForCountry(c),
           db.getForecastDataForCountry(c),
-          db.getRevisedForecastDataForCountry(c),
+          db.getActualProductionDataForCountry(c),
           db.getImsDataForCountry(c),
           db.getShipmentDataForCountry(c),
           db.getArrivalDataForCountry(c),
         ]);
-        return { skus: countrySkus, periods: countryPeriods, forecast, revisedForecast, ims, shipment, arrival };
+        return { skus: countrySkus, periods: countryPeriods, forecast, actualProduction, ims, shipment, arrival };
       }),
     // Get SKUs for a country
     skus: protectedProcedure
@@ -1467,7 +1467,7 @@ export const appRouter = router({
         return { success: true };
       }),
     // Update revised forecast cell (Syria/Libya Forecast vs Forecast)
-    updateRevisedForecast: protectedProcedure
+    updateActualProduction: protectedProcedure
       .input(z.object({
         skuId: z.number(), periodId: z.number(), value: z.string(),
         country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]),
@@ -1477,10 +1477,10 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         await requireCountryAccess(ctx, input.country);
         const clamped = Math.max(0, parseFloat(input.value) || 0).toString();
-        await db.upsertRevisedForecastData(input.skuId, input.periodId, clamped);
+        await db.upsertActualProductionData(input.skuId, input.periodId, clamped);
         await db.logAudit({
           country: input.country, username: getAuditActor(ctx),
-          action: "edit", sheet: "Revised Forecast",
+          action: "edit", sheet: "Actual Production",
           skuName: input.skuName, periodLabel: input.periodLabel,
           oldValue: input.oldValue || "", newValue: clamped,
           details: `Revised forecast changed from ${input.oldValue || "(empty)"} to ${clamped}`,
