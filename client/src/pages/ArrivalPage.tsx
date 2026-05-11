@@ -462,8 +462,13 @@ export default function ArrivalPage() {
         const shipTotal = (parseFloat(shipRow.week1) || 0) + (parseFloat(shipRow.week2) || 0) + (parseFloat(shipRow.week3) || 0) + (parseFloat(shipRow.week4) || 0);
         const key = `${sku.id}-${period.id}`;
         const revisedProd = revisedMap.get(key);
-        const total = revisedProd !== undefined ? revisedProd : (forecastMap.get(key) ?? shipTotal);
-        if (total === 0 && (shipRow.arrivalOffsetValue ?? 0) === 0) continue;
+        // A batch only exists when there is ACTUAL production (weekly entries)
+        // or an explicitly entered revised production qty. We deliberately do
+        // NOT fall back to the IMS/sales forecast — that would synthesize
+        // phantom batches for periods where the planner forecasted demand but
+        // never produced anything (the bug Syria reported on April).
+        const total = revisedProd !== undefined ? revisedProd : shipTotal;
+        if (total === 0) continue;
         const offVal = shipRow.arrivalOffsetValue ?? 0;
         const offUnit = shipRow.arrivalOffsetUnit ?? "days";
         const arrivalDate = offVal > 0 ? computeArrivalDate(period.year, period.month, offVal, offUnit) : null;
@@ -496,21 +501,23 @@ export default function ArrivalPage() {
       return daysAtPort !== null && daysAtPort > 7 && b.arrivalStatus !== "Cleared";
     });
 
+    // Sum cleared qty using the multi-event clearance log (same source the
+    // per-row "Cleared" / "Pending" pills use), so the dashboard agrees with
+    // what the user sees inside each batch row.
+    const clearedFor = (b: typeof batches[number]) => {
+      const evs = clearanceEventsMap.get(`${b.sku.id}-${b.period.id}`) ?? [];
+      return evs.reduce((s, e) => s + (parseFloat(e.clearedQty ?? "0") || 0), 0);
+    };
     const sumQty = (list: typeof batches) => list.reduce((s, b) => s + b.total, 0);
-    const sumCleared = (list: typeof batches) => list.reduce((s, b) => s + (b.clearedQty ?? 0), 0);
+    const sumCleared = (list: typeof batches) => list.reduce((s, b) => s + clearedFor(b), 0);
     const totalBatches = batches.length;
 
-    // Still to Clear: for each non-fully-cleared batch, qty not yet cleared
-    const stillToClearQty = batches
-      .filter(b => b.arrivalStatus !== "Pending" && b.arrivalStatus !== "In Transit")
-      .reduce((s, b) => {
-        if (b.arrivalStatus === "Cleared") return s; // fully cleared
-        const pending = b.clearedQty !== null ? Math.max(0, b.total - b.clearedQty) : b.total;
-        return s + pending;
-      }, 0);
-    const stillToClearBatches = batches.filter(b =>
-      b.arrivalStatus !== "Pending" && b.arrivalStatus !== "In Transit" && b.arrivalStatus !== "Cleared"
-    ).length;
+    // Still to Clear / Pending Clearance — same definition per the user:
+    // "Still to clear should be whatever is ordered minus whatever was cleared,
+    //  and the Pending in this case will be whatever is still to clear."
+    // Sum across ALL batches (regardless of dispatch status), capped at 0.
+    const stillToClearQty = batches.reduce((s, b) => s + Math.max(0, b.total - clearedFor(b)), 0);
+    const stillToClearBatches = batches.filter(b => (b.total - clearedFor(b)) > 0).length;
 
     // ── Available years/months for period filter ──────────────────────────
     const availableYears = Array.from(new Set(batches.map(b => b.period.year))).sort();
@@ -728,12 +735,12 @@ export default function ArrivalPage() {
                   accent="bg-blue-50 border-blue-200"
                 />
                 <StatCard
-                  label="Pending"
-                  sublabel="not yet dispatched"
-                  count={pendingBatches.length}
-                  qty={sumQty(pendingBatches)}
-                  qtyLabel="units planned"
-                  accent="bg-muted/30 border-border"
+                  label="Pending Clearance"
+                  sublabel="ordered minus cleared (same as Still to Clear)"
+                  count={stillToClearBatches}
+                  qty={stillToClearQty}
+                  qtyLabel="units pending clearance"
+                  accent={stillToClearQty > 0 ? "bg-violet-50 border-violet-300" : "bg-muted/30 border-border"}
                 />
               </div>
             </div>
