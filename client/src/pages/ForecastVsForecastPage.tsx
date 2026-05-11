@@ -213,9 +213,9 @@ export default function ForecastVsForecastPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">Forecast vs Actual</h1>
+          <h1 className="text-xl font-semibold tracking-tight">Forecast Production vs Actual</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Compare original Forecast Production against Actual Production. Click Actual cells to edit.
+            Plan = upfront production target. Actual = what was actually produced. Click Actual cells to edit.
             <span className="inline-block w-3 h-3 bg-amber-50 border border-amber-200 rounded-sm align-middle mx-1 ml-2"></span>Forecast
             <span className="inline-block w-3 h-3 bg-sky-50 border border-sky-200 rounded-sm align-middle mx-1 ml-2"></span>Actual Production
             <span className="inline-block w-3 h-3 bg-slate-100 border border-slate-200 rounded-sm align-middle mx-1 ml-2"></span>Variance

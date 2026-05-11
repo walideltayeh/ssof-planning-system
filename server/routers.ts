@@ -1466,7 +1466,7 @@ export const appRouter = router({
         }
         return { success: true };
       }),
-    // Update revised forecast cell (Syria/Libya Forecast vs Forecast)
+    // Update actual production cell (Syria/Libya/KSA Forecast Production vs Actual)
     updateActualProduction: protectedProcedure
       .input(z.object({
         skuId: z.number(), periodId: z.number(), value: z.string(),
@@ -1483,7 +1483,7 @@ export const appRouter = router({
           action: "edit", sheet: "Actual Production",
           skuName: input.skuName, periodLabel: input.periodLabel,
           oldValue: input.oldValue || "", newValue: clamped,
-          details: `Revised forecast changed from ${input.oldValue || "(empty)"} to ${clamped}`,
+          details: `Actual production changed from ${input.oldValue || "(empty)"} to ${clamped}`,
         });
         return { success: true };
       }),

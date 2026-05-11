@@ -59,6 +59,8 @@ function Dashboard() {
         <Route path="/versions" component={DataVersionsPage} />
         <Route path="/data-versions" component={DataVersionsPage} />
         <Route path="/analysis" component={AnalysisPage} />
+        <Route path="/forecast-production-vs-actual" component={ForecastVsForecastPage} />
+        {/* Legacy alias — kept so existing bookmarks keep working. */}
         <Route path="/forecast-vs-forecast" component={ForecastVsForecastPage} />
         <Route path="/intl-planning-fg-50g">{() => <IntlPlanningFgPage weight="50g" />}</Route>
         <Route path="/intl-planning-fg-250g">{() => <IntlPlanningFgPage weight="250g" />}</Route>

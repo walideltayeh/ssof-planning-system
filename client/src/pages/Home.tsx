@@ -352,7 +352,7 @@ function IntlHome() {
 
   const quickLinks = [
     { label: "Forecast Production", desc: "Monthly production forecast", path: "/forecast", icon: BarChart3 },
-    { label: "Forecast vs Actual", desc: "Planned forecast vs actual production", path: "/forecast-vs-forecast", icon: BarChart3 },
+    { label: "Forecast Production vs Actual", desc: "Planned production vs actual production", path: "/forecast-production-vs-actual", icon: BarChart3 },
     { label: "Production", desc: "Weekly production batches", path: "/shipment", icon: Truck },
     { label: "Arrival", desc: "Batch arrival tracking", path: "/arrival", icon: Truck },
     { label: "IMS", desc: "In-market sales data", path: "/ims-vs-forecast", icon: Box },

@@ -102,7 +102,7 @@ function buildIntlMenu(weights: string[]): MenuItem[] {
   return [
     { label: "Dashboard", path: "/", adminOnly: false },
     { label: "Forecast Production", path: "/forecast", adminOnly: false },
-    { label: "Forecast Production vs Actual", path: "/forecast-vs-forecast", adminOnly: false },
+    { label: "Forecast Production vs Actual", path: "/forecast-production-vs-actual", adminOnly: false },
     { label: "Production", path: "/shipment", adminOnly: false },
     { label: "Arrival", path: "/arrival", adminOnly: false },
     { label: "IMS", path: "/intl-ims", adminOnly: false },
@@ -302,7 +302,8 @@ function DashboardLayoutContent({
   const PAGE_LABELS: Record<string, string> = {
     "/": "Dashboard",
     "/forecast": "Forecast",
-    "/forecast-vs-forecast": "Forecast vs Actual",
+    "/forecast-production-vs-actual": "Forecast Production vs Actual",
+    "/forecast-vs-forecast": "Forecast Production vs Actual",
     "/shipment": "Production",
     "/arrival": "Arrival",
     "/ims-vs-forecast": "IMS vs Forecast",
