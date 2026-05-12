@@ -718,6 +718,21 @@ export default function ArrivalPage() {
            // for each batch's period). Independent of whether actuals were
            // entered — what we *expect to receive*, by the plan.
           const expectedQty = filteredBatches.reduce((s, b) => s + b.plannedTotal, 0);
+          // "Still to Clear" on the dashboard reconciles at the AGGREGATE
+          // level — Expected minus Cleared — to match the user's stated
+          // formula. (Per-batch max(0, …) clamping inflates the total when a
+          // single batch was over-cleared, which is why the dashboard tile
+          // does the math at the totals level instead.)
+          const totalClearedQty = filteredBatches.reduce((s, b) => {
+            const evs = clearanceEventsMap.get(`${b.sku.id}-${b.period.id}`) ?? [];
+            return s + evs.reduce((es, e) => es + parseFloat(e.clearedQty ?? "0"), 0);
+          }, 0);
+          const dashStillToClearQty = Math.max(0, expectedQty - totalClearedQty);
+          const dashStillToClearBatches = filteredBatches.filter(b => {
+            const evs = clearanceEventsMap.get(`${b.sku.id}-${b.period.id}`) ?? [];
+            const cleared = evs.reduce((es, e) => es + parseFloat(e.clearedQty ?? "0"), 0);
+            return b.plannedTotal - cleared > 0;
+          }).length;
           const atPortInTransitBatches = [...inTransitBatches, ...arrivedBatches];
 
           return (
@@ -767,11 +782,11 @@ export default function ArrivalPage() {
                 <StatCard
                   label="Still to Clear"
                   sublabel="expected minus cleared"
-                  count={stillToClearBatches}
-                  qty={stillToClearQty}
+                  count={dashStillToClearBatches}
+                  qty={dashStillToClearQty}
                   qtyLabel={`${unitLabel} pending clearance`}
-                  accent={stillToClearQty > 0 ? "bg-violet-50 border-violet-300" : "bg-muted/30 border-border"}
-                  highlight={stillToClearQty > 0}
+                  accent={dashStillToClearQty > 0 ? "bg-violet-50 border-violet-300" : "bg-muted/30 border-border"}
+                  highlight={dashStillToClearQty > 0}
                 />
               </div>
               {/* Inline alert when there is delayed cargo at port */}
