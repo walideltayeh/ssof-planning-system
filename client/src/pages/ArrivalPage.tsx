@@ -543,8 +543,12 @@ export default function ArrivalPage() {
     // "Still to clear should be whatever is ordered minus whatever was cleared,
     //  and the Pending in this case will be whatever is still to clear."
     // Sum across ALL batches (regardless of dispatch status), capped at 0.
-    const stillToClearQty = batches.reduce((s, b) => s + Math.max(0, b.total - clearedFor(b)), 0);
-    const stillToClearBatches = batches.filter(b => (b.total - clearedFor(b)) > 0).length;
+    // "Still to Clear" must reconcile against the **planned arrival** (the
+     // forecast production for the period), NOT the actual-or-fallback total.
+     // Otherwise an actual smaller than the plan would make it look like more
+     // has been cleared than was ever planned to arrive.
+    const stillToClearQty = batches.reduce((s, b) => s + Math.max(0, b.plannedTotal - clearedFor(b)), 0);
+    const stillToClearBatches = batches.filter(b => (b.plannedTotal - clearedFor(b)) > 0).length;
 
     // ── Available years/months for period filter ──────────────────────────
     const availableYears = Array.from(new Set(batches.map(b => b.period.year))).sort();
@@ -710,7 +714,10 @@ export default function ArrivalPage() {
           const totalActual = confirmedBatches.reduce((s, b) => s + b.actualTotal, 0);
           const confirmedPlanned = confirmedBatches.reduce((s, b) => s + b.plannedTotal, 0);
           const variance = totalActual - confirmedPlanned;
-          const expectedQty = filteredBatches.reduce((s, b) => s + b.total, 0);
+          // "Expected Arrivals" = the planned arrival qty (Forecast Production
+           // for each batch's period). Independent of whether actuals were
+           // entered — what we *expect to receive*, by the plan.
+          const expectedQty = filteredBatches.reduce((s, b) => s + b.plannedTotal, 0);
           const atPortInTransitBatches = [...inTransitBatches, ...arrivedBatches];
 
           return (
@@ -719,7 +726,7 @@ export default function ArrivalPage() {
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
                 <StatCard
                   label="Expected Arrivals"
-                  sublabel="actual entered, else plan"
+                  sublabel="planned (Forecast Production)"
                   count={filteredBatches.length}
                   qty={expectedQty}
                   qtyLabel={`${unitLabel} expected`}
@@ -759,7 +766,7 @@ export default function ArrivalPage() {
                 />
                 <StatCard
                   label="Still to Clear"
-                  sublabel="ordered minus cleared"
+                  sublabel="expected minus cleared"
                   count={stillToClearBatches}
                   qty={stillToClearQty}
                   qtyLabel={`${unitLabel} pending clearance`}
