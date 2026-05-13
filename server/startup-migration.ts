@@ -7,6 +7,36 @@ import * as db from "./db";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+async function normalizeUsernames(dbInstance: any) {
+  // Defensive: ensure every app_users.username row is stored lowercase + trimmed
+  // so the case-insensitive lookup in getAppUserByUsername always finds them.
+  // De-dupes by keeping the lowest id when a collision would occur.
+  try {
+    await dbInstance.execute(`
+      DO $$
+      DECLARE
+        r RECORD;
+        target TEXT;
+        keeper INTEGER;
+      BEGIN
+        FOR r IN SELECT id, username FROM app_users
+                 WHERE username <> LOWER(TRIM(username)) LOOP
+          target := LOWER(TRIM(r.username));
+          SELECT MIN(id) INTO keeper FROM app_users WHERE LOWER(TRIM(username)) = target;
+          IF keeper = r.id THEN
+            UPDATE app_users SET username = target WHERE id = r.id;
+          ELSE
+            -- A canonical lowercase row already exists; drop the duplicate.
+            DELETE FROM app_users WHERE id = r.id;
+          END IF;
+        END LOOP;
+      END $$;
+    `);
+  } catch (e: any) {
+    console.warn(`[Migration] Username normalization skip: ${e.message}`);
+  }
+}
+
 async function ensureSchemaColumns(dbInstance: any) {
   // Add any missing columns that may not exist in older production schemas
   const alterStatements = [
@@ -50,6 +80,10 @@ export async function runStartupMigration() {
 
     // Ensure any new columns exist in the schema (idempotent)
     await ensureSchemaColumns(dbInstance);
+
+    // Force every existing username to its canonical lowercase form so
+    // case-insensitive login always works, even for legacy/imported rows.
+    await normalizeUsernames(dbInstance);
 
     const { getSkusForCountry, restoreSnapshot, importClearanceEvent } = db;
 
