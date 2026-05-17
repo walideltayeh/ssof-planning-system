@@ -2340,7 +2340,7 @@ export const appRouter = router({
         totalTons: z.number().positive(),
         mastercaseKg: z.number().positive(),
         targetMonth: z.number().min(1).max(12),
-        targetYear: z.number().min(2024).max(2030),
+        targetYear: z.number().min(2024).max(2032),
         includeNpi: z.boolean().optional().default(true),
         previousMonthContext: z.string().optional(),
         monthPositionInForecast: z.number().optional(),

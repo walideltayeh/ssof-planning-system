@@ -16,7 +16,7 @@ import { Sparkles, TrendingUp, TrendingDown, Minus, AlertTriangle, Download, Ref
 import { useEffect, useState as useStateLocal } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 
-import { MONTHS, SHORT_MONTHS, getConsecutiveMonths, distributeTonsBySeasonality } from "./forecastSplit.helpers";
+import { MONTHS, SHORT_MONTHS, getConsecutiveMonths, distributeTonsBySeasonality, computeQuickRange, QUICK_RANGE_LABELS, type QuickRangePreset } from "./forecastSplit.helpers";
 
 type Recommendation = {
   skuName: string;
@@ -240,7 +240,8 @@ export default function ForecastSplitPage() {
   const MC_WEIGHT_KG = 6; // Hardcoded mastercase weight
   const [targetMonth, setTargetMonth] = useState(String(now.getMonth() + 2 > 12 ? 1 : now.getMonth() + 2));
   const [targetYear, setTargetYear] = useState(String(now.getMonth() + 2 > 12 ? now.getFullYear() + 1 : now.getFullYear()));
-  const [duration, setDuration] = useState<1 | 3 | 6 | 12>(1);
+  const [duration, setDuration] = useState<number>(1);
+  const [activePreset, setActivePreset] = useState<QuickRangePreset | null>(null);
   const [splitMode, setSplitMode] = useState<"perMonth" | "totalSplit">("perMonth");
   const [includeNpi, setIncludeNpi] = useState(true);
   const [plannerInstructions, setPlannerInstructions] = useState("");
@@ -1085,7 +1086,7 @@ export default function ForecastSplitPage() {
                   <SelectValue placeholder="Year" />
                 </SelectTrigger>
                 <SelectContent>
-                  {[2025, 2026, 2027, 2028].map(y => (
+                  {[2025, 2026, 2027, 2028, 2029, 2030].map(y => (
                     <SelectItem key={y} value={String(y)}>{y}</SelectItem>
                   ))}
                 </SelectContent>
@@ -1098,14 +1099,55 @@ export default function ForecastSplitPage() {
                   <button
                     key={d}
                     type="button"
-                    onClick={() => setDuration(d)}
-                    className={`flex-1 text-sm font-medium transition-colors px-2 ${duration === d ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                    onClick={() => { setDuration(d); setActivePreset(null); }}
+                    className={`flex-1 text-sm font-medium transition-colors px-2 ${duration === d && activePreset === null ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
                   >
                     {d}M
                   </button>
                 ))}
               </div>
             </div>
+          </div>
+
+          {/* Quick range presets — calendar-driven durations */}
+          <div className="mt-3 p-3 bg-blue-50/60 rounded-lg border border-blue-100">
+            <Label className="text-xs font-semibold text-blue-900 block mb-2">
+              Quick range — start next month, end on a calendar boundary
+            </Label>
+            <div className="flex flex-wrap gap-2">
+              {(['restOfYear', 'plusQ1', 'plusQ2', 'plusQ3', 'plusQ4'] as const).map(p => {
+                const r = computeQuickRange(p);
+                const startLabel = `${SHORT_MONTHS[r.startMonth - 1]} ${r.startYear}`;
+                const endLabel = `${SHORT_MONTHS[r.endMonth - 1]} ${r.endYear}`;
+                const isActive = activePreset === p;
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => {
+                      setTargetMonth(String(r.startMonth));
+                      setTargetYear(String(r.startYear));
+                      setDuration(r.duration);
+                      setActivePreset(p);
+                    }}
+                    className={`text-xs font-medium px-3 py-1.5 rounded-md border transition-colors ${
+                      isActive
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'bg-white text-blue-800 border-blue-200 hover:bg-blue-100'
+                    }`}
+                    title={`${startLabel} → ${endLabel} · ${r.duration} months`}
+                  >
+                    <span className="font-semibold">{QUICK_RANGE_LABELS[p]}</span>
+                    <span className={`ml-1.5 ${isActive ? 'text-blue-100' : 'text-blue-500'}`}>
+                      {startLabel} → {endLabel} · {r.duration}M
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[11px] text-blue-700/80 mt-1.5">
+              "Rest of year" runs from next month to December. The "+ Qn" options extend through quarter n of next year (Q1 = Mar, Q2 = Jun, Q3 = Sep, Q4 = Dec).
+            </p>
           </div>
 
           <div className="mt-4 flex items-center gap-3">

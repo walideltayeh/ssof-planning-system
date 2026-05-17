@@ -20,6 +20,64 @@ export const SHORT_MONTHS = [
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ] as const;
 
+// ──────────────────────────────────────────────────────────────────────────
+// Quick-range presets for the forecast duration selector.
+//
+// Real planners almost never think in "3 months" — they think in calendar
+// terms: "the rest of this year" and "into Q2 of next year". These helpers
+// translate those statements into a concrete {startMonth, startYear,
+// duration} given today's date.
+//
+// "Current year" is anchored to the START month (i.e. next month), so if
+// today is December the "current year" is the year of Jan next year — there
+// is always at least one month in the range.
+// ──────────────────────────────────────────────────────────────────────────
+export type QuickRangePreset =
+  | 'restOfYear'   // next month → Dec of current year
+  | 'plusQ1'       // next month → Mar of next year
+  | 'plusQ2'       // next month → Jun of next year
+  | 'plusQ3'       // next month → Sep of next year
+  | 'plusQ4';      // next month → Dec of next year
+
+export const QUICK_RANGE_LABELS: Record<QuickRangePreset, string> = {
+  restOfYear: 'Rest of year',
+  plusQ1: '+ Q1 next year',
+  plusQ2: '+ Q2 next year',
+  plusQ3: '+ Q3 next year',
+  plusQ4: '+ Q4 next year',
+};
+
+export function getNextMonthAnchor(now: Date = new Date()): { month: number; year: number } {
+  const m0 = now.getMonth() + 1; // 0-11 → 1-12 for *next* month (but may be 12 = roll)
+  if (m0 > 11) {
+    return { month: 1, year: now.getFullYear() + 1 };
+  }
+  return { month: m0 + 1, year: now.getFullYear() };
+}
+
+export function computeQuickRange(
+  preset: QuickRangePreset,
+  now: Date = new Date(),
+): { startMonth: number; startYear: number; duration: number; endMonth: number; endYear: number } {
+  const { month: startMonth, year: startYear } = getNextMonthAnchor(now);
+  const endsAtQuarter =
+    preset === 'restOfYear' ? 0 :
+    preset === 'plusQ1' ? 1 :
+    preset === 'plusQ2' ? 2 :
+    preset === 'plusQ3' ? 3 : 4;
+  let endMonth: number;
+  let endYear: number;
+  if (endsAtQuarter === 0) {
+    endMonth = 12;
+    endYear = startYear;
+  } else {
+    endMonth = endsAtQuarter * 3; // Q1→3, Q2→6, Q3→9, Q4→12
+    endYear = startYear + 1;
+  }
+  const duration = (endYear - startYear) * 12 + (endMonth - startMonth) + 1;
+  return { startMonth, startYear, duration, endMonth, endYear };
+}
+
 /** Build a list of up to N consecutive months starting from the given month/year. */
 export function getConsecutiveMonths(
   startMonth: number,
