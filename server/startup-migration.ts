@@ -10,24 +10,27 @@ const __dirname = path.dirname(__filename);
 async function normalizeUsernames(dbInstance: any) {
   // Defensive: ensure every app_users.username row is stored lowercase + trimmed
   // so the case-insensitive lookup in getAppUserByUsername always finds them.
-  // De-dupes by keeping the lowest id when a collision would occur.
+  // NON-DESTRUCTIVE: if lowercasing would cause a collision with an existing
+  // row, we LEAVE the conflicting row alone and log a warning so an operator
+  // can resolve it manually. We never DELETE app_users rows from a migration.
   try {
     await dbInstance.execute(`
       DO $$
       DECLARE
         r RECORD;
         target TEXT;
-        keeper INTEGER;
+        conflict_id INTEGER;
       BEGIN
         FOR r IN SELECT id, username FROM app_users
                  WHERE username <> LOWER(TRIM(username)) LOOP
           target := LOWER(TRIM(r.username));
-          SELECT MIN(id) INTO keeper FROM app_users WHERE LOWER(TRIM(username)) = target;
-          IF keeper = r.id THEN
+          SELECT id INTO conflict_id FROM app_users
+            WHERE LOWER(TRIM(username)) = target AND id <> r.id
+            LIMIT 1;
+          IF conflict_id IS NULL THEN
             UPDATE app_users SET username = target WHERE id = r.id;
           ELSE
-            -- A canonical lowercase row already exists; drop the duplicate.
-            DELETE FROM app_users WHERE id = r.id;
+            RAISE WARNING 'Username normalization skipped for id=% (% -> %) — conflicts with existing id=%', r.id, r.username, target, conflict_id;
           END IF;
         END LOOP;
       END $$;
