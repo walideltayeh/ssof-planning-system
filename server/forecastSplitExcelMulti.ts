@@ -239,8 +239,18 @@ export async function generateMultiMonthForecastSplitExcel(data: MultiMonthData)
       compWs.mergeCells(`A${catRow.number}:${String.fromCharCode(64 + Math.min(lastCol, 26))}${catRow.number}`);
     }
 
+    // Match on ALL FOUR identity fields so two SKUs that share name+weight
+    // but differ in category or packaging (e.g. "Double Apple 50g New" vs
+    // "Double Apple 50g Old") don't collide and pull the wrong row's MC,
+    // which previously caused the SKU Comparison tab totals to disagree
+    // with the per-month tabs.
     const monthValues = data.monthResults.map(mr => {
-      const rec = mr.recommendations.find(r => r.skuName === skuName && r.weight === weight);
+      const rec = mr.recommendations.find(r =>
+        r.skuName === skuName &&
+        r.weight === weight &&
+        r.category === category &&
+        (r.packagingType ?? 'New') === pkg
+      );
       return Math.round(rec?.recommendedMastercases ?? 0);
     });
     const total = monthValues.reduce((s, v) => s + v, 0);

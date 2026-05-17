@@ -16,7 +16,7 @@ import { Sparkles, TrendingUp, TrendingDown, Minus, AlertTriangle, Download, Ref
 import { useEffect, useState as useStateLocal } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 
-import { MONTHS, SHORT_MONTHS, getConsecutiveMonths } from "./forecastSplit.helpers";
+import { MONTHS, SHORT_MONTHS, getConsecutiveMonths, distributeTonsBySeasonality } from "./forecastSplit.helpers";
 
 type Recommendation = {
   skuName: string;
@@ -606,8 +606,11 @@ export default function ForecastSplitPage() {
     const rawVal = parseFloat(inputValue);
     if (!rawVal || rawVal <= 0) { toast.error(`Please enter a valid ${inputUnit === 'tons' ? 'tonnage' : 'mastercase quantity'}`); return; }
     const totalInputTons = inputUnit === "tons" ? rawVal : (rawVal * MC_WEIGHT_KG / 1000);
-    // If "totalSplit" mode and multi-month: divide the input across months
-    const tons = (duration > 1 && splitMode === "totalSplit") ? (totalInputTons / duration) : totalInputTons;
+    // For single-month or perMonth mode, every call uses the full input tons.
+    // For multi-month "totalSplit", we now redistribute the total across
+    // months using per-country seasonality weights instead of dividing
+    // equally — see `distributeTonsBySeasonality` for the rationale.
+    const tons = totalInputTons;
     const mcKg = MC_WEIGHT_KG;
     const month = parseInt(targetMonth);
     const year = parseInt(targetYear);
@@ -651,6 +654,15 @@ export default function ForecastSplitPage() {
       abortRef.current = false;
 
       const monthList = getConsecutiveMonths(month, year, duration);
+      // Per-month tonnage allocation:
+      //  - perMonth mode  → user's input is what each month gets (constant).
+      //  - totalSplit mode → split the total across months weighted by each
+      //    month's seasonality multiplier (Ramadan, summer peak, winter dip).
+      //    This is how a senior demand planner would budget volume across a
+      //    horizon: high months carry more of the total, low months carry less.
+      const seasonalPlan = splitMode === 'totalSplit'
+        ? distributeTonsBySeasonality(totalInputTons, month, year, duration, country)
+        : monthList.map(m => ({ month: m.month, year: m.year, tons: totalInputTons, multiplier: 1 }));
       setMultiProgress({ current: 0, total: duration, currentMonthLabel: monthList[0]?.label ?? "" });
 
       const results: RecommendResult[] = [];
@@ -659,6 +671,7 @@ export default function ForecastSplitPage() {
       for (let i = 0; i < monthList.length; i++) {
         if (abortRef.current) break;
         const m = monthList[i];
+        const monthTons = seasonalPlan[i]?.tons ?? tons;
         setMultiProgress({ current: i, total: duration, currentMonthLabel: m.label });
         
         try {
@@ -677,7 +690,7 @@ export default function ForecastSplitPage() {
           const directives = buildSkuDirectives(i);
           const monthResult = await utils.client.forecastSplit.recommend.mutate({
             country,
-            totalTons: tons,
+            totalTons: monthTons,
             mastercaseKg: mcKg,
             targetMonth: m.month,
             targetYear: m.year,
@@ -1160,7 +1173,7 @@ export default function ForecastSplitPage() {
               <p className="text-xs text-amber-700 mt-1.5">
                 {splitMode === 'perMonth'
                   ? `Each of the ${duration} months will receive the full amount you entered.`
-                  : `Your input will be divided by ${duration} so the months together match your total.`}
+                  : `Your total will be split across ${duration} months weighted by seasonality — Ramadan, summer, and winter months get more/less of the total instead of an equal share.`}
               </p>
             </div>
           )}
@@ -1395,25 +1408,46 @@ export default function ForecastSplitPage() {
           {inputValue && parseFloat(inputValue) > 0 && (() => {
             const totalInputTons = inputUnit === 'tons' ? parseFloat(inputValue) : (parseFloat(inputValue) * MC_WEIGHT_KG / 1000);
             const isSplit = duration > 1 && splitMode === 'totalSplit';
-            const tonsPerMonth = isSplit ? totalInputTons / duration : totalInputTons;
-            const mcPerMonth = Math.floor(tonsPerMonth * 1000 / MC_WEIGHT_KG);
-            const totalTonsAllMonths = tonsPerMonth * duration;
+            const startM = parseInt(targetMonth);
+            const startY = parseInt(targetYear);
+            const seasonalPreview = (isSplit && startM && startY && country)
+              ? distributeTonsBySeasonality(totalInputTons, startM, startY, duration, country)
+              : null;
+            const mcPerMonthFlat = Math.floor((totalInputTons * 1000 / MC_WEIGHT_KG));
             return (
               <div className="mt-3 p-3 bg-blue-50 rounded-lg text-sm text-blue-800 border border-blue-100">
                 {duration > 1 ? (
-                  isSplit ? (
+                  isSplit && seasonalPreview ? (
                     <>
-                      <strong>{totalInputTons.toLocaleString()} tons total</strong> ÷ <strong>{duration} months</strong> = <strong>{tonsPerMonth.toFixed(1)} tons/month</strong> ({mcPerMonth.toLocaleString()} MC/month) to allocate across {country} SKUs.
-                      <span className="block mt-1 text-blue-600">AI will tune each month based on seasonality, stock health, and trends — monthly totals may vary slightly while preserving the {totalInputTons.toLocaleString()}-ton overall budget.</span>
+                      <strong>{totalInputTons.toLocaleString()} tons total</strong> split seasonally across <strong>{duration} months</strong> for {country}:
+                      <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-1.5 text-xs">
+                        {seasonalPreview.map((p, idx) => {
+                          const mc = Math.round(p.tons * 1000 / MC_WEIGHT_KG);
+                          const isHigh = p.multiplier > 1.05;
+                          const isLow = p.multiplier < 0.95;
+                          const label = `${SHORT_MONTHS[p.month - 1]} ${p.year}`;
+                          const cls = isHigh ? 'bg-purple-100 border-purple-300 text-purple-800'
+                            : isLow ? 'bg-slate-100 border-slate-300 text-slate-700'
+                            : 'bg-white border-blue-200 text-blue-800';
+                          return (
+                            <div key={idx} className={`px-2 py-1 rounded border ${cls}`}>
+                              <div className="font-semibold">{label}</div>
+                              <div>{p.tons.toFixed(1)}t · {mc.toLocaleString()} MC</div>
+                              <div className="text-[10px] opacity-75">×{p.multiplier.toFixed(2)}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <span className="block mt-2 text-blue-600">Weights: Ramadan +35-40%, summer (Jun-Aug) +17-22%, winter (Dec-Feb) -7-12% — per country. The AI then splits each month's volume across SKUs using stock health, trend, and history.</span>
                     </>
                   ) : (
                     <>
-                      <strong>{tonsPerMonth.toLocaleString()} tons per month</strong> × <strong>{duration} months</strong> = <strong>{totalTonsAllMonths.toLocaleString()} tons total</strong> ({mcPerMonth.toLocaleString()} MC/month).
+                      <strong>{totalInputTons.toLocaleString()} tons per month</strong> × <strong>{duration} months</strong> = <strong>{(totalInputTons * duration).toLocaleString()} tons total</strong> ({mcPerMonthFlat.toLocaleString()} MC/month).
                     </>
                   )
                 ) : (
                   <>
-                    <strong>{totalInputTons.toLocaleString()} tons</strong> ÷ <strong>{MC_WEIGHT_KG} kg/MC</strong> = <strong>{mcPerMonth.toLocaleString()} master cases</strong> to allocate across {country} SKUs.
+                    <strong>{totalInputTons.toLocaleString()} tons</strong> ÷ <strong>{MC_WEIGHT_KG} kg/MC</strong> = <strong>{mcPerMonthFlat.toLocaleString()} master cases</strong> to allocate across {country} SKUs.
                   </>
                 )}
               </div>
