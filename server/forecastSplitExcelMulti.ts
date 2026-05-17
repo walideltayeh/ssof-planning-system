@@ -241,7 +241,7 @@ export async function generateMultiMonthForecastSplitExcel(data: MultiMonthData)
 
     const monthValues = data.monthResults.map(mr => {
       const rec = mr.recommendations.find(r => r.skuName === skuName && r.weight === weight);
-      return rec?.recommendedMastercases ?? 0;
+      return Math.round(rec?.recommendedMastercases ?? 0);
     });
     const total = monthValues.reduce((s, v) => s + v, 0);
     const avg = monthValues.length > 0 ? Math.round(total / monthValues.length) : 0;
@@ -259,10 +259,10 @@ export async function generateMultiMonthForecastSplitExcel(data: MultiMonthData)
     row.getCell(compHeaders.length).font = { bold: true, color: { argb: "FF6B7280" } };
   }
 
-  // Totals row
+  // Totals row — sum rounded per-row values so =SUM(...) in Excel matches.
   compWs.addRow([]);
   const totalValues = data.monthResults.map(mr =>
-    mr.recommendations.reduce((s, r) => s + r.recommendedMastercases, 0)
+    mr.recommendations.reduce((s, r) => s + Math.round(r.recommendedMastercases), 0)
   );
   const grandTotal = totalValues.reduce((s, v) => s + v, 0);
   const grandAvg = totalValues.length > 0 ? Math.round(grandTotal / totalValues.length) : 0;
@@ -341,7 +341,7 @@ export async function generateMultiMonthForecastSplitExcel(data: MultiMonthData)
 
       const row = ws.addRow([
         rec.skuName, rec.weight, rec.category, rec.packagingType ?? "New",
-        rec.recommendedMastercases, rec.sharePercent, rec.confidenceScore ?? "",
+        Math.round(rec.recommendedMastercases), Math.round(rec.sharePercent * 10) / 10, rec.confidenceScore ?? "",
         rec.trend.charAt(0).toUpperCase() + rec.trend.slice(1),
         rec.stockAlert ?? "unknown",
         driverLabels[rec.primaryDriver ?? ""] ?? (rec.primaryDriver ?? ""),
@@ -382,12 +382,14 @@ export async function generateMultiMonthForecastSplitExcel(data: MultiMonthData)
       }
     }
 
-    // Totals
+    // Totals — sum rounded per-row values so =SUM(...) in Excel matches.
     ws.addRow([]);
+    const mTotalMc = mr.recommendations.reduce((s, r) => s + Math.round(r.recommendedMastercases), 0);
+    const mTotalShare = mr.recommendations.reduce((s, r) => s + Math.round(r.sharePercent * 10) / 10, 0);
     const mTotalRow = ws.addRow([
       "TOTAL", "", "", "",
-      mr.recommendations.reduce((s, r) => s + r.recommendedMastercases, 0),
-      mr.recommendations.reduce((s, r) => s + r.sharePercent, 0),
+      mTotalMc,
+      Math.round(mTotalShare * 10) / 10,
     ]);
     mTotalRow.getCell(1).font = { bold: true, size: 11, color: { argb: "FF1E40AF" } };
     mTotalRow.getCell(5).font = { bold: true, size: 12, color: { argb: "FF1E40AF" } };

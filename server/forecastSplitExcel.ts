@@ -208,8 +208,8 @@ export async function generateForecastSplitExcel(data: ForecastSplitData): Promi
       rec.weight,
       rec.category,
       rec.packagingType ?? "New",
-      rec.recommendedMastercases,
-      rec.sharePercent,
+      Math.round(rec.recommendedMastercases),
+      Math.round(rec.sharePercent * 10) / 10,
       rec.confidenceScore ?? "",
       rec.trend.charAt(0).toUpperCase() + rec.trend.slice(1),
       rec.stockAlert ?? "unknown",
@@ -271,12 +271,15 @@ export async function generateForecastSplitExcel(data: ForecastSplitData): Promi
     }
   }
 
-  // Totals row
+  // Totals row — sum the *displayed* (rounded) per-row values so the user
+  // can replace this cell with =SUM(E:E) / =SUM(F:F) and get the same number.
   skuWs.addRow([]);
+  const totalMcRounded = data.recommendations.reduce((s, r) => s + Math.round(r.recommendedMastercases), 0);
+  const totalShareRounded = data.recommendations.reduce((s, r) => s + Math.round(r.sharePercent * 10) / 10, 0);
   const totalRow = skuWs.addRow([
     "TOTAL", "", "", "",
-    data.recommendations.reduce((s, r) => s + r.recommendedMastercases, 0),
-    data.recommendations.reduce((s, r) => s + r.sharePercent, 0),
+    totalMcRounded,
+    Math.round(totalShareRounded * 10) / 10,
   ]);
   totalRow.getCell(1).font = { bold: true, size: 11, color: { argb: "FF1E40AF" } };
   totalRow.getCell(5).font = { bold: true, size: 12, color: { argb: "FF1E40AF" } };
@@ -293,8 +296,8 @@ export async function generateForecastSplitExcel(data: ForecastSplitData): Promi
     totalRow.getCell(c).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFEFF6FF" } };
   }
 
-  // Unassigned row
-  const unassigned = data.totalMastercases - data.recommendations.reduce((s, r) => s + r.recommendedMastercases, 0);
+  // Unassigned row (compare against the rounded sum to match the visible total)
+  const unassigned = data.totalMastercases - totalMcRounded;
   if (unassigned > 0) {
     const unRow = skuWs.addRow(["Unassigned", "", "", "", unassigned]);
     unRow.getCell(1).font = { italic: true, color: { argb: "FFDC2626" } };
