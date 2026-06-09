@@ -1,0 +1,1 @@
+- [Excel import country scoping](excel-import-country-scoping.md) — import must resolve SKUs/periods per-country (getSkusForCountry/getPeriodsForCountry), never global getters; shared labels/names cause invisible cross-country writes.
