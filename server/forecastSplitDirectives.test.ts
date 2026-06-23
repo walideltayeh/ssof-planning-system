@@ -317,6 +317,61 @@ describe("forecastSplit.recommend — planner directives (UI panel)", () => {
     expect(capped.reasoning).toMatch(/Planner directive: cap/);
   });
 
+  it("'set' directive forces target SKU to an exact MC value (can RAISE above the base, unlike cap)", async () => {
+    setLlmResponses([fullCoverageResponse()]);
+
+    const caller = appRouter.createCaller(makeAuthCtx());
+    const result = await caller.forecastSplit.recommend({
+      ...BASE_INPUT,
+      skuDirectives: [
+        // SKU 101 starts at 100 MC; set to 600 → forced exactly to 600 MC.
+        // A "cap" could never raise it; "set" can.
+        { skuId: FIXTURE_SKUS[0].id, action: "set", valueMC: 600 },
+      ],
+    });
+
+    expect(result.recommendations).toHaveLength(FIXTURE_SKUS.length);
+
+    const setRec = getRec(result.recommendations, FIXTURE_SKUS[0].id);
+    expect(setRec).toBeDefined();
+    expect(setRec.recommendedMastercases).toBe(600);
+
+    expect(sumMc(result.recommendations)).toBe(EXPECTED_TOTAL_MC);
+    expect(result.totalMastercases).toBe(EXPECTED_TOTAL_MC);
+
+    // The extra 500 MC was taken from non-locked SKUs.
+    const nonLockedSum = result.recommendations
+      .filter((r: any) => r.skuId !== FIXTURE_SKUS[0].id)
+      .reduce((s: number, r: any) => s + Math.max(0, Math.round(r.recommendedMastercases ?? 0)), 0);
+    expect(nonLockedSum).toBe(EXPECTED_TOTAL_MC - 600);
+
+    expect(setRec.reasoning).toMatch(/Planner directive: set/);
+  });
+
+  it("'set' to 0 is protected from rebalance refill (treated like zero)", async () => {
+    setLlmResponses([fullCoverageResponse()]);
+
+    const caller = appRouter.createCaller(makeAuthCtx());
+    const result = await caller.forecastSplit.recommend({
+      ...BASE_INPUT,
+      skuDirectives: [
+        // SKU 104 starts at 400 MC; set to 0 → forced to 0 and NOT refilled by rebalance.
+        { skuId: FIXTURE_SKUS[3].id, action: "set", valueMC: 0 },
+      ],
+    });
+
+    const setZero = getRec(result.recommendations, FIXTURE_SKUS[3].id);
+    expect(setZero).toBeDefined();
+    expect(setZero.recommendedMastercases).toBe(0);
+
+    // Total still preserved; the freed 400 MC went to other SKUs, never back to 104.
+    expect(sumMc(result.recommendations)).toBe(EXPECTED_TOTAL_MC);
+    const nonLockedSum = result.recommendations
+      .filter((r: any) => r.skuId !== FIXTURE_SKUS[3].id)
+      .reduce((s: number, r: any) => s + Math.max(0, Math.round(r.recommendedMastercases ?? 0)), 0);
+    expect(nonLockedSum).toBe(EXPECTED_TOTAL_MC);
+  });
+
   it("multiple directives lock multiple SKUs — rebalance never mutates a locked row", async () => {
     setLlmResponses([fullCoverageResponse()]);
 

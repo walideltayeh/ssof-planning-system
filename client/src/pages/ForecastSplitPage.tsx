@@ -250,7 +250,7 @@ export default function ForecastSplitPage() {
   // Keyed by skuId. Empty action means "no change".
   // monthScope: array of month indices (0..N-1) that this adjustment applies to.
   // undefined or empty array means "all months". Single-month forecast always uses "all".
-  type SkuAction = "none" | "zero" | "reduce" | "increase" | "cap";
+  type SkuAction = "none" | "zero" | "reduce" | "increase" | "cap" | "set";
   type SkuAdjustment = { action: SkuAction; valuePct?: string; valueMC?: string; monthScope?: number[] };
   const [skuAdjustments, setSkuAdjustments] = useState<Record<number, SkuAdjustment>>({});
   const [showAdjustPanel, setShowAdjustPanel] = useState(false);
@@ -312,7 +312,7 @@ export default function ForecastSplitPage() {
   // monthIdx: when defined (multi-month), only include directives whose monthScope is
   // "all" or matches monthIdx. When undefined (single-month), include everything.
   const buildSkuDirectives = useCallback((monthIdx?: number) => {
-    const out: Array<{ skuId: number; action: "zero" | "reduce" | "increase" | "cap"; valuePct?: number; valueMC?: number }> = [];
+    const out: Array<{ skuId: number; action: "zero" | "reduce" | "increase" | "cap" | "set"; valuePct?: number; valueMC?: number }> = [];
     for (const [idStr, adj] of Object.entries(skuAdjustments)) {
       const id = parseInt(idStr);
       if (!adj || adj.action === "none") continue;
@@ -326,9 +326,9 @@ export default function ForecastSplitPage() {
       } else if (adj.action === "reduce" || adj.action === "increase") {
         const pct = parseFloat(adj.valuePct ?? "");
         if (isFinite(pct) && pct > 0) out.push({ skuId: id, action: adj.action, valuePct: pct });
-      } else if (adj.action === "cap") {
+      } else if (adj.action === "cap" || adj.action === "set") {
         const mc = parseFloat(adj.valueMC ?? "");
-        if (isFinite(mc) && mc >= 0) out.push({ skuId: id, action: "cap", valueMC: mc });
+        if (isFinite(mc) && mc >= 0) out.push({ skuId: id, action: adj.action, valueMC: mc });
       }
     }
     return out;
@@ -1277,6 +1277,7 @@ export default function ForecastSplitPage() {
                         const adj = skuAdjustments[sku.id] ?? { action: "none" as SkuAction };
                         const isPctAction = adj.action === "reduce" || adj.action === "increase";
                         const isCapAction = adj.action === "cap";
+                        const isSetAction = adj.action === "set";
                         const setAdj = (next: typeof adj) => setSkuAdjustments(prev => {
                           const copy = { ...prev };
                           if (next.action === "none") delete copy[sku.id];
@@ -1312,6 +1313,7 @@ export default function ForecastSplitPage() {
                                 <SelectItem value="reduce">▼ Reduce by %</SelectItem>
                                 <SelectItem value="zero">⨯ Set to zero</SelectItem>
                                 <SelectItem value="cap">⊓ Cap at MC</SelectItem>
+                                <SelectItem value="set">= Set to exact MC</SelectItem>
                               </SelectContent>
                             </Select>
                             {isPctAction && (
@@ -1329,7 +1331,7 @@ export default function ForecastSplitPage() {
                                 <span className="text-xs text-muted-foreground">%</span>
                               </div>
                             )}
-                            {isCapAction && (
+                            {(isCapAction || isSetAction) && (
                               <div className="flex items-center gap-1">
                                 <Input
                                   type="number"
@@ -1337,7 +1339,7 @@ export default function ForecastSplitPage() {
                                   step={10}
                                   value={adj.valueMC ?? ""}
                                   onChange={(e) => setAdj({ ...adj, valueMC: e.target.value })}
-                                  placeholder="500"
+                                  placeholder={isSetAction ? "100" : "500"}
                                   className="h-8 w-20 text-xs text-right"
                                 />
                                 <span className="text-xs text-muted-foreground">MC</span>

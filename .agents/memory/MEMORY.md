@@ -1,1 +1,2 @@
 - [Excel import country scoping](excel-import-country-scoping.md) — import must resolve SKUs/periods per-country (getSkusForCountry/getPeriodsForCountry), never global getters; shared labels/names cause invisible cross-country writes.
+- [Forecast Split directives](forecast-split-directives.md) — per-SKU actions: cap is a CEILING (can't raise a 0 SKU), "set" forces exact MC; targets locked, zero-results protected from rebalance refill.

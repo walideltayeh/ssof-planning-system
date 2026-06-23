@@ -2350,7 +2350,7 @@ export const appRouter = router({
         // they ALWAYS take precedence over (and supplement) the free-text parser.
         skuDirectives: z.array(z.object({
           skuId: z.number().int().positive(),
-          action: z.enum(["zero", "reduce", "increase", "cap"]),
+          action: z.enum(["zero", "reduce", "increase", "cap", "set"]),
           valuePct: z.number().min(0).max(500).optional(),
           valueMC: z.number().min(0).optional(),
         })).optional(),
@@ -2775,7 +2775,7 @@ export const appRouter = router({
         // so the planner's intent is honored even if the main LLM ignores Section in the prompt.
         type PlannerDirective = {
           skuIds: number[];
-          action: 'zero' | 'reduce' | 'increase' | 'cap' | 'prioritize';
+          action: 'zero' | 'reduce' | 'increase' | 'cap' | 'set' | 'prioritize';
           valuePct?: number;
           valueMC?: number;
           raw: string;
@@ -2796,12 +2796,12 @@ export const appRouter = router({
               action: d.action,
               valuePct: d.valuePct,
               valueMC: d.valueMC,
-              raw: `[UI] ${sk.name} ${sk.weight} (${(sk as any).packagingType ?? 'New'}) → ${d.action}${d.valuePct ? ` ${d.valuePct}%` : ''}${d.valueMC ? ` cap ${d.valueMC}MC` : ''}`,
+              raw: `[UI] ${sk.name} ${sk.weight} (${(sk as any).packagingType ?? 'New'}) → ${d.action}${d.valuePct ? ` ${d.valuePct}%` : ''}${d.valueMC !== undefined ? ` ${d.valueMC}MC` : ''}`,
             });
           }
           if (parsedDirectives.length > 0) {
             console.log(`[ForecastSplit] UI panel sent ${parsedDirectives.length} structured directive(s):`,
-              parsedDirectives.map(d => `${d.action}${d.valuePct ? ' '+d.valuePct+'%' : ''}${d.valueMC ? ' cap '+d.valueMC : ''} → SKU ${d.skuIds[0]}`).join(' | '));
+              parsedDirectives.map(d => `${d.action}${d.valuePct ? ' '+d.valuePct+'%' : ''}${d.valueMC !== undefined ? ' '+d.valueMC+'MC' : ''} → SKU ${d.skuIds[0]}`).join(' | '));
           }
         }
 
@@ -2992,6 +2992,7 @@ Return ONLY the JSON object, no markdown, no commentary.`;
                 : d.action === 'reduce' ? `reduce by ${d.valuePct ?? 20}%`
                 : d.action === 'increase' ? `increase by ${d.valuePct ?? 25}%`
                 : d.action === 'cap' ? `cap at ${d.valueMC ?? 0} MC`
+                : d.action === 'set' ? `set to exactly ${d.valueMC ?? 0} MC`
                 : 'prioritize (above-base allocation)';
               return `  • [${d.action.toUpperCase()}] ${targetSkus} → ${detail}  (raw: "${d.raw}")`;
             }).join('\n')
@@ -3700,6 +3701,11 @@ Use the base allocation hints above as a starting point; you may adjust ±25% ba
             } else if (dir.action === 'cap') {
               const cap = Math.max(0, Math.round(dir.valueMC ?? 0));
               after = Math.min(before, cap);
+            } else if (dir.action === 'set') {
+              // Force the SKU to an exact MC value. Unlike "cap" (a ceiling that can
+              // only lower a value), "set" can raise a SKU up from 0 — needed for new
+              // SKUs the recommender starts at 0 but the planner wants to stock.
+              after = Math.max(0, Math.round(dir.valueMC ?? 0));
             } else if (dir.action === 'prioritize') {
               after = Math.max(before + 1, Math.round(before * 1.20));
             }
@@ -3708,12 +3714,12 @@ Use the base allocation hints above as a starting point; you may adjust ±25% ba
             lockedSkuIds.add(skuId);
             // Any directive (zero, cap-to-0, reduce-100%) that drives the rec to
             // 0 must protect that 0 from being re-filled by the rebalance.
-            if (after === 0 && (dir.action === 'zero' || dir.action === 'cap' || dir.action === 'reduce')) {
+            if (after === 0 && (dir.action === 'zero' || dir.action === 'cap' || dir.action === 'reduce' || dir.action === 'set')) {
               zeroedSkuIds.add(skuId);
             }
             if (after === before) return false;
             rec.recommendedMastercases = after;
-            rec.reasoning = `${rec.reasoning ?? ''} [Planner directive: ${dir.action}${dir.valuePct ? ` ${dir.valuePct}%` : ''}${dir.valueMC ? ` cap ${dir.valueMC}MC` : ''} → ${before} → ${after} MC]`.trim();
+            rec.reasoning = `${rec.reasoning ?? ''} [Planner directive: ${dir.action}${dir.valuePct ? ` ${dir.valuePct}%` : ''}${dir.valueMC !== undefined ? ` ${dir.valueMC}MC` : ''} → ${before} → ${after} MC]`.trim();
             rec.primaryDriver = 'market_intel';
             if (after === 0) rec.trend = 'declining';
             directiveAppliedSummaries.push(`${skuLabel}: ${dir.action} (${before}→${after} MC)`);
