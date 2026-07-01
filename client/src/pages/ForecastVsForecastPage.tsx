@@ -77,8 +77,18 @@ export default function ForecastVsForecastPage() {
 
   const actualMap = useMemo(() => {
     const map = new Map<string, string>();
+    // Auto-actual: the weekly production entered (sum of shipment weeks) shows
+    // as Actual Production. A manual Actual entry (> 0) overrides it. Per user
+    // direction — entered production automatically appears as Actual.
+    for (const d of ((intlData as any)?.shipment ?? [])) {
+      const sum = (parseFloat(d.week1 ?? "0") || 0) + (parseFloat(d.week2 ?? "0") || 0)
+        + (parseFloat(d.week3 ?? "0") || 0) + (parseFloat(d.week4 ?? "0") || 0);
+      if (sum > 0) map.set(`${d.skuId}-${d.periodId}`, String(sum));
+    }
     if (intlData?.actualProduction) {
-      for (const d of intlData.actualProduction) map.set(`${d.skuId}-${d.periodId}`, d.value ?? "0");
+      for (const d of intlData.actualProduction) {
+        if ((parseFloat(d.value ?? "0") || 0) > 0) map.set(`${d.skuId}-${d.periodId}`, d.value ?? "0");
+      }
     }
     return map;
   }, [intlData]);

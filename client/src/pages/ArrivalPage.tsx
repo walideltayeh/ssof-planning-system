@@ -244,6 +244,14 @@ export default function ArrivalPage() {
 
   const actualMap = useMemo(() => {
     const m = new Map<string, number>();
+    // Auto-actual: the weekly production the user enters (shipment weeks) counts
+    // as actual production. A manual "Actual Production" entry (> 0) overrides it.
+    // Per user direction — entered production automatically becomes actual/confirmed.
+    for (const d of (data as any)?.shipment ?? []) {
+      const sum = (parseFloat(d.week1 ?? "0") || 0) + (parseFloat(d.week2 ?? "0") || 0)
+        + (parseFloat(d.week3 ?? "0") || 0) + (parseFloat(d.week4 ?? "0") || 0);
+      if (sum > 0) m.set(`${d.skuId}-${d.periodId}`, sum);
+    }
     for (const d of (data as any)?.actualProduction ?? []) {
       const v = parseFloat(d.value ?? "0") || 0;
       if (v > 0) m.set(`${d.skuId}-${d.periodId}`, v);
@@ -475,10 +483,10 @@ export default function ArrivalPage() {
       for (const period of periods) {
         const key = `${sku.id}-${period.id}`;
         const shipRow = shipmentMap.get(key);
-        // Manual Actual Production entry from the renamed actual_production_data
-        // table — this is the SOLE source of truth for the "Confirmed" state.
-        // Weekly shipment data is a separate concept (dispatch weeks) and must
-        // NOT promote a row to confirmed on its own.
+        // Actual production = the weekly production entered (sum of shipment
+        // weeks), or a manual Actual Production override — see actualMap. Per
+        // user direction, entered production automatically counts as
+        // actual/confirmed (no separate confirmation step).
         const actualEntered = actualMap.get(key);
         const plannedTotal = forecastMap.get(key) ?? 0;
         const actualTotal = actualEntered !== undefined ? actualEntered : 0;

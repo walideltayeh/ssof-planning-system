@@ -1116,7 +1116,7 @@ export async function generateSingleSheetBuffer(sheet: string): Promise<Buffer> 
 
 export async function generateSingleSheetBufferForCountry(country: "Syria" | "Libya" | "KSA", sheet: string): Promise<Buffer> {
   const data = await db.getFullPlanningDataForCountry(country);
-  const { skus: allSkus, periods: allPeriods, forecast, ims, arrival, planningFg } = data;
+  const { skus: allSkus, periods: allPeriods, forecast, ims, shipment, arrival, planningFg } = data;
   const actualProduction = await db.getActualProductionDataForCountry(country);
   const sortedPeriods = [...allPeriods].sort((a, b) => a.sortOrder - b.sortOrder);
 
@@ -1129,7 +1129,7 @@ export async function generateSingleSheetBufferForCountry(country: "Syria" | "Li
   } else if (sheet === "forecast") {
     buildIntlForecastSheet(wb, "Forecast Production", allSkus, sortedPeriods, forecast);
   } else if (sheet === "forecast-vs-actual") {
-    buildIntlForecastVsActualSheet(wb, allSkus, sortedPeriods, forecast, actualProduction);
+    buildIntlForecastVsActualSheet(wb, allSkus, sortedPeriods, forecast, actualProduction, shipment);
   } else if (sheet.startsWith("planning-fg-")) {
     const weight = sheet.replace("planning-fg-", "");
     if (allSkus.some(s => s.weight === weight)) {
@@ -1249,14 +1249,22 @@ function buildIntlForecastSheet(
 function buildIntlForecastVsActualSheet(
   wb: ExcelJS.Workbook, allSkus: Sku[], sortedPeriods: Period[],
   forecast: { skuId: number; periodId: number; value: string | null }[],
-  actualProduction: { skuId: number; periodId: number; value: string | null }[]
+  actualProduction: { skuId: number; periodId: number; value: string | null }[],
+  shipment: { skuId: number; periodId: number; week1: string | null; week2: string | null; week3: string | null; week4: string | null }[] = []
 ) {
   const ws = wb.addWorksheet("Forecast vs Actual");
   ws.views = [{ state: "frozen", xSplit: 3, ySplit: 1 }];
   const fMap = new Map<string, number>();
   const rfMap = new Map<string, number>();
   for (const d of forecast) fMap.set(`${d.skuId}-${d.periodId}`, parseFloat(d.value ?? "0") || 0);
-  for (const d of actualProduction) rfMap.set(`${d.skuId}-${d.periodId}`, parseFloat(d.value ?? "0") || 0);
+  // Auto-actual: weekly production (shipment weeks) counts as actual unless a
+  // manual Actual entry (> 0) overrides it — matches the on-screen behavior.
+  for (const d of shipment) {
+    const sum = (parseFloat(d.week1 ?? "0") || 0) + (parseFloat(d.week2 ?? "0") || 0)
+      + (parseFloat(d.week3 ?? "0") || 0) + (parseFloat(d.week4 ?? "0") || 0);
+    if (sum > 0) rfMap.set(`${d.skuId}-${d.periodId}`, sum);
+  }
+  for (const d of actualProduction) { const v = parseFloat(d.value ?? "0") || 0; if (v > 0) rfMap.set(`${d.skuId}-${d.periodId}`, v); }
   const headerRow = ws.addRow(["SKU Name", "Weight", "Packaging", ...sortedPeriods.map(p => p.label), "Total"]);
   applyHeaderStyle(headerRow, 3 + sortedPeriods.length + 1);
   ws.getRow(1).height = 20;
@@ -1353,7 +1361,7 @@ function buildIntlPlanningFgSheet(
 
 export async function generateExcelBufferForCountry(country: "Syria" | "Libya" | "KSA"): Promise<Buffer> {
   const data = await db.getFullPlanningDataForCountry(country);
-  const { skus: allSkus, periods: allPeriods, forecast, ims, arrival, planningFg } = data;
+  const { skus: allSkus, periods: allPeriods, forecast, ims, shipment, arrival, planningFg } = data;
   const actualProduction = await db.getActualProductionDataForCountry(country);
   const sortedPeriods = [...allPeriods].sort((a, b) => a.sortOrder - b.sortOrder);
   const weights = ["50g", "250g", "1kg"];
@@ -1362,7 +1370,7 @@ export async function generateExcelBufferForCountry(country: "Syria" | "Libya" |
   wb.created = new Date();
   buildIntlImsSheet(wb, allSkus, sortedPeriods, ims);
   buildIntlForecastSheet(wb, "Forecast Production", allSkus, sortedPeriods, forecast);
-  buildIntlForecastVsActualSheet(wb, allSkus, sortedPeriods, forecast, actualProduction);
+  buildIntlForecastVsActualSheet(wb, allSkus, sortedPeriods, forecast, actualProduction, shipment);
   for (const w of weights) {
     if (allSkus.some(s => s.weight === w)) {
       buildIntlPlanningFgSheet(wb, w, allSkus, sortedPeriods, ims, planningFg, arrival);
