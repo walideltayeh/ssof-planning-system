@@ -139,21 +139,42 @@ const CHANNEL_LABEL: Record<Channel, string> = {
 
 // ────────────────────────────────────────────────────────────────────────────
 // POMs — point-of-sale materials (display stands, posters, shelf strips, menu
-// cards…) the rep installs in a shop in exchange for branded shelf placement.
-// The kit is the value stack of the Retail Shelf Takeover deck.  Editable on
-// the page; persisted per country in localStorage (proposals only — nothing
-// is written to the database, same as the rest of this page).
+// cards…) the rep installs at an account in exchange for branded placement.
+// Each material carries a QTY PER CHANNEL — some go to retailers, others to
+// HoReCa, others to wholesalers.  The channel-matched kit is stacked onto the
+// deck that pitches to that channel.  Editable on the page; persisted per
+// country in localStorage (proposals only — nothing is written to the
+// database, same as the rest of this page).
 // ────────────────────────────────────────────────────────────────────────────
-type PomItem = { id: string; name: string; qty: number; unitValue: number };
+type PomChannel = Exclude<Channel, "all">;
+const POM_CHANNELS: PomChannel[] = ["retail", "horeca", "modern", "traditional", "wholesale"];
+const POM_CHANNEL_SHORT: Record<PomChannel, string> = {
+  retail:      "Retail",
+  horeca:      "HoReCa",
+  modern:      "Modern",
+  traditional: "Trad.",
+  wholesale:   "WS",
+};
+
+type PomItem = { id: string; name: string; unitValue: number; channelQty: Record<PomChannel, number> };
+
+function emptyChannelQty(): Record<PomChannel, number> {
+  return { retail: 0, horeca: 0, modern: 0, traditional: 0, wholesale: 0 };
+}
 
 const DEFAULT_POMS: PomItem[] = [
-  { id: "pom-stand",   name: "Branded counter display stand", qty: 1, unitValue: 40 },
-  { id: "pom-poster",  name: "Poster + shelf-strip pack",     qty: 1, unitValue: 10 },
-  { id: "pom-menu",    name: "Flavor menu cards (50 pcs)",    qty: 1, unitValue: 8 },
-  { id: "pom-ashtray", name: "Branded ashtrays",              qty: 6, unitValue: 2 },
+  { id: "pom-stand",   name: "Branded counter display stand", unitValue: 40, channelQty: { ...emptyChannelQty(), retail: 1, horeca: 1 } },
+  { id: "pom-poster",  name: "Poster + shelf-strip pack",     unitValue: 10, channelQty: { ...emptyChannelQty(), retail: 1, traditional: 1, wholesale: 10 } },
+  { id: "pom-menu",    name: "Flavor menu cards (50 pcs)",    unitValue: 8,  channelQty: { ...emptyChannelQty(), horeca: 1 } },
+  { id: "pom-ashtray", name: "Branded ashtrays",              unitValue: 2,  channelQty: { ...emptyChannelQty(), horeca: 6 } },
 ];
 
 function pomStorageKey(country: string): string { return `ssof-trade-poms-${country}`; }
+
+function sanitizeQty(v: unknown): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.max(0, n) : 0;
+}
 
 function loadPoms(country: string | null | undefined): PomItem[] {
   if (!country) return DEFAULT_POMS;
@@ -164,20 +185,39 @@ function loadPoms(country: string | null | undefined): PomItem[] {
       if (Array.isArray(parsed)) {
         return parsed
           .filter(p => p && typeof p === "object" && typeof p.name === "string")
-          .map((p, i) => ({
-            id: typeof p.id === "string" ? p.id : `pom-${i}`,
-            name: p.name as string,
-            qty: Number.isFinite(Number(p.qty)) ? Math.max(0, Number(p.qty)) : 0,
-            unitValue: Number.isFinite(Number(p.unitValue)) ? Math.max(0, Number(p.unitValue)) : 0,
-          }));
+          .map((p, i) => {
+            const cq = emptyChannelQty();
+            if (p.channelQty && typeof p.channelQty === "object") {
+              for (const ch of POM_CHANNELS) cq[ch] = sanitizeQty(p.channelQty[ch]);
+            } else {
+              // Migration from the single-qty format — those kits were retail-only.
+              cq.retail = sanitizeQty(p.qty);
+            }
+            return {
+              id: typeof p.id === "string" ? p.id : `pom-${i}`,
+              name: p.name as string,
+              unitValue: sanitizeQty(p.unitValue),
+              channelQty: cq,
+            };
+          });
       }
     }
   } catch { /* corrupted storage — fall back to defaults */ }
   return DEFAULT_POMS;
 }
 
-function pomKitTotal(poms: PomItem[]): number {
-  return poms.reduce((s, p) => s + (p.name.trim() !== "" && p.qty > 0 ? p.qty * p.unitValue : 0), 0);
+// The kit a given channel receives — items with a non-zero qty for that channel.
+type PomKit = { items: { name: string; qty: number; unitValue: number }[]; value: number };
+
+function kitForChannel(poms: PomItem[], ch: PomChannel): PomKit {
+  const items = poms
+    .filter(p => p.name.trim() !== "" && p.channelQty[ch] > 0)
+    .map(p => ({ name: p.name, qty: p.channelQty[ch], unitValue: p.unitValue }));
+  return { items, value: items.reduce((s, i) => s + i.qty * i.unitValue, 0) };
+}
+
+function kitLine(kit: PomKit): string {
+  return kit.items.map(i => `${i.qty}× ${i.name}`).join(" + ");
 }
 
 const SEVERITY = (months: number): { label: string; tone: string } => {
@@ -273,6 +313,8 @@ type Deck = {
   ourRisk: Risk;
   retailerAppeal: Risk;
   scripts: { phone: string; sms: string; whatsapp: string };
+  // Slow MC moved per deal — used by the recommended offer-mix planner.
+  slowMcPerDeal: number;
   // The slow SKU whose months-of-stock should drive this deck's severity badge.
   // Each builder is responsible for picking it (Variety = first; Cafe = the
   // moderate pick; Ride-Along/Sub/Territory = the single slow they were given).
@@ -406,6 +448,7 @@ function buildRideAlong(slowList: SkuIntel[], anchor: Anchor, k: Knobs): Deck | 
     templateName: "The Ride-Along",
     templateTag: "Simplest piggyback",
     templateIcon: Bike,
+    slowMcPerDeal: slowMc,
     primarySlowId: basket.items[0].sku.id,
     forLine: `for ${flavorNames}`,
     headline,
@@ -463,6 +506,7 @@ function buildVarietyBuilder(slowList: SkuIntel[], anchor: Anchor, k: Knobs): De
     templateName: "The Variety Builder",
     templateTag: "Multi-flavor launch",
     templateIcon: Gift,
+    slowMcPerDeal: slowMc,
     primarySlowId: basket.items[0].sku.id,
     forLine: `for ${flavorNames}`,
     headline,
@@ -525,6 +569,7 @@ function buildSubscriptionLock(slowList: SkuIntel[], anchor: Anchor, k: Knobs): 
     templateName: "The Subscription Lock",
     templateTag: "4-week recurring",
     templateIcon: Repeat,
+    slowMcPerDeal: totalSlow,
     primarySlowId: basket.items[0].sku.id,
     forLine: `for ${flavorNames}`,
     headline,
@@ -582,6 +627,7 @@ function buildCafeStarter(slowList: SkuIntel[], anchor: Anchor, k: Knobs): Deck 
     templateName: "The Café Starter Pack",
     templateTag: "Small-account entry",
     templateIcon: Coffee,
+    slowMcPerDeal: slowMc,
     primarySlowId: basket.items[0].sku.id,
     forLine: `for ${flavorNames}`,
     headline,
@@ -639,6 +685,7 @@ function buildTerritoryExclusive(slowList: SkuIntel[], anchor: Anchor, k: Knobs)
     templateName: "The Territory Exclusive",
     templateTag: "Master distributor deal",
     templateIcon: Crown,
+    slowMcPerDeal: slowMc,
     primarySlowId: leadFlavor.id,
     forLine: `for ${flavorNames}`,
     headline,
@@ -678,9 +725,9 @@ function buildRetailShelf(slowList: SkuIntel[], anchor: Anchor, k: Knobs, poms: 
   if (basket.items.length === 0) return null;
   const slowMc = basket.totalMc;
   const totalInvoice = (anchorMc + slowMc) * k.pricePerMc;
-  const activePoms = poms.filter(p => p.name.trim() !== "" && p.qty > 0);
-  const pomValue = activePoms.reduce((s, p) => s + p.qty * p.unitValue, 0);
-  const pomList = activePoms.map(p => `${p.qty}× ${p.name}`).join(" + ");
+  const kit = kitForChannel(poms, "retail");
+  const pomValue = kit.value;
+  const pomList = kitLine(kit);
   const displayDays = 60;
   const coop = k.pricePerMc * 0.06 * slowMc;
   const dep = depletionInfo(basket, slowList, k);
@@ -697,13 +744,14 @@ function buildRetailShelf(slowList: SkuIntel[], anchor: Anchor, k: Knobs, poms: 
 
   const phone = `Built for shops like yours. You take ${anchorMc} MC of ${anchor.name} — your proven seller — plus a ${slowMc}-MC clearance basket (${basketBundleLine(basket)}), all at the same $${fmt(k.pricePerMc, 0)} per MC, total $${fmt(totalInvoice)}. ${pomValue > 0 ? `On top, I bring you a complete point-of-sale kit — ${pomList} — worth $${fmt(pomValue)}, completely free. Your shop looks like a flagship without you spending a dollar. ` : ""}One condition: the branded display stays up for ${displayDays} days with the new flavors at eye level — my rep photographs it on his normal visit. ${swapText} Shelf presence sells shisha — the display does the talking while you serve customers. Shall I book the install this week?`;
   const sms = clampSms(`Shop deal: ${anchorMc} MC ${anchor.name} + ${slowMc} MC mix${pomValue > 0 ? ` + FREE POS kit ($${fmt(pomValue)})` : ""}. ${displayDays}d display. Same $/MC. YES to book.`);
-  const whatsapp = `Retail shelf package 🏪\n\n${anchorMc} MC ${anchor.name} + ${slowMc}-MC clearance basket = $${fmt(totalInvoice)} (same per-MC price).\nBasket: ${basketBundleLine(basket)}.\n${pomValue > 0 ? `\nFREE point-of-sale kit — worth $${fmt(pomValue)}:\n${activePoms.map(p => `• ${p.qty}× ${p.name}`).join("\n")}\n` : ""}\nDeal: branded display stays up ${displayDays} days, new flavors at eye level.\n${swapText}\n\nWant the kit installed this week?`;
+  const whatsapp = `Retail shelf package 🏪\n\n${anchorMc} MC ${anchor.name} + ${slowMc}-MC clearance basket = $${fmt(totalInvoice)} (same per-MC price).\nBasket: ${basketBundleLine(basket)}.\n${pomValue > 0 ? `\nFREE point-of-sale kit — worth $${fmt(pomValue)}:\n${kit.items.map(p => `• ${p.qty}× ${p.name}`).join("\n")}\n` : ""}\nDeal: branded display stays up ${displayDays} days, new flavors at eye level.\n${swapText}\n\nWant the kit installed this week?`;
 
   return {
     templateId: "retail",
     templateName: "The Retail Shelf Takeover",
     templateTag: "POS kit + display deal",
     templateIcon: Store,
+    slowMcPerDeal: slowMc,
     primarySlowId: basket.items[0].sku.id,
     forLine: `for ${flavorNames}`,
     headline,
@@ -712,7 +760,7 @@ function buildRetailShelf(slowList: SkuIntel[], anchor: Anchor, k: Knobs, poms: 
       { label: `Clearance basket (${basket.items.length} flavor${basket.items.length === 1 ? "" : "s"})`, value: `${slowMc} MC — ${basketBundleLine(basket)}` },
       { label: "Per-mastercase price (unchanged)",      value: `$${fmt(k.pricePerMc)} / MC` },
       { label: "Total invoice",                          value: `$${fmt(totalInvoice)}` },
-      { label: "FREE point-of-sale kit (POMs)",          value: pomValue > 0 ? `$${fmt(pomValue)} — ${pomList}` : "None configured — add POMs in Offer settings" },
+      { label: "FREE point-of-sale kit (POMs)",          value: pomValue > 0 ? `$${fmt(pomValue)} — ${pomList}` : "None assigned to Retail — set channel qtys in Offer settings" },
       { label: "Display commitment",                     value: `${displayDays} days branded display, new flavors at eye level` },
       ...depletionBundleRow(basket, slowList, k),
       { label: "Swap promise",                           value: k.swapClause === "coop" ? `$${fmt(coop, 0)} co-op fund` : `${k.swapClause} days, 1-for-1` },
@@ -729,7 +777,7 @@ function buildRetailShelf(slowList: SkuIntel[], anchor: Anchor, k: Knobs, poms: 
       `The kit is earned, not given — it stays only while the display stays up. Rep photographs the shelf on every visit; pull the kit if the display comes down before day ${displayDays}.`,
       "Only issue POS kits on verifiable routes — never ship a kit to an account the rep doesn't physically visit.",
       pomValue === 0
-        ? "No POMs configured yet — add your point-of-sale materials in Offer settings to give this offer its hook."
+        ? "No POMs assigned to the Retail channel yet — set a Retail qty on your point-of-sale materials in Offer settings to give this offer its hook."
         : `Shop-sized basket clears ${slowMc} MC per deal — needs ~${dep.cycles} retail accounts to drain the full pile.`,
     ],
     ourRisk,
@@ -750,9 +798,49 @@ const CHANNEL_DECK_PRIORITY: Record<Channel, Deck["templateId"][]> = {
   wholesale:   ["territory", "variety", "rideAlong"],
 };
 
+// Which channel each deck is naturally pitched to — decides which POS kit
+// gets stacked onto it.
+const DECK_HOME_CHANNEL: Record<Deck["templateId"], PomChannel> = {
+  rideAlong:    "traditional",
+  variety:      "modern",
+  subscription: "traditional",
+  cafe:         "horeca",
+  retail:       "retail",
+  territory:    "wholesale",
+};
+
+// Stack the channel-matched POS kit onto a deck.  The Retail Shelf Takeover
+// already builds its kit into its own copy, so it is skipped here.  SMS is
+// left alone (160-char budget).
+function withChannelKit(deck: Deck, poms: PomItem[]): Deck {
+  if (deck.templateId === "retail") return deck;
+  const ch = DECK_HOME_CHANNEL[deck.templateId];
+  const kit = kitForChannel(poms, ch);
+  if (kit.value <= 0 || kit.items.length === 0) return deck;
+  const line = kitLine(kit);
+  const bundle = [...deck.bundle];
+  const row = { label: `FREE POS kit (${POM_CHANNEL_SHORT[ch]} channel)`, value: `$${fmt(kit.value)} — ${line}` };
+  const invoiceIdx = bundle.findIndex(r => r.label.startsWith("Total invoice"));
+  if (invoiceIdx >= 0) bundle.splice(invoiceIdx + 1, 0, row); else bundle.push(row);
+  return {
+    ...deck,
+    bundle,
+    whyYes: [
+      ...deck.whyYes,
+      `Free point-of-sale kit worth $${fmt(kit.value)} (${line}) — our rep installs it; it stays as long as it stays on display.`,
+    ],
+    scripts: {
+      ...deck.scripts,
+      phone: `${deck.scripts.phone} One more thing — I include a free point-of-sale kit for you: ${line}, worth $${fmt(kit.value)}. It stays as long as it's on display.`,
+      whatsapp: `${deck.scripts.whatsapp}\n\nFREE POS kit: ${line} (worth $${fmt(kit.value)}) — ours to install, yours to keep while it's displayed.`,
+    },
+  };
+}
+
 // Build up to 6 ready-to-apply decks given the slow-SKU list and an anchor.
 // Each builder may return null when the basket comes up empty (e.g. all
 // candidates have closingStock === 0 after capping); we silently drop those.
+// Every deck then gets its channel's POS kit stacked on.
 function buildAllDecks(slowList: SkuIntel[], anchor: Anchor, k: Knobs, poms: PomItem[]): Deck[] {
   const builders = [
     () => buildRideAlong(slowList, anchor, k),
@@ -762,8 +850,26 @@ function buildAllDecks(slowList: SkuIntel[], anchor: Anchor, k: Knobs, poms: Pom
     () => buildRetailShelf(slowList, anchor, k, poms),
     () => buildTerritoryExclusive(slowList, anchor, k),
   ];
-  return builders.map(b => b()).filter((d): d is Deck => d !== null);
+  return builders
+    .map(b => b())
+    .filter((d): d is Deck => d !== null)
+    .map(d => withChannelKit(d, poms));
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Marketeer's recommended offer mix — how a trade marketeer would split the
+// dead-stock pile across channels.  Shares reflect standard tobacco-trade
+// wisdom: wholesale moves the most MC per negotiation, retail buys shelf
+// presence with POS kits, traditional piggybacks existing orders, HoReCa
+// builds trial, modern trade lists slowest.
+// ────────────────────────────────────────────────────────────────────────────
+const MIX_STRATEGY: { channel: PomChannel; share: number; template: Deck["templateId"]; why: string }[] = [
+  { channel: "wholesale",   share: 0.40, template: "territory", why: "Few negotiations, most MC — a handful of master-distributor deals drains the pile fastest." },
+  { channel: "retail",      share: 0.25, template: "retail",    why: "POS kits buy 60 days of eye-level display — dead flavors sell on impulse when they're visible." },
+  { channel: "traditional", share: 0.15, template: "rideAlong", why: "Simplest yes in the market — small baskets piggyback on bestseller orders already going out." },
+  { channel: "horeca",      share: 0.12, template: "cafe",      why: "Cafés create trial and word of mouth — a slow flavor that clicks in HoReCa pulls retail behind it." },
+  { channel: "modern",      share: 0.08, template: "variety",   why: "Chains list slowly but commit big — plant the variety story now, harvest next quarter." },
+];
 
 // ────────────────────────────────────────────────────────────────────────────
 // UI sub-components
@@ -775,7 +881,7 @@ const GLOSSARY: { term: string; meaning: string }[] = [
   { term: "Slow flavor",    meaning: "A SKU sitting in the warehouse longer than your stock-month threshold (the slider above). Ranked by $ overhang (closing stock × $/MC) so the biggest cash drag rises first." },
   { term: "Dollar overhang", meaning: "Closing stock × $/MC for a slow flavor — how much cash is tied up in that SKU. Drives the slow-list ranking." },
   { term: "Mastercase (MC)", meaning: "One full mastercase from the warehouse — the unit every order, invoice and bundle on this page is denominated in." },
-  { term: "POM (point-of-sale material)", meaning: "Branded display stands, posters, shelf strips, menu cards — physical marketing items the rep installs in a shop in exchange for shelf placement. Configure the kit in Offer settings; its $ value stacks onto the Retail Shelf Takeover offer." },
+  { term: "POM (point-of-sale material)", meaning: "Branded display stands, posters, shelf strips, menu cards — physical marketing items the rep installs at an account in exchange for branded placement. Configure quantities per channel in Offer settings; each channel's kit stacks onto the offer pitched to that channel (Retail → Shelf Takeover, HoReCa → Café Starter, WS → Territory Exclusive…)." },
   { term: "Mix ratio",      meaning: "How many mastercases of bestseller go with each MC of slow. e.g. 10:1 means \"10 bestseller MC + 1 slow MC per bundle\"." },
   { term: "Mix portion",    meaning: "The slow flavor's $ value as a % of the bestseller's $ value. The slider drives the mix ratio." },
   { term: "Swap promise",   meaning: "How many days the retailer has to return unsold slow stock for any bestseller, no questions asked." },
@@ -991,10 +1097,15 @@ export default function TradeOffersPage() {
       return next;
     });
   };
-  const addPom = () => persistPoms(prev => [...prev, { id: `pom-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, name: "", qty: 1, unitValue: 0 }]);
+  const addPom = () => persistPoms(prev => [...prev, { id: `pom-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, name: "", unitValue: 0, channelQty: emptyChannelQty() }]);
   const updatePom = (id: string, patch: Partial<Omit<PomItem, "id">>) => persistPoms(prev => prev.map(p => (p.id === id ? { ...p, ...patch } : p)));
+  const updatePomChannelQty = (id: string, ch: PomChannel, qty: number) =>
+    persistPoms(prev => prev.map(p => (p.id === id ? { ...p, channelQty: { ...p.channelQty, [ch]: qty } } : p)));
   const removePom = (id: string) => persistPoms(prev => prev.filter(p => p.id !== id));
-  const pomKitValue = pomKitTotal(poms);
+  const kitByChannel = useMemo(
+    () => POM_CHANNELS.map(ch => ({ ch, kit: kitForChannel(poms, ch) })),
+    [poms],
+  );
 
   // Re-apply country defaults whenever the country changes (planner can still
   // override after).  Tracked via a ref-like effect-less guard: when country
@@ -1123,6 +1234,28 @@ export default function TradeOffersPage() {
     for (const s of slowList) m.set(s.id, s.moc);
     return m;
   }, [slowList]);
+
+  // Marketeer's recommended offer mix — split the whole dead pile across
+  // channels using the lead anchor's decks as the per-deal clearing rates.
+  const mixPlan = useMemo(() => {
+    if (deckSets.length === 0 || !summary || summary.totalSlowStock <= 0) return null;
+    const decksById = new Map(deckSets[0].decks.map(d => [d.templateId, d]));
+    const totalSlowMc = summary.totalSlowStock;
+    const rows = MIX_STRATEGY.flatMap(m => {
+      const deck = decksById.get(m.template);
+      if (!deck || deck.slowMcPerDeal <= 0) return [];
+      const targetMc = Math.round(totalSlowMc * m.share);
+      if (targetMc <= 0) return [];
+      const deals = Math.max(1, Math.ceil(targetMc / deck.slowMcPerDeal));
+      const kit = kitForChannel(poms, m.channel);
+      return [{ ...m, deck, targetMc, deals, kitPerDeal: kit.value, kitBudget: kit.value * deals }];
+    });
+    if (rows.length === 0) return null;
+    const coveredMc = rows.reduce((s, r) => s + r.targetMc, 0);
+    const totalDeals = rows.reduce((s, r) => s + r.deals, 0);
+    const totalKitBudget = rows.reduce((s, r) => s + r.kitBudget, 0);
+    return { rows, totalSlowMc, coveredMc, totalDeals, totalKitBudget, anchor: deckSets[0].anchor };
+  }, [deckSets, summary, poms]);
 
   const totalVisibleDecks = visibleDeckSets.reduce((sum, s) => sum + s.decks.length, 0);
   const lockActive = anchorFlavor !== "auto";
@@ -1377,69 +1510,84 @@ export default function TradeOffersPage() {
             </div>
           </div>
 
-          {/* Retail POS kit (POMs) — the value stack of the Retail Shelf
-              Takeover deck.  Editable, saved per country on this device. */}
+          {/* POS kit (POMs) — per-channel quantities.  Each channel's kit is
+              stacked onto the deck pitched to that channel.  Saved per
+              country on this device. */}
           <div className="p-3 rounded-md border border-primary/20 bg-primary/5 space-y-3">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <Label className="text-xs font-semibold flex items-center gap-2">
                 <Store className="h-3.5 w-3.5 text-primary" />
-                Retail POS kit — POMs to distribute
-                <Badge variant="outline" className="text-[10px] border-primary/40 text-primary">kit worth ${fmt(pomKitValue)}</Badge>
+                POS kit — POMs to distribute per channel
               </Label>
               <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={addPom}>
                 + Add material
               </Button>
             </div>
             <p className="text-[10px] text-muted-foreground">
-              Point-of-sale materials (display stands, posters, menu cards…) bundled FREE into the <strong>Retail Shelf Takeover</strong> deck — in exchange for 60 days of branded shelf placement. Saved per country on this device.
+              Point-of-sale materials (display stands, posters, menu cards…) handed out FREE per deal. Set a quantity under each channel — 0 means that channel doesn't get the item. Each channel's kit is stacked onto the matching offer (Retail → Shelf Takeover, HoReCa → Café Starter, WS → Territory Exclusive, Trad. → Ride-Along &amp; Subscription, Modern → Variety Builder). Saved per country on this device.
             </p>
+            <div className="flex flex-wrap gap-1.5">
+              {kitByChannel.map(({ ch, kit }) => (
+                <Badge
+                  key={ch}
+                  variant="outline"
+                  className={`text-[10px] ${kit.value > 0 ? "border-primary/40 text-primary" : "border-muted-foreground/30 text-muted-foreground"}`}
+                >
+                  {POM_CHANNEL_SHORT[ch]} kit {kit.value > 0 ? `$${fmt(kit.value)}` : "—"}
+                </Badge>
+              ))}
+            </div>
             {poms.length === 0 ? (
               <p className="text-xs text-muted-foreground italic">No materials yet — add the POMs your reps can hand out.</p>
             ) : (
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-2 text-[10px] text-muted-foreground uppercase tracking-wider">
-                  <span className="flex-1">Material</span>
-                  <span className="w-16 text-center">Qty/deal</span>
-                  <span className="w-24 text-center">$ per unit</span>
-                  <span className="w-8" />
-                </div>
+              <div className="space-y-2">
                 {poms.map(p => (
-                  <div key={p.id} className="flex items-center gap-2">
-                    <Input
-                      className="h-8 text-xs flex-1"
-                      placeholder="e.g. Branded counter display stand"
-                      value={p.name}
-                      onChange={e => updatePom(p.id, { name: e.target.value })}
-                    />
-                    <Input
-                      className="h-8 text-xs w-16 text-center"
-                      type="number"
-                      min={0}
-                      aria-label="Quantity per deal"
-                      value={p.qty}
-                      onChange={e => { const n = Number(e.target.value); updatePom(p.id, { qty: Number.isFinite(n) ? Math.max(0, n) : 0 }); }}
-                    />
-                    <div className="flex items-center gap-1 w-24">
-                      <span className="text-xs text-muted-foreground">$</span>
+                  <div key={p.id} className="rounded-md border bg-background/60 p-2 space-y-2">
+                    <div className="flex items-center gap-2">
                       <Input
-                        className="h-8 text-xs"
-                        type="number"
-                        min={0}
-                        aria-label="Value per unit in dollars"
-                        value={p.unitValue}
-                        onChange={e => { const n = Number(e.target.value); updatePom(p.id, { unitValue: Number.isFinite(n) ? Math.max(0, n) : 0 }); }}
+                        className="h-8 text-xs flex-1"
+                        placeholder="e.g. Branded counter display stand"
+                        value={p.name}
+                        onChange={e => updatePom(p.id, { name: e.target.value })}
                       />
+                      <div className="flex items-center gap-1 w-24">
+                        <span className="text-xs text-muted-foreground">$</span>
+                        <Input
+                          className="h-8 text-xs"
+                          type="number"
+                          min={0}
+                          aria-label={`Value per unit in dollars for ${p.name || "material"}`}
+                          value={p.unitValue}
+                          onChange={e => { const n = Number(e.target.value); updatePom(p.id, { unitValue: Number.isFinite(n) ? Math.max(0, n) : 0 }); }}
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive shrink-0"
+                        onClick={() => removePom(p.id)}
+                        aria-label={`Remove ${p.name || "material"}`}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
                     </div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive shrink-0"
-                      onClick={() => removePom(p.id)}
-                      aria-label={`Remove ${p.name || "material"}`}
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </Button>
+                    <div className="flex items-center gap-3 flex-wrap pl-1">
+                      <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Qty/deal:</span>
+                      {POM_CHANNELS.map(ch => (
+                        <label key={ch} className="flex items-center gap-1">
+                          <span className="text-[10px] text-muted-foreground w-10 text-right">{POM_CHANNEL_SHORT[ch]}</span>
+                          <Input
+                            className="h-7 text-xs w-14 text-center"
+                            type="number"
+                            min={0}
+                            aria-label={`${POM_CHANNEL_SHORT[ch]} quantity per deal for ${p.name || "material"}`}
+                            value={p.channelQty[ch]}
+                            onChange={e => { const n = Number(e.target.value); updatePomChannelQty(p.id, ch, Number.isFinite(n) ? Math.max(0, n) : 0); }}
+                          />
+                        </label>
+                      ))}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1543,6 +1691,64 @@ export default function TradeOffersPage() {
                 : <> for <strong>{CHANNEL_LABEL[channel]}</strong> — most-relevant deck first.</>}
             </span>
           </div>
+
+          {/* Marketeer's recommended offer mix — how to split the dead pile
+              across channels, computed from the lead anchor's decks. */}
+          {mixPlan && (
+            <Card className="border-amber-500/30 bg-amber-500/5">
+              <CardContent className="p-4 space-y-3">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Sparkles className="h-4 w-4 text-amber-500" />
+                  <span className="font-semibold text-sm">Marketeer's recommended offer mix</span>
+                  <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-600 dark:text-amber-400">
+                    {fmt(mixPlan.totalSlowMc)} MC dead pile · ${fmt(summary!.totalSlowDollars)}
+                  </Badge>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  How I'd split the {fmt(mixPlan.totalSlowMc)} MC of slow stock across channels, anchored on <strong>{mixPlan.anchor.name} ({mixPlan.anchor.weight})</strong>: lead with wholesale (few negotiations, most MC), buy retail shelves with POS kits, use ride-alongs as steady filler, and let HoReCa build trial. Deal counts use each offer's clearance basket size from your live SSOF numbers.
+                </p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-[10px] text-muted-foreground uppercase tracking-wider text-left">
+                        <th className="py-1 pr-3 font-medium">Channel</th>
+                        <th className="py-1 pr-3 font-medium">Offer to run</th>
+                        <th className="py-1 pr-3 font-medium text-right">Share</th>
+                        <th className="py-1 pr-3 font-medium text-right">Slow MC target</th>
+                        <th className="py-1 pr-3 font-medium text-right">Deals needed</th>
+                        <th className="py-1 pr-3 font-medium text-right">POS kit budget</th>
+                        <th className="py-1 font-medium">Why this channel</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {mixPlan.rows.map(r => (
+                        <tr key={r.channel} className="border-t border-amber-500/10 align-top">
+                          <td className="py-1.5 pr-3 font-semibold whitespace-nowrap">{POM_CHANNEL_SHORT[r.channel]}</td>
+                          <td className="py-1.5 pr-3 whitespace-nowrap">{r.deck.templateName}</td>
+                          <td className="py-1.5 pr-3 text-right font-mono">{Math.round(r.share * 100)}%</td>
+                          <td className="py-1.5 pr-3 text-right font-mono">{fmt(r.targetMc)} MC</td>
+                          <td className="py-1.5 pr-3 text-right font-mono">{fmt(r.deals)}</td>
+                          <td className="py-1.5 pr-3 text-right font-mono">{r.kitBudget > 0 ? `$${fmt(r.kitBudget)}` : "—"}</td>
+                          <td className="py-1.5 text-muted-foreground">{r.why}</td>
+                        </tr>
+                      ))}
+                      <tr className="border-t border-amber-500/20 font-semibold">
+                        <td className="py-1.5 pr-3" colSpan={3}>Total</td>
+                        <td className="py-1.5 pr-3 text-right font-mono">{fmt(mixPlan.coveredMc)} MC</td>
+                        <td className="py-1.5 pr-3 text-right font-mono">{fmt(mixPlan.totalDeals)}</td>
+                        <td className="py-1.5 pr-3 text-right font-mono">{mixPlan.totalKitBudget > 0 ? `$${fmt(mixPlan.totalKitBudget)}` : "—"}</td>
+                        <td className="py-1.5" />
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  Proposal only — nothing is written to the database. Deal counts are rounded up; a channel missing from the table means its offer couldn't be built from the current slow list.
+                </p>
+              </CardContent>
+            </Card>
+          )}
+
           {visibleDeckSets.map(({ anchor: a, decks: ds, hidden, eligibleSlow }, sectionIdx) => (
             <div key={a.id} className="space-y-3">
               {/* Per-anchor section header — only render when there's more than
