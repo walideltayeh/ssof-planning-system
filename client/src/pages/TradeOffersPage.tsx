@@ -25,6 +25,8 @@ import {
   Repeat,
   Coffee,
   Crown,
+  Store,
+  X,
   Phone,
   MessageSquare,
   Send,
@@ -124,15 +126,59 @@ type Knobs = {
   pricingGuard: PricingGuard;
 };
 
-type Channel = "all" | "horeca" | "modern" | "traditional" | "wholesale";
+type Channel = "all" | "horeca" | "modern" | "traditional" | "retail" | "wholesale";
 
 const CHANNEL_LABEL: Record<Channel, string> = {
   all:         "All channels",
   horeca:      "HoReCa (cafés & lounges)",
   modern:      "Modern trade (supermarkets, chains)",
   traditional: "Traditional trade (shops, kiosks)",
+  retail:      "Retail (shops — POS kit & display deal)",
   wholesale:   "Wholesale (master distributors)",
 };
+
+// ────────────────────────────────────────────────────────────────────────────
+// POMs — point-of-sale materials (display stands, posters, shelf strips, menu
+// cards…) the rep installs in a shop in exchange for branded shelf placement.
+// The kit is the value stack of the Retail Shelf Takeover deck.  Editable on
+// the page; persisted per country in localStorage (proposals only — nothing
+// is written to the database, same as the rest of this page).
+// ────────────────────────────────────────────────────────────────────────────
+type PomItem = { id: string; name: string; qty: number; unitValue: number };
+
+const DEFAULT_POMS: PomItem[] = [
+  { id: "pom-stand",   name: "Branded counter display stand", qty: 1, unitValue: 40 },
+  { id: "pom-poster",  name: "Poster + shelf-strip pack",     qty: 1, unitValue: 10 },
+  { id: "pom-menu",    name: "Flavor menu cards (50 pcs)",    qty: 1, unitValue: 8 },
+  { id: "pom-ashtray", name: "Branded ashtrays",              qty: 6, unitValue: 2 },
+];
+
+function pomStorageKey(country: string): string { return `ssof-trade-poms-${country}`; }
+
+function loadPoms(country: string | null | undefined): PomItem[] {
+  if (!country) return DEFAULT_POMS;
+  try {
+    const raw = localStorage.getItem(pomStorageKey(country));
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed
+          .filter(p => p && typeof p === "object" && typeof p.name === "string")
+          .map((p, i) => ({
+            id: typeof p.id === "string" ? p.id : `pom-${i}`,
+            name: p.name as string,
+            qty: Number.isFinite(Number(p.qty)) ? Math.max(0, Number(p.qty)) : 0,
+            unitValue: Number.isFinite(Number(p.unitValue)) ? Math.max(0, Number(p.unitValue)) : 0,
+          }));
+      }
+    }
+  } catch { /* corrupted storage — fall back to defaults */ }
+  return DEFAULT_POMS;
+}
+
+function pomKitTotal(poms: PomItem[]): number {
+  return poms.reduce((s, p) => s + (p.name.trim() !== "" && p.qty > 0 ? p.qty * p.unitValue : 0), 0);
+}
 
 const SEVERITY = (months: number): { label: string; tone: string } => {
   if (months >= 100) return { label: "DEAD STOCK",  tone: "bg-red-100 text-red-800 border-red-300 dark:bg-red-900/40 dark:text-red-200" };
@@ -215,7 +261,7 @@ function appealScore(k: Knobs, extra = 0): number {
 
 type BundleRow = { label: string; value: string };
 type Deck = {
-  templateId: "rideAlong" | "variety" | "subscription" | "cafe" | "territory";
+  templateId: "rideAlong" | "variety" | "subscription" | "cafe" | "retail" | "territory";
   templateName: string;
   templateTag: string;
   templateIcon: typeof Bike;
@@ -622,26 +668,98 @@ function buildTerritoryExclusive(slowList: SkuIntel[], anchor: Anchor, k: Knobs)
   };
 }
 
+function buildRetailShelf(slowList: SkuIntel[], anchor: Anchor, k: Knobs, poms: PomItem[]): Deck | null {
+  // Shop-sized order — half the Ride-Along ratio so a single retailer's
+  // shelf can absorb it, with a small clearance basket (max 3 flavors).
+  // The hook is the POM kit: free point-of-sale materials in exchange for
+  // 60 days of branded display with the slow flavors at eye level.
+  const anchorMc = Math.max(4, Math.ceil(calcMixRatio(k) / 2));
+  const basket = clearanceBasket(slowList, Math.max(2, Math.ceil(anchorMc / 2)), k, 3);
+  if (basket.items.length === 0) return null;
+  const slowMc = basket.totalMc;
+  const totalInvoice = (anchorMc + slowMc) * k.pricePerMc;
+  const activePoms = poms.filter(p => p.name.trim() !== "" && p.qty > 0);
+  const pomValue = activePoms.reduce((s, p) => s + p.qty * p.unitValue, 0);
+  const pomList = activePoms.map(p => `${p.qty}× ${p.name}`).join(" + ");
+  const displayDays = 60;
+  const coop = k.pricePerMc * 0.06 * slowMc;
+  const dep = depletionInfo(basket, slowList, k);
+
+  // Kit value adds a little risk for us (real money on the wall) and a lot
+  // of appeal for the retailer (free branded shop makeover).
+  const ourRisk = rateRisk(riskScore(slowMc, anchorMc, k, Math.min(15, Math.round(pomValue / 20))));
+  const appeal = rateAppeal(appealScore(k, 8 + Math.min(17, Math.round(pomValue / 12))));
+  const flavorNames = basketFlavorNames(basket);
+  const swapText = swapWordy(k.swapClause, flavorNames, coop);
+
+  const kitPhrase = pomValue > 0 ? ` + a FREE point-of-sale kit worth $${fmt(pomValue)} (${pomList})` : "";
+  const headline = `Shop shelf package: ${anchorMc} mastercases of ${anchor.name} + a ${slowMc}-MC clearance basket (${basketBundleLine(basket)})${kitPhrase} — in exchange for ${displayDays} days of branded display with the new flavors at eye level.`;
+
+  const phone = `Built for shops like yours. You take ${anchorMc} MC of ${anchor.name} — your proven seller — plus a ${slowMc}-MC clearance basket (${basketBundleLine(basket)}), all at the same $${fmt(k.pricePerMc, 0)} per MC, total $${fmt(totalInvoice)}. ${pomValue > 0 ? `On top, I bring you a complete point-of-sale kit — ${pomList} — worth $${fmt(pomValue)}, completely free. Your shop looks like a flagship without you spending a dollar. ` : ""}One condition: the branded display stays up for ${displayDays} days with the new flavors at eye level — my rep photographs it on his normal visit. ${swapText} Shelf presence sells shisha — the display does the talking while you serve customers. Shall I book the install this week?`;
+  const sms = clampSms(`Shop deal: ${anchorMc} MC ${anchor.name} + ${slowMc} MC mix${pomValue > 0 ? ` + FREE POS kit ($${fmt(pomValue)})` : ""}. ${displayDays}d display. Same $/MC. YES to book.`);
+  const whatsapp = `Retail shelf package 🏪\n\n${anchorMc} MC ${anchor.name} + ${slowMc}-MC clearance basket = $${fmt(totalInvoice)} (same per-MC price).\nBasket: ${basketBundleLine(basket)}.\n${pomValue > 0 ? `\nFREE point-of-sale kit — worth $${fmt(pomValue)}:\n${activePoms.map(p => `• ${p.qty}× ${p.name}`).join("\n")}\n` : ""}\nDeal: branded display stays up ${displayDays} days, new flavors at eye level.\n${swapText}\n\nWant the kit installed this week?`;
+
+  return {
+    templateId: "retail",
+    templateName: "The Retail Shelf Takeover",
+    templateTag: "POS kit + display deal",
+    templateIcon: Store,
+    primarySlowId: basket.items[0].sku.id,
+    forLine: `for ${flavorNames}`,
+    headline,
+    bundle: [
+      { label: `Mastercases of bestseller (${anchor.name})`, value: `${anchorMc} MC` },
+      { label: `Clearance basket (${basket.items.length} flavor${basket.items.length === 1 ? "" : "s"})`, value: `${slowMc} MC — ${basketBundleLine(basket)}` },
+      { label: "Per-mastercase price (unchanged)",      value: `$${fmt(k.pricePerMc)} / MC` },
+      { label: "Total invoice",                          value: `$${fmt(totalInvoice)}` },
+      { label: "FREE point-of-sale kit (POMs)",          value: pomValue > 0 ? `$${fmt(pomValue)} — ${pomList}` : "None configured — add POMs in Offer settings" },
+      { label: "Display commitment",                     value: `${displayDays} days branded display, new flavors at eye level` },
+      ...depletionBundleRow(basket, slowList, k),
+      { label: "Swap promise",                           value: k.swapClause === "coop" ? `$${fmt(coop, 0)} co-op fund` : `${k.swapClause} days, 1-for-1` },
+      { label: "Pricing approach",                       value: pricingGuardLabel(k.pricingGuard) },
+    ],
+    whyYes: [
+      pomValue > 0
+        ? `Free POS kit worth $${fmt(pomValue)} — ${pomList}. The shop looks like a flagship at zero cost to the owner.`
+        : "Branded display support makes the shop look like a flagship at zero cost to the owner.",
+      "Eye-level placement does the selling — impulse pick-up moves the clearance basket without the owner lifting a finger.",
+      `Same per-MC price on every line, and the swap promise removes the risk — worst case, unsold basket flavors go back for more ${anchor.name}.`,
+    ],
+    catches: [
+      `The kit is earned, not given — it stays only while the display stays up. Rep photographs the shelf on every visit; pull the kit if the display comes down before day ${displayDays}.`,
+      "Only issue POS kits on verifiable routes — never ship a kit to an account the rep doesn't physically visit.",
+      pomValue === 0
+        ? "No POMs configured yet — add your point-of-sale materials in Offer settings to give this offer its hook."
+        : `Shop-sized basket clears ${slowMc} MC per deal — needs ~${dep.cycles} retail accounts to drain the full pile.`,
+    ],
+    ourRisk,
+    retailerAppeal: appeal,
+    scripts: { phone, sms, whatsapp },
+  };
+}
+
 // Channel → which deck templates to surface, in order.  "all" surfaces every
 // template; the channel-specific lists hide decks that don't fit and reorder
 // the rest so the most-relevant pitch sits at the top.
 const CHANNEL_DECK_PRIORITY: Record<Channel, Deck["templateId"][]> = {
-  all:         ["rideAlong", "variety", "subscription", "cafe", "territory"],
+  all:         ["rideAlong", "variety", "subscription", "cafe", "retail", "territory"],
   horeca:      ["cafe", "rideAlong", "subscription"],
-  modern:      ["variety", "rideAlong", "subscription"],
-  traditional: ["rideAlong", "subscription"],
+  modern:      ["variety", "retail", "rideAlong", "subscription"],
+  traditional: ["retail", "rideAlong", "subscription"],
+  retail:      ["retail", "rideAlong", "variety"],
   wholesale:   ["territory", "variety", "rideAlong"],
 };
 
-// Build up to 5 ready-to-apply decks given the slow-SKU list and an anchor.
+// Build up to 6 ready-to-apply decks given the slow-SKU list and an anchor.
 // Each builder may return null when the basket comes up empty (e.g. all
 // candidates have closingStock === 0 after capping); we silently drop those.
-function buildAllDecks(slowList: SkuIntel[], anchor: Anchor, k: Knobs): Deck[] {
+function buildAllDecks(slowList: SkuIntel[], anchor: Anchor, k: Knobs, poms: PomItem[]): Deck[] {
   const builders = [
     () => buildRideAlong(slowList, anchor, k),
     () => slowList.length >= 2 ? buildVarietyBuilder(slowList, anchor, k) : null,
     () => buildSubscriptionLock(slowList, anchor, k),
     () => buildCafeStarter(slowList, anchor, k),
+    () => buildRetailShelf(slowList, anchor, k, poms),
     () => buildTerritoryExclusive(slowList, anchor, k),
   ];
   return builders.map(b => b()).filter((d): d is Deck => d !== null);
@@ -657,6 +775,7 @@ const GLOSSARY: { term: string; meaning: string }[] = [
   { term: "Slow flavor",    meaning: "A SKU sitting in the warehouse longer than your stock-month threshold (the slider above). Ranked by $ overhang (closing stock × $/MC) so the biggest cash drag rises first." },
   { term: "Dollar overhang", meaning: "Closing stock × $/MC for a slow flavor — how much cash is tied up in that SKU. Drives the slow-list ranking." },
   { term: "Mastercase (MC)", meaning: "One full mastercase from the warehouse — the unit every order, invoice and bundle on this page is denominated in." },
+  { term: "POM (point-of-sale material)", meaning: "Branded display stands, posters, shelf strips, menu cards — physical marketing items the rep installs in a shop in exchange for shelf placement. Configure the kit in Offer settings; its $ value stacks onto the Retail Shelf Takeover offer." },
   { term: "Mix ratio",      meaning: "How many mastercases of bestseller go with each MC of slow. e.g. 10:1 means \"10 bestseller MC + 1 slow MC per bundle\"." },
   { term: "Mix portion",    meaning: "The slow flavor's $ value as a % of the bestseller's $ value. The slider drives the mix ratio." },
   { term: "Swap promise",   meaning: "How many days the retailer has to return unsold slow stock for any bestseller, no questions asked." },
@@ -861,15 +980,31 @@ export default function TradeOffersPage() {
   const initialLock = defaultAnchorLockFor(country);
   const [anchorFlavor, setAnchorFlavor] = useState<string>(initialLock.flavor);
   const [anchorPackaging, setAnchorPackaging] = useState<PackagingLock>(initialLock.packaging);
-  // Re-apply country default whenever the country changes (planner can still
+  // Retail POS kit (POMs) — persisted per country on this device.
+  const [poms, setPoms] = useState<PomItem[]>(() => loadPoms(country));
+  const persistPoms = (updater: (prev: PomItem[]) => PomItem[]) => {
+    setPoms(prev => {
+      const next = updater(prev);
+      if (country) {
+        try { localStorage.setItem(pomStorageKey(country), JSON.stringify(next)); } catch { /* storage blocked — keep in-memory */ }
+      }
+      return next;
+    });
+  };
+  const addPom = () => persistPoms(prev => [...prev, { id: `pom-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, name: "", qty: 1, unitValue: 0 }]);
+  const updatePom = (id: string, patch: Partial<Omit<PomItem, "id">>) => persistPoms(prev => prev.map(p => (p.id === id ? { ...p, ...patch } : p)));
+  const removePom = (id: string) => persistPoms(prev => prev.filter(p => p.id !== id));
+  const pomKitValue = pomKitTotal(poms);
+
+  // Re-apply country defaults whenever the country changes (planner can still
   // override after).  Tracked via a ref-like effect-less guard: when country
-  // shifts and the current lock matches the previous country's default, swap
-  // to the new country's default.
+  // shifts, swap the anchor lock and POM kit to the new country's values.
   const [lockCountryKey, setLockCountryKey] = useState<string | null>(country ?? null);
   if (country && country !== lockCountryKey) {
     const next = defaultAnchorLockFor(country);
     setAnchorFlavor(next.flavor);
     setAnchorPackaging(next.packaging);
+    setPoms(loadPoms(country));
     setLockCountryKey(country);
   }
 
@@ -964,10 +1099,10 @@ export default function TradeOffersPage() {
     if (anchorList.length === 0 || slowList.length === 0) return [] as { anchor: Anchor; decks: Deck[]; eligibleSlow: number }[];
     return anchorList.map(a => {
       const eligibleSlow = slowList.filter(s => s.flavor !== a.flavor);
-      return { anchor: a, decks: buildAllDecks(eligibleSlow, a, knobs), eligibleSlow: eligibleSlow.length };
+      return { anchor: a, decks: buildAllDecks(eligibleSlow, a, knobs, poms), eligibleSlow: eligibleSlow.length };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [anchorList, slowList, knobs.thresholdMonths, knobs.swapClause, knobs.size, knobs.mixPct, knobs.pricePerMc, knobs.pricingGuard]);
+  }, [anchorList, slowList, poms, knobs.thresholdMonths, knobs.swapClause, knobs.size, knobs.mixPct, knobs.pricePerMc, knobs.pricingGuard]);
 
   // Channel filter is applied PER deck-set so each anchor's decks are
   // reordered consistently and incompatible templates are hidden.
@@ -1004,7 +1139,7 @@ export default function TradeOffersPage() {
           Recommended AI Trade Offers
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Up to 5 ready-to-send offer decks for {country}. Every deck piggybacks the slow flavor onto your bestseller — your customer's existing volume drags it through.
+          Up to 6 ready-to-send offer decks for {country}. Every deck piggybacks the slow flavor onto your bestseller — your customer's existing volume drags it through.
           <span className="block mt-1 text-xs">As of <strong>{data?.targetMonth} {data?.targetYear}</strong> · proposals only — nothing is saved.</span>
         </p>
         <div className="mt-3 flex items-center gap-2 flex-wrap">
@@ -1190,6 +1325,7 @@ export default function TradeOffersPage() {
                   <SelectItem value="horeca">HoReCa (cafés &amp; lounges)</SelectItem>
                   <SelectItem value="modern">Modern trade (supermarkets)</SelectItem>
                   <SelectItem value="traditional">Traditional trade (shops, kiosks)</SelectItem>
+                  <SelectItem value="retail">Retail (POS kit &amp; display deal)</SelectItem>
                   <SelectItem value="wholesale">Wholesale (master distributors)</SelectItem>
                 </SelectContent>
               </Select>
@@ -1239,6 +1375,75 @@ export default function TradeOffersPage() {
                 })}
               </div>
             </div>
+          </div>
+
+          {/* Retail POS kit (POMs) — the value stack of the Retail Shelf
+              Takeover deck.  Editable, saved per country on this device. */}
+          <div className="p-3 rounded-md border border-primary/20 bg-primary/5 space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <Label className="text-xs font-semibold flex items-center gap-2">
+                <Store className="h-3.5 w-3.5 text-primary" />
+                Retail POS kit — POMs to distribute
+                <Badge variant="outline" className="text-[10px] border-primary/40 text-primary">kit worth ${fmt(pomKitValue)}</Badge>
+              </Label>
+              <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={addPom}>
+                + Add material
+              </Button>
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              Point-of-sale materials (display stands, posters, menu cards…) bundled FREE into the <strong>Retail Shelf Takeover</strong> deck — in exchange for 60 days of branded shelf placement. Saved per country on this device.
+            </p>
+            {poms.length === 0 ? (
+              <p className="text-xs text-muted-foreground italic">No materials yet — add the POMs your reps can hand out.</p>
+            ) : (
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2 text-[10px] text-muted-foreground uppercase tracking-wider">
+                  <span className="flex-1">Material</span>
+                  <span className="w-16 text-center">Qty/deal</span>
+                  <span className="w-24 text-center">$ per unit</span>
+                  <span className="w-8" />
+                </div>
+                {poms.map(p => (
+                  <div key={p.id} className="flex items-center gap-2">
+                    <Input
+                      className="h-8 text-xs flex-1"
+                      placeholder="e.g. Branded counter display stand"
+                      value={p.name}
+                      onChange={e => updatePom(p.id, { name: e.target.value })}
+                    />
+                    <Input
+                      className="h-8 text-xs w-16 text-center"
+                      type="number"
+                      min={0}
+                      aria-label="Quantity per deal"
+                      value={p.qty}
+                      onChange={e => { const n = Number(e.target.value); updatePom(p.id, { qty: Number.isFinite(n) ? Math.max(0, n) : 0 }); }}
+                    />
+                    <div className="flex items-center gap-1 w-24">
+                      <span className="text-xs text-muted-foreground">$</span>
+                      <Input
+                        className="h-8 text-xs"
+                        type="number"
+                        min={0}
+                        aria-label="Value per unit in dollars"
+                        value={p.unitValue}
+                        onChange={e => { const n = Number(e.target.value); updatePom(p.id, { unitValue: Number.isFinite(n) ? Math.max(0, n) : 0 }); }}
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive shrink-0"
+                      onClick={() => removePom(p.id)}
+                      aria-label={`Remove ${p.name || "material"}`}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Advanced */}
