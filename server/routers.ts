@@ -453,8 +453,10 @@ export const appRouter = router({
         return { success: true };
       }),
     imsCell: protectedProcedure
-      .input(z.object({ skuId: z.number(), periodId: z.number(), value: z.string(), isActual: z.boolean(), skuName: z.string().optional(), periodLabel: z.string().optional(), oldValue: z.string().optional() }))
+      .input(z.object({ skuId: z.number(), periodId: z.number(), value: z.string(), isActual: z.boolean(), country: z.string().default("Lebanon"), skuName: z.string().optional(), periodLabel: z.string().optional(), oldValue: z.string().optional() }))
       .mutation(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
+        await assertRecordsScopedToCountry(input.country, "IMS", [{ skuId: input.skuId, periodId: input.periodId }], "Save");
         await db.upsertImsData(input.skuId, input.periodId, input.value, input.isActual);
         await db.logAudit({
           username: getAuditActor(ctx),
@@ -477,9 +479,12 @@ export const appRouter = router({
         skuName: z.string().optional(), periodLabel: z.string().optional(),
         oldWeek1: z.string().optional(), oldWeek2: z.string().optional(),
         oldWeek3: z.string().optional(), oldWeek4: z.string().optional(),
+        country: z.string().default("Lebanon"),
       }))
       .mutation(async ({ ctx, input }) => {
-        const { skuId, periodId, skuName, periodLabel, oldWeek1, oldWeek2, oldWeek3, oldWeek4, ...weeks } = input;
+        const { skuId, periodId, skuName, periodLabel, oldWeek1, oldWeek2, oldWeek3, oldWeek4, country, ...weeks } = input;
+        await requireCountryAccess(ctx, country);
+        await assertRecordsScopedToCountry(country, "Shipment", [{ skuId, periodId }], "Save");
         await db.upsertShipmentData(skuId, periodId, weeks);
         const changes: string[] = [];
         if (weeks.week1 !== undefined) changes.push(`W1: ${oldWeek1 || "0"} → ${weeks.week1}`);
@@ -507,9 +512,12 @@ export const appRouter = router({
         skuName: z.string().optional(), periodLabel: z.string().optional(),
         oldWeek1: z.string().optional(), oldWeek2: z.string().optional(),
         oldWeek3: z.string().optional(), oldWeek4: z.string().optional(),
+        country: z.string().default("Lebanon"),
       }))
       .mutation(async ({ ctx, input }) => {
-        const { skuId, periodId, skuName, periodLabel, oldWeek1, oldWeek2, oldWeek3, oldWeek4, ...weeks } = input;
+        const { skuId, periodId, skuName, periodLabel, oldWeek1, oldWeek2, oldWeek3, oldWeek4, country, ...weeks } = input;
+        await requireCountryAccess(ctx, country);
+        await assertRecordsScopedToCountry(country, "Arrival", [{ skuId, periodId }], "Save");
         await db.upsertArrivalData(skuId, periodId, weeks);
         const changes: string[] = [];
         if (weeks.week1 !== undefined) changes.push(`W1: ${oldWeek1 || "0"} → ${weeks.week1}`);
@@ -535,8 +543,11 @@ export const appRouter = router({
         skuName: z.string().optional(),
         periodLabel: z.string().optional(), oldValue: z.string().optional(),
         source: z.string().optional(),
+        country: z.string().default("Lebanon"),
       }))
       .mutation(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
+        await assertRecordsScopedToCountry(input.country, "Planning FG (IMS sync)", [{ skuId: input.skuId, periodId: input.periodId }], "Save");
         // Clamp to non-negative
         const clampedValue = Math.max(0, parseFloat(input.value) || 0).toString();
         // Update both IMS and Forecast tables to keep them in sync (two-way)
@@ -607,9 +618,12 @@ export const appRouter = router({
         week1: z.number().default(0), week2: z.number().default(0),
         week3: z.number().default(0), week4: z.number().default(0),
         skuName: z.string().optional(), periodLabel: z.string().optional(),
+        country: z.string().default("Lebanon"),
       }))
       .mutation(async ({ ctx, input }) => {
-        const { skuId, periodId, skuName, periodLabel, week1, week2, week3, week4 } = input;
+        const { skuId, periodId, skuName, periodLabel, week1, week2, week3, week4, country } = input;
+        await requireCountryAccess(ctx, country);
+        await assertRecordsScopedToCountry(country, "Planning FG (Invoiced SHP)", [{ skuId, periodId }], "Save");
         // 1. Save shipment weekly data
         await db.upsertShipmentData(skuId, periodId, {
           week1: String(week1), week2: String(week2), week3: String(week3), week4: String(week4),
@@ -618,8 +632,8 @@ export const appRouter = router({
         const invoicedTotal = week1 + week2 + week3 + week4;
         await db.upsertPlanningFgData(skuId, periodId, { invoiced: String(invoicedTotal) });
         // 3. Compute arrivals +2 weeks: W1→W3(same), W2→W4(same), W3→W1(next), W4→W2(next)
-        // Get Lebanon periods sorted by sortOrder to find next period
-        const allPeriods = await db.getPeriodsForCountry('Lebanon');
+        // Get the country's periods sorted by sortOrder to find next period
+        const allPeriods = await db.getPeriodsForCountry(country as import('../drizzle/schema').Country);
         const currentPeriodIdx = allPeriods.findIndex(p => p.id === periodId);
         const nextPeriod = currentPeriodIdx >= 0 && currentPeriodIdx < allPeriods.length - 1
           ? allPeriods[currentPeriodIdx + 1] : null;
@@ -670,9 +684,12 @@ export const appRouter = router({
         skuName: z.string().optional(), periodLabel: z.string().optional(),
         oldOpeningStock: z.string().optional(), oldAdjustments: z.string().optional(),
         oldInvoiced: z.string().optional(), oldArrivals: z.string().optional(),
+        country: z.string().default("Lebanon"),
       }))
       .mutation(async ({ ctx, input }) => {
-        const { skuId, periodId, skuName, periodLabel, oldOpeningStock, oldAdjustments, oldInvoiced, oldArrivals, ...data } = input;
+        const { skuId, periodId, skuName, periodLabel, oldOpeningStock, oldAdjustments, oldInvoiced, oldArrivals, country, ...data } = input;
+        await requireCountryAccess(ctx, country);
+        await assertRecordsScopedToCountry(country, "Planning FG", [{ skuId, periodId }], "Save");
         await db.upsertPlanningFgData(skuId, periodId, data);
         const changes: string[] = [];
         if (data.openingStock !== undefined) changes.push(`Opening Stock: ${oldOpeningStock || "0"} → ${data.openingStock}`);
@@ -698,8 +715,11 @@ export const appRouter = router({
         skuId: z.number(), periodId: z.number(), value: z.string(),
         skuName: z.string().optional(),
         periodLabel: z.string().optional(), oldValue: z.string().optional(),
+        country: z.string().default("Lebanon"),
       }))
       .mutation(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
+        await assertRecordsScopedToCountry(input.country, "Planning FG (Arrival sync)", [{ skuId: input.skuId, periodId: input.periodId }], "Save");
         const clampedValue = Math.max(0, parseFloat(input.value) || 0).toString();
         await db.upsertPlanningFgData(input.skuId, input.periodId, { arrivals: clampedValue });
         await db.upsertArrivalData(input.skuId, input.periodId, { week1: clampedValue, week2: "0", week3: "0", week4: "0" });

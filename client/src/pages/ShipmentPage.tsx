@@ -193,7 +193,7 @@ export default function ShipmentPage() {
     const sku = data?.skus.find(s => s.id === skuId);
     const period = data?.periods.find(p => p.id === periodId);
     if (isLebanon) {
-      updateCellLb.mutate({ skuId, periodId, [weekKey]: numVal.toString(), skuName: sku?.name, periodLabel: period?.label });
+      updateCellLb.mutate({ skuId, periodId, [weekKey]: numVal.toString(), skuName: sku?.name, periodLabel: period?.label, country: "Lebanon" });
     } else {
       updateCellIntl.mutate({ skuId, periodId, week1: dataMap.get(`${skuId}-${periodId}`)?.week1 ?? "0", week2: dataMap.get(`${skuId}-${periodId}`)?.week2 ?? "0", week3: dataMap.get(`${skuId}-${periodId}`)?.week3 ?? "0", week4: dataMap.get(`${skuId}-${periodId}`)?.week4 ?? "0", [weekKey]: numVal.toString(), country: country as "Syria" | "Libya" | "KSA", skuName: sku?.name, periodLabel: period?.label });
     }

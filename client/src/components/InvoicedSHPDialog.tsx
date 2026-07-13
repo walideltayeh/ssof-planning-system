@@ -95,6 +95,7 @@ export function InvoicedSHPDialog({
       skuId, periodId,
       week1: weeks.week1, week2: weeks.week2, week3: weeks.week3, week4: weeks.week4,
       skuName, periodLabel,
+      country: "Lebanon",
     });
   };
 

@@ -111,6 +111,7 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
           periodLabel: variables.periodLabel,
           oldValue: variables.oldValue,
           source: `Planning FG ${weight} (Forecast edit)`,
+          country: "Lebanon",
         });
       } else {
         utils.data.planningFg.invalidate();
@@ -179,6 +180,7 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
         periodLabel: entry.periodLabel,
         oldValue: entry.newValue,
         source: `Undo - Planning FG ${weight}`,
+        country: "Lebanon",
       }, { onSuccess: onDone, onError: onErr });
     } else if (entry.type === "imsDirect") {
       updateImsDirect.mutate({
@@ -189,6 +191,7 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
         skuName: entry.skuName,
         periodLabel: entry.periodLabel,
         oldValue: entry.newValue,
+        country: "Lebanon",
       }, { onSuccess: onDone, onError: onErr });
     } else if (entry.type === "syncArrival") {
       syncArrival.mutate({
@@ -198,6 +201,7 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
         skuName: entry.skuName,
         periodLabel: entry.periodLabel,
         oldValue: entry.newValue,
+        country: "Lebanon",
       }, { onSuccess: onDone, onError: onErr });
     } else if (entry.type === "planningFgCell") {
       const updateData: any = {
@@ -206,6 +210,7 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
         skuName: entry.skuName,
         periodLabel: entry.periodLabel,
         oldValue: entry.newValue,
+        country: "Lebanon",
       };
       if (entry.label === "Opening Stock") updateData.openingStock = entry.oldValue;
       else if (entry.label === "Adjustments") updateData.adjustments = entry.oldValue;
@@ -218,6 +223,7 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
         skuName: entry.skuName,
         periodLabel: entry.periodLabel,
         oldValue: entry.newValue,
+        country: "Lebanon",
       };
       updateCell.mutate(updateData, { onSuccess: onDone, onError: onErr });
     }
@@ -254,6 +260,7 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
         periodLabel: entry.periodLabel,
         oldValue: entry.oldValue,
         source: `Redo - Planning FG ${weight}`,
+        country: "Lebanon",
       }, { onSuccess: onDone, onError: onErr });
     } else if (entry.type === "imsDirect") {
       updateImsDirect.mutate({
@@ -264,6 +271,7 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
         skuName: entry.skuName,
         periodLabel: entry.periodLabel,
         oldValue: entry.oldValue,
+        country: "Lebanon",
       }, { onSuccess: onDone, onError: onErr });
     } else if (entry.type === "syncArrival") {
       syncArrival.mutate({
@@ -273,6 +281,7 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
         skuName: entry.skuName,
         periodLabel: entry.periodLabel,
         oldValue: entry.oldValue,
+        country: "Lebanon",
       }, { onSuccess: onDone, onError: onErr });
     } else if (entry.type === "planningFgCell") {
       const updateData: any = {
@@ -281,6 +290,7 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
         skuName: entry.skuName,
         periodLabel: entry.periodLabel,
         oldValue: entry.oldValue,
+        country: "Lebanon",
       };
       if (entry.label === "Opening Stock") updateData.openingStock = entry.newValue;
       else if (entry.label === "Adjustments") updateData.adjustments = entry.newValue;
@@ -293,6 +303,7 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
         skuName: entry.skuName,
         periodLabel: entry.periodLabel,
         oldValue: entry.oldValue,
+        country: "Lebanon",
       };
       updateCell.mutate(updateData, { onSuccess: onDone, onError: onErr });
     }
@@ -600,10 +611,10 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
       const isFuture = period ? isStrictlyFuture(period) : false;
       if (isFuture) {
         pushUndo({ type: "syncIms", skuId, periodId, label: "IMS", oldValue: oldNum.toString(), newValue: numVal.toString(), skuName: sku?.name ?? "", periodLabel: period?.label ?? "" });
-        syncIms.mutate({ skuId, periodId, value: numVal.toString(), skuName: sku?.name, periodLabel: period?.label, oldValue, source: `Planning FG ${weight}` });
+        syncIms.mutate({ skuId, periodId, value: numVal.toString(), skuName: sku?.name, periodLabel: period?.label, oldValue, source: `Planning FG ${weight}`, country: "Lebanon" });
       } else {
         pushUndo({ type: "imsDirect", skuId, periodId, label: "IMS", oldValue: oldNum.toString(), newValue: numVal.toString(), skuName: sku?.name ?? "", periodLabel: period?.label ?? "" });
-        updateImsDirect.mutate({ skuId, periodId, value: numVal.toString(), isActual: true, skuName: sku?.name, periodLabel: period?.label, oldValue });
+        updateImsDirect.mutate({ skuId, periodId, value: numVal.toString(), isActual: true, skuName: sku?.name, periodLabel: period?.label, oldValue, country: "Lebanon" });
       }
       setEditingCell(null);
       return;
@@ -611,7 +622,7 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
 
     if (label === "Actual arrivals / Planned Orders") {
       pushUndo({ type: "syncArrival", skuId, periodId, label, oldValue: oldNum.toString(), newValue: numVal.toString(), skuName: sku?.name ?? "", periodLabel: period?.label ?? "" });
-      syncArrival.mutate({ skuId, periodId, value: numVal.toString(), skuName: sku?.name, periodLabel: period?.label, oldValue });
+      syncArrival.mutate({ skuId, periodId, value: numVal.toString(), skuName: sku?.name, periodLabel: period?.label, oldValue, country: "Lebanon" });
       setEditingCell(null);
       return;
     }
@@ -627,7 +638,7 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
       periodLabel: period?.label ?? "",
     });
 
-    const updateData: any = { skuId, periodId };
+    const updateData: any = { skuId, periodId, country: "Lebanon" };
     if (label === "Opening Stock")  updateData.openingStock = numVal.toString();
     else if (label === "Adjustments") updateData.adjustments = numVal.toString();
     updateData.skuName = sku?.name;
@@ -784,6 +795,7 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
       periodLabel: period?.label,
       oldValue,
       source: `Planning FG ${weight} (Forecast edit)`,
+      country: "Lebanon",
     });
     setEditingCell(null);
   };

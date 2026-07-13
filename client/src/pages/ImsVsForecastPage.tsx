@@ -44,7 +44,7 @@ export default function ImsVsForecastPage() {
   });
   const updateImsCell = {
     mutate: (params: any) => {
-      if (isLebanon) updateImsCellLb.mutate(params);
+      if (isLebanon) updateImsCellLb.mutate({ ...params, country: "Lebanon" });
       else updateImsCellIntl.mutate({ ...params, country: country! });
     },
     isPending: isLebanon ? updateImsCellLb.isPending : updateImsCellIntl.isPending,

@@ -444,6 +444,7 @@ export default function BestStrategy({
             periodLabel: action.periodLabel,
             oldValue: action.currentForecast.toString(),
             source: `Best Strategy - Planning FG ${weight}`,
+            country: "Lebanon",
           });
         }
 
@@ -460,6 +461,7 @@ export default function BestStrategy({
             week4: Math.max(0, w4),
             skuName,
             periodLabel: action.periodLabel,
+            country: "Lebanon",
           });
         }
 

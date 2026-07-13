@@ -676,6 +676,7 @@ export default function SkuRecommendations({
             periodLabel: rec.forecastPeriodLabel,
             oldValue: rec.currentForecast?.toString(),
             source: `Smart Recommendation - Planning FG ${weight}`,
+            country: "Lebanon",
           });
         }
       }
@@ -696,6 +697,7 @@ export default function SkuRecommendations({
             week4: Math.max(0, w4),
             skuName,
             periodLabel: period?.label,
+            country: "Lebanon",
           });
         }
       }
@@ -741,6 +743,7 @@ export default function SkuRecommendations({
           value: applied.oldForecast,
           skuName,
           source: `Rollback - Planning FG ${weight}`,
+          country: "Lebanon",
         });
       }
 
@@ -759,6 +762,7 @@ export default function SkuRecommendations({
           week4: Math.max(0, w4),
           skuName,
           periodLabel: period?.label,
+          country: "Lebanon",
         });
       }
 

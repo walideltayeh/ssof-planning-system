@@ -110,7 +110,7 @@ export default function ArrivalPage() {
   });
   const updateCell = {
     mutate: (params: any) => {
-      if (isLebanon) updateCellLb.mutate(params);
+      if (isLebanon) updateCellLb.mutate({ ...params, country: "Lebanon" });
       else updateCellIntl.mutate({ ...params, country: country! });
     },
     isPending: isLebanon ? updateCellLb.isPending : updateCellIntl.isPending,
