@@ -9,6 +9,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import * as db from "./db";
 import { assertRecordsScopedToCountry } from "./countryScope";
+import { analyzePosmItems } from "./posmAnalysis";
 import type { Country, User } from "../drizzle/schema";
 
 /**
@@ -4074,6 +4075,126 @@ Use the base allocation hints above as a starting point; you may adjust ±25% ba
           });
         }
         return { success: true, totalApplied, monthResults };
+      }),
+  }),
+  // ==================== TRADE OFFERS: POSM + FOC RULES ====================
+  tradeOffers: router({
+    // POSM list for a country (lazy-seeds a starter kit when empty).
+    posmList: protectedProcedure
+      .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]) }))
+      .query(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
+        return db.getPosmItems(input.country);
+      }),
+    posmAdd: adminProcedure
+      .input(z.object({
+        country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]),
+        name: z.string().min(1).max(255),
+        unitValue: z.number().nonnegative().nullable().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        await requireCountryAdmin(ctx, input.country);
+        const row = await db.createPosmItem(input.country, { name: input.name, unitValue: input.unitValue ?? null });
+        await db.logAudit({
+          country: input.country,
+          username: getAuditActor(ctx),
+          action: "edit",
+          sheet: "Trade Offers",
+          details: `Added POSM item: ${input.name}`,
+        });
+        return row;
+      }),
+    posmUpdate: adminProcedure
+      .input(z.object({
+        country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]),
+        id: z.number().int(),
+        name: z.string().min(1).max(255).optional(),
+        unitValue: z.number().nonnegative().nullable().optional(),
+        channelQty: z.record(z.string(), z.number().nonnegative()).optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        await requireCountryAdmin(ctx, input.country);
+        await db.updatePosmItem(input.id, input.country, {
+          name: input.name,
+          unitValue: input.unitValue,
+          channelQty: input.channelQty,
+        });
+        return { success: true };
+      }),
+    posmDelete: adminProcedure
+      .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]), id: z.number().int() }))
+      .mutation(async ({ ctx, input }) => {
+        await requireCountryAdmin(ctx, input.country);
+        await db.deletePosmItem(input.id, input.country);
+        return { success: true };
+      }),
+    // Analyse POSM — the researcher: assign each material to the channels it
+    // suits (AI when available, trade-practice keyword rules otherwise) and
+    // persist priorities, suggested kit quantities and a one-line rationale.
+    posmAnalyze: adminProcedure
+      .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]) }))
+      .mutation(async ({ ctx, input }) => {
+        await requireCountryAdmin(ctx, input.country);
+        const items = await db.getPosmItems(input.country);
+        const named = items.filter(i => i.name.trim() !== "");
+        const { fits, usedLLM } = await analyzePosmItems(named.map(i => ({ id: i.id, name: i.name })));
+        const analyzedAt = new Date();
+        for (const item of named) {
+          const f = fits.get(item.id);
+          if (!f) continue;
+          await db.updatePosmItem(item.id, input.country, {
+            channelQty: f.channelQty,
+            priority: f.priority,
+            rationale: f.rationale,
+            analysisSource: f.source,
+            analyzedAt,
+          });
+        }
+        await db.logAudit({
+          country: input.country,
+          username: getAuditActor(ctx),
+          action: "edit",
+          sheet: "Trade Offers",
+          details: `Analysed ${named.length} POSM item(s) — channel assignment via ${usedLLM ? "AI researcher" : "trade-practice rules"}`,
+        });
+        return { items: await db.getPosmItems(input.country), usedLLM };
+      }),
+    // FOC entitlement rules — one per (country, channel).
+    focRules: protectedProcedure
+      .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]) }))
+      .query(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
+        return db.getFocRules(input.country);
+      }),
+    focRuleUpsert: adminProcedure
+      .input(z.object({
+        country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]),
+        channel: z.enum(["retail", "wholesale", "semiWholesale", "horeca"]),
+        entitled: z.boolean(),
+        buyQty: z.number().positive().nullable().optional(),
+        buyUnit: z.enum(["mc", "outer", "pack"]).nullable().optional(),
+        freeQty: z.number().positive().nullable().optional(),
+        freeUnit: z.enum(["mc", "outer", "pack"]).nullable().optional(),
+        notes: z.string().max(400).nullable().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        await requireCountryAdmin(ctx, input.country);
+        await db.upsertFocRule(input.country, input.channel, {
+          entitled: input.entitled,
+          buyQty: input.buyQty,
+          buyUnit: input.buyUnit,
+          freeQty: input.freeQty,
+          freeUnit: input.freeUnit,
+          notes: input.notes,
+        });
+        await db.logAudit({
+          country: input.country,
+          username: getAuditActor(ctx),
+          action: "edit",
+          sheet: "Trade Offers",
+          details: `FOC rule for ${input.channel}: ${input.entitled ? `entitled — buy ${input.buyQty ?? "?"} ${input.buyUnit ?? "?"} → get ${input.freeQty ?? "?"} ${input.freeUnit ?? "?"} free` : "not entitled"}`,
+        });
+        return { success: true };
       }),
   }),
 });

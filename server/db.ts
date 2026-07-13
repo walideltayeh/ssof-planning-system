@@ -1,7 +1,8 @@
 import { eq, and, asc, inArray, sql, desc, gt } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { InsertUser, users, skus, periods, forecastData, imsData, shipmentData, arrivalData, planningFgData, uploadHistory, auditTrail, ssofVersions, versionComments, actualProductionData, clearanceEvents, appUsers, competitorData, appSettings } from "../drizzle/schema";
+import { InsertUser, users, skus, periods, forecastData, imsData, shipmentData, arrivalData, planningFgData, uploadHistory, auditTrail, ssofVersions, versionComments, actualProductionData, clearanceEvents, appUsers, competitorData, appSettings, posmItems, tradeFocRules } from "../drizzle/schema";
+import type { PosmItemRow, TradeFocRuleRow } from "../drizzle/schema";
 import type { AuditTrail, InsertAuditTrail, InsertSsofVersion, Country, ClearanceEvent, AppUserRow, InsertAppUser } from "../drizzle/schema";
 import type { Sku, InsertSku, Period, ForecastData, ImsData, ShipmentData, ArrivalData, PlanningFgData, SsofVersion } from "../drizzle/schema";
 import { ENV } from './_core/env';
@@ -334,6 +335,96 @@ export async function updateSkuDetails(skuId: number, data: {
   if (Object.keys(updates).length > 0) {
     await db.update(skus).set(updates).where(eq(skus.id, skuId));
   }
+}
+
+// ==================== Trade Offers: POSM + FOC rules ====================
+
+// Starter POSM list seeded the first time a country opens the Trade Offers
+// page with an empty POSM table — mirrors the old client-side defaults.
+const DEFAULT_POSM_SEED: { name: string; unitValue: string; channelQty: Record<string, number> }[] = [
+  { name: "Branded counter display stand", unitValue: "40", channelQty: { retail: 1, wholesale: 0, semiWholesale: 0, horeca: 1 } },
+  { name: "Poster + shelf-strip pack",     unitValue: "10", channelQty: { retail: 1, wholesale: 10, semiWholesale: 2, horeca: 0 } },
+  { name: "Flavor menu cards (50 pcs)",    unitValue: "8",  channelQty: { retail: 0, wholesale: 0, semiWholesale: 0, horeca: 1 } },
+  { name: "Branded ashtrays",              unitValue: "2",  channelQty: { retail: 0, wholesale: 0, semiWholesale: 0, horeca: 6 } },
+];
+
+export async function getPosmItems(country: string): Promise<PosmItemRow[]> {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await db.select().from(posmItems).where(eq(posmItems.country, country)).orderBy(asc(posmItems.sortOrder), asc(posmItems.id));
+  if (rows.length > 0) return rows;
+  // Lazy-seed the starter kit so the page never opens empty.
+  await db.insert(posmItems).values(DEFAULT_POSM_SEED.map((s, i) => ({ country, name: s.name, unitValue: s.unitValue, channelQty: s.channelQty, sortOrder: i })));
+  return db.select().from(posmItems).where(eq(posmItems.country, country)).orderBy(asc(posmItems.sortOrder), asc(posmItems.id));
+}
+
+export async function createPosmItem(country: string, data: { name: string; unitValue?: number | null }): Promise<PosmItemRow> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [maxRow] = await db.select({ max: sql<number>`COALESCE(MAX("sortOrder"), -1)` }).from(posmItems).where(eq(posmItems.country, country));
+  const [row] = await db.insert(posmItems).values({
+    country,
+    name: data.name.trim(),
+    unitValue: data.unitValue === null || data.unitValue === undefined ? null : String(data.unitValue),
+    channelQty: {},
+    sortOrder: Number(maxRow?.max ?? -1) + 1,
+  }).returning();
+  return row;
+}
+
+export async function updatePosmItem(id: number, country: string, data: {
+  name?: string; unitValue?: number | null; channelQty?: Record<string, number>;
+  priority?: Record<string, number> | null; rationale?: string | null;
+  analysisSource?: string | null; analyzedAt?: Date | null;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const updates: Record<string, unknown> = { updatedAt: new Date() };
+  if (data.name !== undefined) updates.name = data.name.trim();
+  if (data.unitValue !== undefined) updates.unitValue = data.unitValue === null ? null : String(data.unitValue);
+  if (data.channelQty !== undefined) updates.channelQty = data.channelQty;
+  if (data.priority !== undefined) updates.priority = data.priority;
+  if (data.rationale !== undefined) updates.rationale = data.rationale;
+  if (data.analysisSource !== undefined) updates.analysisSource = data.analysisSource;
+  if (data.analyzedAt !== undefined) updates.analyzedAt = data.analyzedAt;
+  // Country in the WHERE guards against cross-country writes by id.
+  await db.update(posmItems).set(updates).where(and(eq(posmItems.id, id), eq(posmItems.country, country)));
+}
+
+export async function deletePosmItem(id: number, country: string): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(posmItems).where(and(eq(posmItems.id, id), eq(posmItems.country, country)));
+}
+
+export async function getFocRules(country: string): Promise<TradeFocRuleRow[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(tradeFocRules).where(eq(tradeFocRules.country, country));
+}
+
+export async function upsertFocRule(country: string, channel: string, data: {
+  entitled: boolean;
+  buyQty?: number | null; buyUnit?: string | null;
+  freeQty?: number | null; freeUnit?: string | null;
+  notes?: string | null;
+}): Promise<void> {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const values = {
+    country, channel,
+    entitled: data.entitled,
+    buyQty: data.buyQty === null || data.buyQty === undefined ? null : String(data.buyQty),
+    buyUnit: data.buyUnit ?? null,
+    freeQty: data.freeQty === null || data.freeQty === undefined ? null : String(data.freeQty),
+    freeUnit: data.freeUnit ?? null,
+    notes: data.notes ?? null,
+    updatedAt: new Date(),
+  };
+  await db.insert(tradeFocRules).values(values).onConflictDoUpdate({
+    target: [tradeFocRules.country, tradeFocRules.channel],
+    set: { entitled: values.entitled, buyQty: values.buyQty, buyUnit: values.buyUnit, freeQty: values.freeQty, freeUnit: values.freeUnit, notes: values.notes, updatedAt: values.updatedAt },
+  });
 }
 
 export async function ensurePeriods() {

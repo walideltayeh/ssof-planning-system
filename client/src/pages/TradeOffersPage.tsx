@@ -1,7 +1,13 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { useCountry } from "@/contexts/CountryContext";
+import { useAppAuth } from "@/contexts/AuthContext";
 import { packsPerMc, tierPricesOf, hasAnyTierPrice, type TierPrices } from "@/lib/packUnits";
+import {
+  focRuleOf, isRuleComplete, computeFocReward, ruleSentence,
+  FOC_UNITS, FOC_UNIT_LABEL, PACKS_PER_OUTER, type FocRule, type FocUnit,
+} from "@/lib/focRules";
+import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -145,13 +151,13 @@ const CHANNEL_LABEL: Record<Channel, string> = {
 };
 
 // ────────────────────────────────────────────────────────────────────────────
-// POMs — point-of-sale materials (display stands, posters, shelf strips, menu
-// cards…) the rep installs at an account in exchange for branded placement.
-// Each material carries a QTY PER CHANNEL — some go to retailers, others to
-// HoReCa, others to wholesalers.  The channel-matched kit is stacked onto the
-// deck that pitches to that channel.  Editable on the page; persisted per
-// country in localStorage (proposals only — nothing is written to the
-// database, same as the rest of this page).
+// POSM — point-of-sale materials (hoses, playing cards, notebooks, display
+// stands…) the rep hands out at an account in exchange for branded placement.
+// The list lives in the DATABASE per country (tradeOffers.posmList) so every
+// planner sees the same kit.  "Analyse POSM" asks the researcher (AI, with a
+// trade-practice rules fallback) to assign each material to the channels it
+// suits — hoses & playing cards → HoReCa top priority, notebooks → all
+// channels — filling priority, suggested qty per deal and a rationale.
 // ────────────────────────────────────────────────────────────────────────────
 type PomChannel = Exclude<Channel, "all">;
 const POM_CHANNELS: PomChannel[] = ["retail", "wholesale", "semiWholesale", "horeca"];
@@ -162,59 +168,55 @@ const POM_CHANNEL_SHORT: Record<PomChannel, string> = {
   horeca:        "HoReCa",
 };
 
-type PomItem = { id: string; name: string; unitValue: number; channelQty: Record<PomChannel, number> };
+type PomItem = {
+  id: number;
+  name: string;
+  unitValue: number;
+  channelQty: Record<PomChannel, number>;
+  priority: Record<PomChannel, number> | null;  // 0 none · 1 suitable · 2 top priority (from Analyse POSM)
+  rationale: string | null;
+  analysisSource: string | null;                // 'ai' | 'rules' | null (never analysed)
+};
 
 function emptyChannelQty(): Record<PomChannel, number> {
   return { retail: 0, wholesale: 0, semiWholesale: 0, horeca: 0 };
 }
-
-const DEFAULT_POMS: PomItem[] = [
-  { id: "pom-stand",   name: "Branded counter display stand", unitValue: 40, channelQty: { ...emptyChannelQty(), retail: 1, horeca: 1 } },
-  { id: "pom-poster",  name: "Poster + shelf-strip pack",     unitValue: 10, channelQty: { ...emptyChannelQty(), retail: 1, semiWholesale: 2, wholesale: 10 } },
-  { id: "pom-menu",    name: "Flavor menu cards (50 pcs)",    unitValue: 8,  channelQty: { ...emptyChannelQty(), horeca: 1 } },
-  { id: "pom-ashtray", name: "Branded ashtrays",              unitValue: 2,  channelQty: { ...emptyChannelQty(), horeca: 6 } },
-];
-
-function pomStorageKey(country: string): string { return `ssof-trade-poms-${country}`; }
 
 function sanitizeQty(v: unknown): number {
   const n = Number(v);
   return Number.isFinite(n) ? Math.max(0, n) : 0;
 }
 
-function loadPoms(country: string | null | undefined): PomItem[] {
-  if (!country) return DEFAULT_POMS;
-  try {
-    const raw = localStorage.getItem(pomStorageKey(country));
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        return parsed
-          .filter(p => p && typeof p === "object" && typeof p.name === "string")
-          .map((p, i) => {
-            const cq = emptyChannelQty();
-            if (p.channelQty && typeof p.channelQty === "object") {
-              for (const ch of POM_CHANNELS) cq[ch] = sanitizeQty(p.channelQty[ch]);
-              // Migration from the old 5-channel model: modern trade folds
-              // into Retail, traditional trade into Semi-Wholesale.
-              cq.retail += sanitizeQty(p.channelQty.modern);
-              cq.semiWholesale += sanitizeQty(p.channelQty.traditional);
-            } else {
-              // Migration from the single-qty format — those kits were retail-only.
-              cq.retail = sanitizeQty(p.qty);
-            }
-            return {
-              id: typeof p.id === "string" ? p.id : `pom-${i}`,
-              name: p.name as string,
-              unitValue: sanitizeQty(p.unitValue),
-              channelQty: cq,
-            };
-          });
-      }
-    }
-  } catch { /* corrupted storage — fall back to defaults */ }
-  return DEFAULT_POMS;
+// Maps a raw server row (numeric columns arrive as strings, json columns
+// untyped) into the page's PomItem shape.
+function pomFromRow(row: {
+  id: number; name: string; unitValue: string | null;
+  channelQty: unknown; priority: unknown; rationale: string | null; analysisSource: string | null;
+}): PomItem {
+  const cq = emptyChannelQty();
+  if (row.channelQty && typeof row.channelQty === "object") {
+    for (const ch of POM_CHANNELS) cq[ch] = sanitizeQty((row.channelQty as Record<string, unknown>)[ch]);
+  }
+  let priority: Record<PomChannel, number> | null = null;
+  if (row.priority && typeof row.priority === "object") {
+    priority = emptyChannelQty();
+    for (const ch of POM_CHANNELS) priority[ch] = Math.max(0, Math.min(2, sanitizeQty((row.priority as Record<string, unknown>)[ch])));
+  }
+  return {
+    id: row.id,
+    name: row.name,
+    unitValue: row.unitValue === null ? 0 : sanitizeQty(parseFloat(row.unitValue)),
+    channelQty: cq,
+    priority,
+    rationale: row.rationale ?? null,
+    analysisSource: row.analysisSource ?? null,
+  };
 }
+
+const POSM_PRIORITY_BADGE: Record<number, { label: string; tone: string }> = {
+  2: { label: "Top priority", tone: "bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-900/40 dark:text-emerald-200" },
+  1: { label: "Suitable",     tone: "bg-sky-100 text-sky-800 border-sky-300 dark:bg-sky-900/40 dark:text-sky-200" },
+};
 
 // The kit a given channel receives — items with a non-zero qty for that channel.
 type PomKit = { items: { name: string; qty: number; unitValue: number }[]; value: number };
@@ -906,6 +908,14 @@ type ChannelOffer = {
   kit: PomKit;
   totalFreeValue: number;
   terms: string[];
+  // FOC entitlement rule ("Buy X → get Y free") applied to the anchor buy:
+  entitlement: {
+    sentence: string;        // "Buy 1 MC → get 1 outer (10 packs) free"
+    freeUnits: number;       // in the rule's own unit
+    freeUnitLabel: string;   // "outers" / "packs" / "MC"
+    freePacks: number;
+    valueDollars: number;    // freeMcEquivalent × the channel's anchor buy price
+  } | null;
   // Supply-chain price list integration (SKU Management → price list):
   buyPricePerMc: number;          // $/MC the buyer actually pays for the anchor
   usedTierPrice: boolean;         // true when buyPricePerMc came from the price list (not the WS list fallback)
@@ -954,6 +964,7 @@ function buildChannelOffer(
   k: Knobs,
   poms: PomItem[],
   priceOf: (skuId: number) => TierPrices | null,
+  focRule: FocRule,
 ): ChannelOffer | null {
   const p = OFFER_CHANNEL_PARAMS[ch];
   // FOC size follows the Mix portion knob: FOC MC = mix% of the bestseller MC
@@ -974,6 +985,20 @@ function buildChannelOffer(
   }, 0);
   const kit = kitForChannel(poms, ch);
   const ladder = anchorTiers && hasAnyTierPrice(anchorTiers) ? anchorTiers : null;
+  // FOC entitlement — the channel's "Buy X → get Y free" rule applied to the
+  // anchor purchase.  Free goods are MORE of the anchor SKU itself, valued at
+  // the channel's buy price so the % is honest.
+  const reward = isRuleComplete(focRule) ? computeFocReward(focRule, p.anchorMc, anchor.weight) : null;
+  const sentence = ruleSentence(focRule);
+  const entitlement = reward && sentence && reward.freePacks > 0
+    ? {
+        sentence,
+        freeUnits: reward.freeUnits,
+        freeUnitLabel: reward.freeUnits === 1 ? FOC_UNIT_LABEL[focRule.freeUnit!].one : FOC_UNIT_LABEL[focRule.freeUnit!].many,
+        freePacks: reward.freePacks,
+        valueDollars: reward.freeMcEquivalent * buyPricePerMc,
+      }
+    : null;
   return {
     channel: ch,
     title: p.title,
@@ -983,7 +1008,8 @@ function buildChannelOffer(
     basket,
     focValue,
     kit,
-    totalFreeValue: focValue + kit.value,
+    entitlement,
+    totalFreeValue: focValue + kit.value + (entitlement?.valueDollars ?? 0),
     buyPricePerMc,
     usedTierPrice: tierBuy !== null,
     ladder,
@@ -992,6 +1018,7 @@ function buildChannelOffer(
     margin: tierBuy !== null ? channelMargin(ch, anchorTiers, buyPricePerMc, anchor.weight) : null,
     terms: [
       p.commitment,
+      entitlement ? `FOC entitlement for ${CHANNEL_LABEL[ch]}: ${sentence} — applied automatically on every qualifying order.` : "",
       kit.value > 0 ? "POS kit is installed by our rep and stays as long as it stays on display." : "",
       "FOC products are free of charge on the same delivery — no hidden conditions.",
       tierBuy !== null
@@ -1013,6 +1040,13 @@ function offerCopyText(o: ChannelOffer, country: string): string {
     `FREE OF CHARGE (FOC) — worth $${fmt(o.focValue)}:`,
     ...o.basket.items.map(i => `• ${i.mc} MC ${i.sku.name} ${i.sku.weight}${packPhrase(i.mc, i.sku.weight)}`),
   ];
+  if (o.entitlement) {
+    lines.push(
+      "",
+      `YOUR FOC ENTITLEMENT (${o.entitlement.sentence}):`,
+      `• ${fmt(o.entitlement.freeUnits)} ${o.entitlement.freeUnitLabel} of ${o.anchor.name} ${o.anchor.weight} free (${fmt(o.entitlement.freePacks)} packs) — worth $${fmt(o.entitlement.valueDollars)}`,
+    );
+  }
   if (o.kit.value > 0) {
     lines.push("", `FREE POS KIT — worth $${fmt(o.kit.value)}:`, ...o.kit.items.map(i => `• ${i.qty}× ${i.name}`));
   }
@@ -1054,8 +1088,10 @@ const GLOSSARY: { term: string; meaning: string }[] = [
   { term: "Slow flavor",    meaning: "A SKU sitting in the warehouse longer than your stock-month threshold (the slider above). Ranked by $ overhang (closing stock × $/MC) so the biggest cash drag rises first." },
   { term: "Dollar overhang", meaning: "Closing stock × $/MC for a slow flavor — how much cash is tied up in that SKU. Drives the slow-list ranking." },
   { term: "Mastercase (MC)", meaning: "One full mastercase from the warehouse — the unit every order, invoice and bundle on this page is denominated in." },
-  { term: "POM (point-of-sale material)", meaning: "Branded display stands, posters, shelf strips, menu cards — physical marketing items the rep installs at an account in exchange for branded placement. Configure quantities per channel in Offer settings; each channel's kit stacks onto the offer pitched to that channel (Retail → Shelf Takeover, WS → Territory Exclusive, Semi-WS → Ride-Along, HoReCa → Café Starter)." },
+  { term: "POSM (point-of-sale material)", meaning: "Hoses, playing cards, notebooks, display stands, posters — physical marketing items the rep hands out at an account in exchange for branded placement. The list is saved in the database per country; 'Analyse POSM' assigns each material to the channels it suits (hoses & playing cards → cafés first, notebooks → everywhere). Each channel's kit stacks onto the offer pitched to that channel." },
   { term: "FOC (free of charge)",         meaning: "Product we hand over free with the order — the slow-flavor basket in the Apply Offer sheet. The customer pays for the bestseller MC only; the FOC MC ride on the same delivery at no cost." },
+  { term: "FOC entitlement rule",         meaning: "The 'Buy X → get Y free' deal each channel is entitled to, set in Offer settings — e.g. Wholesale: buy 1 MC → get 1 outer free; Retail: buy 3 outers → get 1 pack free. A channel switched OFF gets no offer sheet at all. The free goods are more of the bestseller the customer is already buying." },
+  { term: "Outer",                        meaning: `A carton of ${PACKS_PER_OUTER} packs — the middle unit between a pack and a mastercase. FOC entitlement rules can be written in packs, outers or MC.` },
   { term: "Supply-chain price list",      meaning: "The four price tiers set per SKU on the SKU Management page: our selling price to WS, WS → Semi-WS / Tobacconists, Semi-WS → Retail (all $/MC), and the Final RSP ($/pack). When a tier price is set, the Apply Offer sheet invoices each channel at its own tier and shows the buyer's margin; when not set, it falls back to the WS list price knob." },
   { term: "Packs / pieces per MC",        meaning: "1 MC = 6 KG, so a 50g SKU is 120 packs per MC, a 250g SKU is 24 pieces, a 1kg SKU is 6 pieces. The offer sheet shows both MC and pack counts so the buyer sees shelf units." },
   { term: "Mix ratio",      meaning: "How many mastercases of bestseller go with each MC of slow. e.g. 10:1 means \"10 bestseller MC + 1 slow MC per bundle\"." },
@@ -1276,39 +1312,135 @@ export default function TradeOffersPage() {
   const initialLock = defaultAnchorLockFor(country);
   const [anchorFlavor, setAnchorFlavor] = useState<string>(initialLock.flavor);
   const [anchorPackaging, setAnchorPackaging] = useState<PackagingLock>(initialLock.packaging);
-  // Retail POS kit (POMs) — persisted per country on this device.
-  const [poms, setPoms] = useState<PomItem[]>(() => loadPoms(country));
-  const persistPoms = (updater: (prev: PomItem[]) => PomItem[]) => {
-    setPoms(prev => {
-      const next = updater(prev);
-      if (country) {
-        try { localStorage.setItem(pomStorageKey(country), JSON.stringify(next)); } catch { /* storage blocked — keep in-memory */ }
-      }
-      return next;
-    });
+  // POSM list — DB-backed per country (shared across every planner).
+  const { isAdmin } = useAppAuth();
+  const utils = trpc.useUtils();
+  const { data: posmRows } = trpc.tradeOffers.posmList.useQuery(
+    { country: validCountry },
+    { enabled: !!country },
+  );
+  // Local mirror so typing stays instant; saves flow back on blur.
+  const [poms, setPoms] = useState<PomItem[]>([]);
+  useEffect(() => {
+    if (posmRows) setPoms(posmRows.map(pomFromRow));
+  }, [posmRows]);
+  const invalidatePosm = () => utils.tradeOffers.posmList.invalidate({ country: validCountry });
+  const posmAdd = trpc.tradeOffers.posmAdd.useMutation({
+    onSuccess: invalidatePosm,
+    onError: e => toast.error(`Couldn't add the material — ${e.message}`),
+  });
+  const posmUpdate = trpc.tradeOffers.posmUpdate.useMutation({
+    onError: e => { toast.error(`Couldn't save the material — ${e.message}`); invalidatePosm(); },
+  });
+  const posmDelete = trpc.tradeOffers.posmDelete.useMutation({
+    onSuccess: invalidatePosm,
+    onError: e => toast.error(`Couldn't remove the material — ${e.message}`),
+  });
+  const posmAnalyze = trpc.tradeOffers.posmAnalyze.useMutation({
+    onSuccess: res => {
+      setPoms(res.items.map(pomFromRow));
+      invalidatePosm();
+      toast.success(res.usedLLM
+        ? "POSM analysed — the AI researcher assigned each material to its best channels"
+        : "POSM analysed with trade-practice rules — each material assigned to its best channels");
+    },
+    onError: e => toast.error(`Analysis failed — ${e.message}`),
+  });
+  const addPom = () => posmAdd.mutate({ country: validCountry, name: "New material", unitValue: 0 });
+  const updatePomLocal = (id: number, patch: Partial<Omit<PomItem, "id">>) =>
+    setPoms(prev => prev.map(p => (p.id === id ? { ...p, ...patch } : p)));
+  const updatePomChannelQtyLocal = (id: number, ch: PomChannel, qty: number) =>
+    setPoms(prev => prev.map(p => (p.id === id ? { ...p, channelQty: { ...p.channelQty, [ch]: qty } } : p)));
+  const savePom = (id: number) => {
+    const p = poms.find(x => x.id === id);
+    if (!p || p.name.trim() === "") return;
+    posmUpdate.mutate({ country: validCountry, id, name: p.name, unitValue: p.unitValue, channelQty: p.channelQty });
   };
-  const addPom = () => persistPoms(prev => [...prev, { id: `pom-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, name: "", unitValue: 0, channelQty: emptyChannelQty() }]);
-  const updatePom = (id: string, patch: Partial<Omit<PomItem, "id">>) => persistPoms(prev => prev.map(p => (p.id === id ? { ...p, ...patch } : p)));
-  const updatePomChannelQty = (id: string, ch: PomChannel, qty: number) =>
-    persistPoms(prev => prev.map(p => (p.id === id ? { ...p, channelQty: { ...p.channelQty, [ch]: qty } } : p)));
-  const removePom = (id: string) => persistPoms(prev => prev.filter(p => p.id !== id));
+  const removePom = (id: number) => posmDelete.mutate({ country: validCountry, id });
   const kitByChannel = useMemo(
     () => POM_CHANNELS.map(ch => ({ ch, kit: kitForChannel(poms, ch) })),
     [poms],
   );
+
+  // FOC entitlement rules — one "Buy X → get Y free" rule per channel, DB-backed.
+  const { data: focRows } = trpc.tradeOffers.focRules.useQuery(
+    { country: validCountry },
+    { enabled: !!country },
+  );
+  const focRuleFor = useMemo(() => {
+    const map = new Map<string, FocRule>();
+    for (const r of focRows ?? []) map.set(r.channel, focRuleOf(r));
+    return (ch: PomChannel): FocRule => map.get(ch) ?? focRuleOf(null);
+  }, [focRows]);
+  // Draft editor state (strings so partially-typed numbers don't fight the user).
+  type FocDraft = { entitled: boolean; buyQty: string; buyUnit: FocUnit; freeQty: string; freeUnit: FocUnit };
+  const defaultFocDrafts = (): Record<PomChannel, FocDraft> => ({
+    retail:        { entitled: false, buyQty: "", buyUnit: "outer", freeQty: "", freeUnit: "pack" },
+    wholesale:     { entitled: false, buyQty: "", buyUnit: "mc",    freeQty: "", freeUnit: "outer" },
+    semiWholesale: { entitled: false, buyQty: "", buyUnit: "mc",    freeQty: "", freeUnit: "outer" },
+    horeca:        { entitled: false, buyQty: "", buyUnit: "outer", freeQty: "", freeUnit: "pack" },
+  });
+  const [focDrafts, setFocDrafts] = useState<Record<PomChannel, FocDraft>>(defaultFocDrafts);
+  useEffect(() => {
+    if (!focRows) return;
+    // Always rebuild from a FRESH default set, then overlay whatever rows the
+    // country actually has — carrying over previous state would leak one
+    // country's drafts into another country with no rules saved yet.
+    const next = defaultFocDrafts();
+    for (const ch of POM_CHANNELS) {
+      const r = focRows.find(x => x.channel === ch);
+      if (!r) continue;
+      const rule = focRuleOf(r);
+      next[ch] = {
+        entitled: rule.entitled,
+        buyQty: rule.buyQty !== null ? String(rule.buyQty) : "",
+        buyUnit: rule.buyUnit ?? next[ch].buyUnit,
+        freeQty: rule.freeQty !== null ? String(rule.freeQty) : "",
+        freeUnit: rule.freeUnit ?? next[ch].freeUnit,
+      };
+    }
+    setFocDrafts(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focRows]);
+  const focUpsert = trpc.tradeOffers.focRuleUpsert.useMutation({
+    onSuccess: () => utils.tradeOffers.focRules.invalidate({ country: validCountry }),
+    onError: e => { toast.error(`Couldn't save the FOC rule — ${e.message}`); utils.tradeOffers.focRules.invalidate({ country: validCountry }); },
+  });
+  const saveFocDraft = (ch: PomChannel, draft: FocDraft) => {
+    const buyQty = parseFloat(draft.buyQty);
+    const freeQty = parseFloat(draft.freeQty);
+    focUpsert.mutate({
+      country: validCountry,
+      channel: ch,
+      entitled: draft.entitled,
+      buyQty: Number.isFinite(buyQty) && buyQty > 0 ? buyQty : null,
+      buyUnit: draft.buyUnit,
+      freeQty: Number.isFinite(freeQty) && freeQty > 0 ? freeQty : null,
+      freeUnit: draft.freeUnit,
+    });
+  };
+  const setFocDraft = (ch: PomChannel, patch: Partial<FocDraft>, saveNow = false) => {
+    setFocDrafts(prev => {
+      const draft = { ...prev[ch], ...patch };
+      if (saveNow) saveFocDraft(ch, draft);
+      return { ...prev, [ch]: draft };
+    });
+  };
   // Apply Offer — per-channel offer sheet dialog.
   const [offerOpen, setOfferOpen] = useState(false);
   const [offerChannel, setOfferChannel] = useState<PomChannel>("retail");
 
   // Re-apply country defaults whenever the country changes (planner can still
   // override after).  Tracked via a ref-like effect-less guard: when country
-  // shifts, swap the anchor lock and POM kit to the new country's values.
+  // shifts, swap the anchor lock to the new country's values.  POSM and FOC
+  // rules re-hydrate from their per-country queries automatically.
   const [lockCountryKey, setLockCountryKey] = useState<string | null>(country ?? null);
   if (country && country !== lockCountryKey) {
     const next = defaultAnchorLockFor(country);
     setAnchorFlavor(next.flavor);
     setAnchorPackaging(next.packaging);
-    setPoms(loadPoms(country));
+    setPoms([]);
+    setFocDrafts(defaultFocDrafts());
     setLockCountryKey(country);
   }
 
@@ -1463,11 +1595,24 @@ export default function TradeOffersPage() {
     const eligible = slowList.filter(s => s.flavor !== a.flavor);
     if (eligible.length === 0) return { offers: null, reason: `Every slow flavor is a ${a.flavor} variant — the same flavor as the bestseller anchor, so there is no different-flavor product to give FOC. Change the anchor lock in Offer settings.` };
     const offers = {} as Record<PomChannel, ChannelOffer | null>;
-    for (const ch of POM_CHANNELS) offers[ch] = buildChannelOffer(ch, a, eligible, knobs, poms, priceOf);
-    if (POM_CHANNELS.every(ch => offers[ch] === null)) return { offers: null, reason: "The slow flavors have no warehouse stock left to build a FOC basket from." };
+    for (const ch of POM_CHANNELS) {
+      const rule = focRuleFor(ch);
+      // A channel switched OFF in the FOC rules gets no offer sheet at all —
+      // the dialog explains it instead of silently showing a generic offer.
+      offers[ch] = rule.entitled ? buildChannelOffer(ch, a, eligible, knobs, poms, priceOf, rule) : null;
+    }
+    if (POM_CHANNELS.every(ch => offers[ch] === null)) {
+      const anyEntitled = POM_CHANNELS.some(ch => focRuleFor(ch).entitled);
+      return {
+        offers: null,
+        reason: anyEntitled
+          ? "The slow flavors have no warehouse stock left to build a FOC basket from."
+          : "No channel is entitled to an offer — switch a channel ON in the FOC entitlement rules (Offer settings) first.",
+      };
+    }
     return { offers, reason: "" };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoading, enriched, anchorList, slowList, poms, priceOf, thresholdMonths, knobs.swapClause, knobs.size, knobs.mixPct, knobs.pricePerMc, knobs.pricingGuard]);
+  }, [isLoading, enriched, anchorList, slowList, poms, priceOf, focRuleFor, thresholdMonths, knobs.swapClause, knobs.size, knobs.mixPct, knobs.pricePerMc, knobs.pricingGuard]);
 
   const activeOffer = channelOffers.offers?.[offerChannel] ?? null;
   const offerDate = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
@@ -1730,19 +1875,34 @@ export default function TradeOffersPage() {
             </div>
           </div>
 
-          {/* POS kit (POMs) — per-channel quantities.  Each channel's kit is
-              stacked onto the deck pitched to that channel.  Saved per
-              country on this device. */}
+          {/* POSM — DB-backed per-country material list with AI channel
+              analysis.  Each channel's kit is stacked onto the deck pitched
+              to that channel. */}
           <div className="p-3 rounded-md border border-primary/20 bg-primary/5 space-y-3">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <Label className="text-xs font-semibold flex items-center gap-2">
                 <Store className="h-3.5 w-3.5 text-primary" />
-                POS kit — POMs to distribute per channel
+                POSM — materials to distribute per channel
               </Label>
               <div className="flex items-center gap-2">
-                <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={addPom}>
-                  + Add material
-                </Button>
+                {isAdmin && (
+                  <>
+                    <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={addPom} disabled={posmAdd.isPending}>
+                      + Add material
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => posmAnalyze.mutate({ country: validCountry })}
+                      disabled={posmAnalyze.isPending || poms.length === 0}
+                    >
+                      <Sparkles className="h-3.5 w-3.5 mr-1" />
+                      {posmAnalyze.isPending ? "Analysing…" : "Analyse POSM"}
+                    </Button>
+                  </>
+                )}
                 <Button
                   type="button"
                   size="sm"
@@ -1755,7 +1915,7 @@ export default function TradeOffersPage() {
               </div>
             </div>
             <p className="text-[10px] text-muted-foreground">
-              Point-of-sale materials (display stands, posters, menu cards…) handed out FREE per deal. Set a quantity under each channel — 0 means that channel doesn't get the item. Each channel's kit is stacked onto the matching offer (Retail → Shelf Takeover &amp; Variety Builder, WS → Territory Exclusive, Semi-WS → Ride-Along &amp; Subscription, HoReCa → Café Starter). When you're done, hit <strong>Apply Offer</strong> to get the presentable per-channel offer sheet — FOC products included for every channel. Saved per country on this device.
+              Point-of-sale materials (hoses, playing cards, notebooks, display stands…) handed out FREE per deal. The list is saved in the database per country, so every planner sees the same kit. Hit <strong>Analyse POSM</strong> to have each material assigned to the channels it suits — hoses and playing cards go to cafés &amp; lounges first, notebooks work everywhere — then fine-tune the quantity under each channel (0 means that channel doesn't get the item). When you're done, hit <strong>Apply Offer</strong> for the presentable per-channel offer sheet.
             </p>
             <div className="flex flex-wrap gap-1.5">
               {kitByChannel.map(({ ch, kit }) => (
@@ -1769,7 +1929,7 @@ export default function TradeOffersPage() {
               ))}
             </div>
             {poms.length === 0 ? (
-              <p className="text-xs text-muted-foreground italic">No materials yet — add the POMs your reps can hand out.</p>
+              <p className="text-xs text-muted-foreground italic">No materials yet — add the POSM your reps can hand out.</p>
             ) : (
               <div className="space-y-2">
                 {poms.map(p => (
@@ -1777,9 +1937,11 @@ export default function TradeOffersPage() {
                     <div className="flex items-center gap-2">
                       <Input
                         className="h-8 text-xs flex-1"
-                        placeholder="e.g. Branded counter display stand"
+                        placeholder="e.g. Branded hoses"
                         value={p.name}
-                        onChange={e => updatePom(p.id, { name: e.target.value })}
+                        disabled={!isAdmin}
+                        onChange={e => updatePomLocal(p.id, { name: e.target.value })}
+                        onBlur={() => savePom(p.id)}
                       />
                       <div className="flex items-center gap-1 w-24">
                         <span className="text-xs text-muted-foreground">$</span>
@@ -1789,40 +1951,136 @@ export default function TradeOffersPage() {
                           min={0}
                           aria-label={`Value per unit in dollars for ${p.name || "material"}`}
                           value={p.unitValue}
-                          onChange={e => { const n = Number(e.target.value); updatePom(p.id, { unitValue: Number.isFinite(n) ? Math.max(0, n) : 0 }); }}
+                          disabled={!isAdmin}
+                          onChange={e => { const n = Number(e.target.value); updatePomLocal(p.id, { unitValue: Number.isFinite(n) ? Math.max(0, n) : 0 }); }}
+                          onBlur={() => savePom(p.id)}
                         />
                       </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive shrink-0"
-                        onClick={() => removePom(p.id)}
-                        aria-label={`Remove ${p.name || "material"}`}
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </Button>
+                      {isAdmin && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive shrink-0"
+                          onClick={() => removePom(p.id)}
+                          aria-label={`Remove ${p.name || "material"}`}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
                     </div>
                     <div className="flex items-center gap-3 flex-wrap pl-1">
                       <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Qty/deal:</span>
-                      {POM_CHANNELS.map(ch => (
-                        <label key={ch} className="flex items-center gap-1">
-                          <span className="text-[10px] text-muted-foreground w-10 text-right">{POM_CHANNEL_SHORT[ch]}</span>
-                          <Input
-                            className="h-7 text-xs w-14 text-center"
-                            type="number"
-                            min={0}
-                            aria-label={`${POM_CHANNEL_SHORT[ch]} quantity per deal for ${p.name || "material"}`}
-                            value={p.channelQty[ch]}
-                            onChange={e => { const n = Number(e.target.value); updatePomChannelQty(p.id, ch, Number.isFinite(n) ? Math.max(0, n) : 0); }}
-                          />
-                        </label>
-                      ))}
+                      {POM_CHANNELS.map(ch => {
+                        const prio = p.priority?.[ch] ?? 0;
+                        const badge = POSM_PRIORITY_BADGE[prio];
+                        return (
+                          <label key={ch} className="flex items-center gap-1">
+                            <span className="text-[10px] text-muted-foreground w-10 text-right">{POM_CHANNEL_SHORT[ch]}</span>
+                            <Input
+                              className="h-7 text-xs w-14 text-center"
+                              type="number"
+                              min={0}
+                              aria-label={`${POM_CHANNEL_SHORT[ch]} quantity per deal for ${p.name || "material"}`}
+                              value={p.channelQty[ch]}
+                              disabled={!isAdmin}
+                              onChange={e => { const n = Number(e.target.value); updatePomChannelQtyLocal(p.id, ch, Number.isFinite(n) ? Math.max(0, n) : 0); }}
+                              onBlur={() => savePom(p.id)}
+                            />
+                            {badge && <Badge className={`border text-[9px] px-1 py-0 ${badge.tone}`}>{badge.label}</Badge>}
+                          </label>
+                        );
+                      })}
                     </div>
+                    {p.rationale && (
+                      <p className="text-[10px] text-muted-foreground pl-1 italic">
+                        {p.rationale}
+                        {p.analysisSource && <span className="not-italic"> · {p.analysisSource === "ai" ? "AI analysis" : "trade-practice rules"}</span>}
+                      </p>
+                    )}
                   </div>
                 ))}
               </div>
             )}
+          </div>
+
+          {/* FOC entitlement rules — "Buy X → get Y free" per channel.  These
+              drive the Apply Offer sheets: a channel switched OFF gets no
+              offer; a complete rule adds the free-goods line. */}
+          <div className="p-3 rounded-md border border-emerald-300/40 bg-emerald-50/40 dark:bg-emerald-950/20 space-y-3">
+            <Label className="text-xs font-semibold flex items-center gap-2">
+              <Gift className="h-3.5 w-3.5 text-emerald-600" />
+              FOC entitlement rules — who gets what free
+            </Label>
+            <p className="text-[10px] text-muted-foreground">
+              Set the free-goods deal each channel is entitled to — for example Wholesale: buy 1 MC → get 1 outer free; Retail: buy 3 outers → get 1 pack free. 1 outer = {PACKS_PER_OUTER} packs. Switch a channel OFF and Apply Offer will skip it entirely. The free goods are more of the bestseller the customer is already buying, on the same delivery.
+            </p>
+            <div className="grid sm:grid-cols-2 gap-2">
+              {POM_CHANNELS.map(ch => {
+                const d = focDrafts[ch];
+                const preview = ruleSentence(focRuleFor(ch));
+                return (
+                  <div key={ch} className={`rounded-md border p-2 space-y-2 ${d.entitled ? "bg-background/60" : "bg-muted/30 opacity-80"}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold">{CHANNEL_LABEL[ch]}</span>
+                      <Switch
+                        checked={d.entitled}
+                        disabled={!isAdmin}
+                        onCheckedChange={v => setFocDraft(ch, { entitled: v }, true)}
+                        aria-label={`FOC entitlement on/off for ${CHANNEL_LABEL[ch]}`}
+                      />
+                    </div>
+                    {d.entitled && (
+                      <>
+                        <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
+                          <span className="text-muted-foreground">Buy</span>
+                          <Input
+                            className="h-7 text-xs w-14 text-center"
+                            type="number"
+                            min={0}
+                            value={d.buyQty}
+                            disabled={!isAdmin}
+                            aria-label={`Buy quantity for ${CHANNEL_LABEL[ch]}`}
+                            onChange={e => setFocDraft(ch, { buyQty: e.target.value })}
+                            onBlur={() => saveFocDraft(ch, focDrafts[ch])}
+                          />
+                          <Select value={d.buyUnit} onValueChange={v => setFocDraft(ch, { buyUnit: v as FocUnit }, true)} disabled={!isAdmin}>
+                            <SelectTrigger className="h-7 text-xs w-20"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              {FOC_UNITS.map(u => <SelectItem key={u} value={u}>{FOC_UNIT_LABEL[u].many}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                          <span className="text-muted-foreground">→ get</span>
+                          <Input
+                            className="h-7 text-xs w-14 text-center"
+                            type="number"
+                            min={0}
+                            value={d.freeQty}
+                            disabled={!isAdmin}
+                            aria-label={`Free quantity for ${CHANNEL_LABEL[ch]}`}
+                            onChange={e => setFocDraft(ch, { freeQty: e.target.value })}
+                            onBlur={() => saveFocDraft(ch, focDrafts[ch])}
+                          />
+                          <Select value={d.freeUnit} onValueChange={v => setFocDraft(ch, { freeUnit: v as FocUnit }, true)} disabled={!isAdmin}>
+                            <SelectTrigger className="h-7 text-xs w-20"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              {FOC_UNITS.map(u => <SelectItem key={u} value={u}>{FOC_UNIT_LABEL[u].many}</SelectItem>)}
+                            </SelectContent>
+                          </Select>
+                          <span className="text-muted-foreground">free</span>
+                        </div>
+                        <p className="text-[10px] text-emerald-700 dark:text-emerald-300 font-medium">
+                          {preview ?? "Enter both quantities to complete the rule."}
+                        </p>
+                      </>
+                    )}
+                    {!d.entitled && (
+                      <p className="text-[10px] text-muted-foreground italic">Not entitled — Apply Offer skips this channel.</p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           {/* Advanced */}
@@ -2055,7 +2313,9 @@ export default function TradeOffersPage() {
 
           {!activeOffer ? (
             <p className="text-sm text-muted-foreground py-4">
-              {channelOffers.reason || `No offer could be built for ${CHANNEL_LABEL[offerChannel]} from the current slow list.`}
+              {!focRuleFor(offerChannel).entitled
+                ? `${CHANNEL_LABEL[offerChannel]} is switched OFF in the FOC entitlement rules — no offer is generated for this channel. Switch it ON in Offer settings to include it.`
+                : channelOffers.reason || `No offer could be built for ${CHANNEL_LABEL[offerChannel]} from the current slow list.`}
             </p>
           ) : (
             <div className="space-y-3">
@@ -2149,6 +2409,31 @@ export default function TradeOffersPage() {
                       ))}
                     </div>
                   </div>
+
+                  {/* FOC entitlement — "Buy X → get Y free" on the anchor buy */}
+                  {activeOffer.entitlement && (
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-300 flex items-center gap-1">
+                          <Gift className="h-3 w-3" /> Your FOC entitlement
+                        </div>
+                        <Badge className="bg-emerald-100 text-emerald-800 border border-emerald-300 dark:bg-emerald-900/40 dark:text-emerald-200 text-[10px]">
+                          worth ${fmt(activeOffer.entitlement.valueDollars)}
+                        </Badge>
+                      </div>
+                      <div className="rounded-lg border border-emerald-300/60 bg-emerald-50/60 dark:bg-emerald-900/15 px-3 py-2.5 space-y-1">
+                        <div className="text-xs font-semibold text-emerald-800 dark:text-emerald-200">{activeOffer.entitlement.sentence}</div>
+                        <div className="flex items-center justify-between gap-3 text-xs">
+                          <span>
+                            <span className="font-medium">{fmt(activeOffer.entitlement.freeUnits)} {activeOffer.entitlement.freeUnitLabel} of {activeOffer.anchor.name} {activeOffer.anchor.weight}</span>
+                            <span className="text-muted-foreground"> ({fmt(activeOffer.entitlement.freePacks)} packs)</span>
+                          </span>
+                          <span className="font-semibold text-emerald-700 dark:text-emerald-300 whitespace-nowrap">FREE</span>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">Applied automatically on every qualifying order — the free goods are more of the bestseller you're already buying, on the same delivery.</p>
+                      </div>
+                    </div>
+                  )}
 
                   {/* POS kit */}
                   {activeOffer.kit.value > 0 && (

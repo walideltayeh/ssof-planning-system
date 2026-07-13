@@ -2,3 +2,4 @@
 - [Forecast Split directives](forecast-split-directives.md) — per-SKU actions: cap is a CEILING (can't raise a 0 SKU), "set" forces exact MC; targets locked, zero-results protected from rebalance refill.
 - [Arrival actual-vs-planned](arrival-actual-vs-planned.md) — intl: entered production auto-counts as actual/confirmed (user reversed the old separate-actual-step rule).
 - [Schema migration path](schema-migration-path.md) — drizzle-kit migrate is broken (journal gap at 0005); add columns via idempotent ALTERs in startup-migration.ts + hand-written SQL file, never `pnpm db:push`.
+- [Per-country local mirrors](per-country-local-mirrors.md) — hydrate local editable mirrors of country-scoped data from fresh defaults + overlay, and reset them in the country-switch guard; merging leaks one country's drafts into another.

@@ -271,6 +271,48 @@ export const appSettings = pgTable("app_settings", {
 });
 export type AppSetting = typeof appSettings.$inferSelect;
 
+// ==================== Trade Offers: POSM + FOC rules ====================
+
+// Point-of-sale materials (hoses, playing cards, notebooks, display stands…)
+// managed per country. "Analyse POSM" fills channelQty / priority / rationale
+// so each material lands with the channel it suits best (e.g. hoses → HoReCa
+// top priority, notebooks → all channels). Quantities stay editable by admins.
+export const posmItems = pgTable("posm_items", {
+  id: serial("id").primaryKey(),
+  country: varchar("country", { length: 50 }).notNull().default("Lebanon"),
+  name: varchar("name", { length: 255 }).notNull(),
+  unitValue: numeric("unitValue", { precision: 12, scale: 2 }),      // $ per unit, optional
+  channelQty: json("channelQty"),        // Record<channel, number> — qty per kit for that channel
+  priority: json("priority"),            // Record<channel, 0|1|2> — 0 none, 1 suitable, 2 top priority
+  rationale: text("rationale"),          // one-line analysis note ("Hoses are used at the lounge table…")
+  analysisSource: varchar("analysisSource", { length: 20 }),  // 'ai' | 'rules' | null (never analysed)
+  analyzedAt: timestamp("analyzedAt"),
+  sortOrder: integer("sortOrder").notNull().default(0),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+export type PosmItemRow = typeof posmItems.$inferSelect;
+export type InsertPosmItem = typeof posmItems.$inferInsert;
+
+// Per-channel free-of-charge entitlement rules, e.g. Wholesale: buy 1 MC →
+// get 1 outer free; Retail: buy 3 outers → get 1 pack free. Units are
+// 'mc' | 'outer' | 'pack' (1 outer = 10 packs; packs per MC come from the
+// SKU weight — 1 MC = 6 KG). One row per (country, channel).
+export const tradeFocRules = pgTable("trade_foc_rules", {
+  id: serial("id").primaryKey(),
+  country: varchar("country", { length: 50 }).notNull().default("Lebanon"),
+  channel: varchar("channel", { length: 30 }).notNull(),  // retail | wholesale | semiWholesale | horeca
+  entitled: boolean("entitled").notNull().default(false),
+  buyQty: numeric("buyQty", { precision: 12, scale: 2 }),
+  buyUnit: varchar("buyUnit", { length: 10 }),    // 'mc' | 'outer' | 'pack'
+  freeQty: numeric("freeQty", { precision: 12, scale: 2 }),
+  freeUnit: varchar("freeUnit", { length: 10 }),  // 'mc' | 'outer' | 'pack'
+  notes: varchar("notes", { length: 400 }),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+export type TradeFocRuleRow = typeof tradeFocRules.$inferSelect;
+export type InsertTradeFocRule = typeof tradeFocRules.$inferInsert;
+
 export const competitorData = pgTable("competitor_data", {
   id: serial("id").primaryKey(),
   country: varchar("country", { length: 50 }).notNull().default("Lebanon"),
