@@ -4,8 +4,9 @@ import { useCountry } from "@/contexts/CountryContext";
 import { useAppAuth } from "@/contexts/AuthContext";
 import { packsPerMc, tierPricesOf, hasAnyTierPrice, type TierPrices } from "@/lib/packUnits";
 import {
-  focRuleOf, isRuleComplete, computeFocReward, ruleSentence,
-  FOC_UNITS, FOC_UNIT_LABEL, PACKS_PER_OUTER, type FocRule, type FocUnit,
+  focRuleOf, isRuleComplete, computeFocReward, ruleSentence, suggestFocOptions,
+  FOC_UNITS, FOC_UNIT_LABEL, PACKS_PER_OUTER,
+  type FocRule, type FocUnit, type FocSuggestion, type FocSuggestProfile,
 } from "@/lib/focRules";
 import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -950,6 +951,16 @@ function channelMargin(ch: PomChannel, tp: TierPrices | null, buy: number | null
   return null; // horeca consumes the product — no resale story
 }
 
+// App-suggested FOC deals — each channel buys in its natural unit and has its
+// own generosity band (bigger buyers earn slightly richer deals). The three
+// targets are the light / standard / generous giveaway percentages.
+const CHANNEL_FOC_SUGGEST_PROFILE: Record<PomChannel, FocSuggestProfile> = {
+  wholesale:     { buyUnit: "mc",    freeUnits: ["outer", "pack"], targets: [4, 8, 12], maxBuyQty: 5 },
+  semiWholesale: { buyUnit: "mc",    freeUnits: ["outer", "pack"], targets: [4, 7, 10], maxBuyQty: 5 },
+  retail:        { buyUnit: "outer", freeUnits: ["pack"],          targets: [3, 6, 9],  maxBuyQty: 6 },
+  horeca:        { buyUnit: "outer", freeUnits: ["pack"],          targets: [3, 6, 9],  maxBuyQty: 4 },
+};
+
 const OFFER_CHANNEL_PARAMS: Record<PomChannel, { anchorMc: number; maxFlavors: number; title: string; commitment: string }> = {
   wholesale:     { anchorMc: 20, maxFlavors: 4, title: "Wholesale Partner Offer",             commitment: "Distribute the FOC flavors across your active routes within 30 days." },
   retail:        { anchorMc: 6,  maxFlavors: 3, title: "Retail Shelf Offer",                  commitment: "Branded display stays up 60 days with the FOC flavors at eye level." },
@@ -1526,6 +1537,24 @@ export default function TradeOffersPage() {
     };
   }, [enriched, thresholdMonths, anchorFlavor, anchorPackaging]);
 
+  // App-suggested FOC deals — 3 options per channel, computed from the lead
+  // anchor's weight (so pack/outer/MC math matches what Apply Offer will use).
+  const focSuggestionsFor = useMemo(() => {
+    const weight = anchorList[0]?.weight ?? "50g";
+    const map = {} as Record<PomChannel, FocSuggestion[] | null>;
+    for (const ch of POM_CHANNELS) map[ch] = suggestFocOptions(CHANNEL_FOC_SUGGEST_PROFILE[ch], weight);
+    return map;
+  }, [anchorList]);
+  const applyFocSuggestion = (ch: PomChannel, s: FocSuggestion) => {
+    setFocDraft(ch, {
+      entitled: true,
+      buyQty: String(s.buyQty),
+      buyUnit: s.buyUnit,
+      freeQty: String(s.freeQty),
+      freeUnit: s.freeUnit,
+    }, true);
+  };
+
   // Build deck sets — one per anchor in anchorList.  Slow SKUs of the SAME
   // flavor as the anchor are excluded per anchor (e.g. when the anchor is
   // Double Apple, pairing it with Double Apple Frosty or another Double
@@ -2072,6 +2101,34 @@ export default function TradeOffersPage() {
                         <p className="text-[10px] text-emerald-700 dark:text-emerald-300 font-medium">
                           {preview ?? "Enter both quantities to complete the rule."}
                         </p>
+                        {focSuggestionsFor[ch] && (
+                          <div className="space-y-1">
+                            <p className="text-[10px] text-muted-foreground">
+                              App suggestions{isAdmin ? " — tap one to apply" : ""}:
+                            </p>
+                            {focSuggestionsFor[ch]!.map(s => {
+                              const sSentence = ruleSentence({
+                                entitled: true, buyQty: s.buyQty, buyUnit: s.buyUnit,
+                                freeQty: s.freeQty, freeUnit: s.freeUnit, notes: null,
+                              });
+                              return (
+                                <button
+                                  key={s.tier}
+                                  type="button"
+                                  disabled={!isAdmin}
+                                  onClick={() => applyFocSuggestion(ch, s)}
+                                  className="w-full text-left rounded border border-emerald-300/50 bg-emerald-50/50 dark:bg-emerald-950/30 px-2 py-1 text-[10px] leading-snug hover:bg-emerald-100/70 dark:hover:bg-emerald-900/40 disabled:opacity-60 disabled:cursor-not-allowed"
+                                >
+                                  <span className="font-semibold">{s.label}:</span> {sSentence}
+                                  <span className="block text-muted-foreground">{s.rationale}</span>
+                                </button>
+                              );
+                            })}
+                            <p className="text-[10px] text-muted-foreground italic">
+                              Suggestions use the current lead anchor weight — a saved rule stays this channel's policy until you change it.
+                            </p>
+                          </div>
+                        )}
                       </>
                     )}
                     {!d.entitled && (

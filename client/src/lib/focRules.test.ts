@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { focRuleOf, isRuleComplete, unitInPacks, computeFocReward, ruleSentence, PACKS_PER_OUTER } from "./focRules";
+import {
+  focRuleOf, isRuleComplete, unitInPacks, computeFocReward, ruleSentence, suggestFocOptions,
+  PACKS_PER_OUTER, type FocSuggestProfile,
+} from "./focRules";
 
 const wsRule = focRuleOf({ entitled: true, buyQty: "1", buyUnit: "mc", freeQty: "1", freeUnit: "outer" });
 const retailRule = focRuleOf({ entitled: true, buyQty: "3", buyUnit: "outer", freeQty: "1", freeUnit: "pack" });
@@ -67,5 +70,72 @@ describe("ruleSentence", () => {
   });
   it("null for incomplete rules", () => {
     expect(ruleSentence(focRuleOf(null))).toBeNull();
+  });
+});
+
+const wsProfile: FocSuggestProfile = { buyUnit: "mc", freeUnits: ["outer", "pack"], targets: [4, 8, 12], maxBuyQty: 5 };
+const retailProfile: FocSuggestProfile = { buyUnit: "outer", freeUnits: ["pack"], targets: [3, 6, 9], maxBuyQty: 6 };
+
+describe("suggestFocOptions", () => {
+  it("returns 3 distinct light→generous options with increasing giveaway rates", () => {
+    const opts = suggestFocOptions(wsProfile, "50g")!;
+    expect(opts).toHaveLength(3);
+    expect(opts.map(o => o.tier)).toEqual(["light", "standard", "generous"]);
+    expect(opts[0].ratePct).toBeLessThan(opts[1].ratePct);
+    expect(opts[1].ratePct).toBeLessThan(opts[2].ratePct);
+    const keys = new Set(opts.map(o => `${o.buyQty}|${o.freeQty}|${o.freeUnit}`));
+    expect(keys.size).toBe(3);
+  });
+  it("rates land near the profile targets", () => {
+    const opts = suggestFocOptions(wsProfile, "50g")!;
+    opts.forEach((o, i) => expect(Math.abs(o.ratePct - wsProfile.targets[i])).toBeLessThanOrEqual(1.5));
+  });
+  it("respects the channel's buy unit and allowed free units", () => {
+    const opts = suggestFocOptions(retailProfile, "50g")!;
+    for (const o of opts) {
+      expect(o.buyUnit).toBe("outer");
+      expect(o.freeUnit).toBe("pack");
+      expect(o.buyQty).toBeLessThanOrEqual(6);
+      expect(o.buyQty).toBeGreaterThan(0);
+      expect(o.freeQty).toBeGreaterThan(0);
+    }
+  });
+  it("is weight-aware: MC-based profiles adapt to heavy weights via pack fallback", () => {
+    const opts = suggestFocOptions(wsProfile, "1kg"); // only 6 packs per MC
+    expect(opts).not.toBeNull();
+    for (const o of opts!) {
+      expect(o.ratePct).toBeLessThanOrEqual(30);
+      expect(o.ratePct).toBeGreaterThan(0);
+    }
+  });
+  it("null when the weight can't be parsed for an MC buy unit", () => {
+    expect(suggestFocOptions(wsProfile, "mystery")).toBeNull();
+  });
+  it("tiers stay monotonic across all page channel profiles and common weights", () => {
+    const profiles: FocSuggestProfile[] = [
+      { buyUnit: "mc",    freeUnits: ["outer", "pack"], targets: [4, 8, 12], maxBuyQty: 5 }, // wholesale
+      { buyUnit: "mc",    freeUnits: ["outer", "pack"], targets: [4, 7, 10], maxBuyQty: 5 }, // semi-wholesale
+      { buyUnit: "outer", freeUnits: ["pack"],          targets: [3, 6, 9],  maxBuyQty: 6 }, // retail
+      { buyUnit: "outer", freeUnits: ["pack"],          targets: [3, 6, 9],  maxBuyQty: 4 }, // horeca
+    ];
+    for (const profile of profiles) {
+      for (const weight of ["50g", "250g", "1kg"]) {
+        const opts = suggestFocOptions(profile, weight);
+        expect(opts, `${profile.buyUnit} profile @ ${weight}`).not.toBeNull();
+        expect(opts!).toHaveLength(3);
+        expect(opts![0].ratePct).toBeLessThan(opts![1].ratePct);
+        expect(opts![1].ratePct).toBeLessThan(opts![2].ratePct);
+      }
+    }
+  });
+  it("every suggestion converts into a complete, usable rule", () => {
+    const opts = suggestFocOptions(retailProfile, "250g")!;
+    for (const o of opts) {
+      const rule = focRuleOf({ entitled: true, buyQty: o.buyQty, buyUnit: o.buyUnit, freeQty: o.freeQty, freeUnit: o.freeUnit });
+      expect(isRuleComplete(rule)).toBe(true);
+      expect(ruleSentence(rule)).toBeTruthy();
+      const reward = computeFocReward(rule, 10, "250g");
+      expect(reward).not.toBeNull();
+    }
   });
 });

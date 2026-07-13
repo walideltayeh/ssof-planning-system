@@ -104,3 +104,98 @@ export function ruleSentence(rule: FocRule): string | null {
     : qtyLabel(rule.freeQty!, rule.freeUnit!);
   return `Buy ${qtyLabel(rule.buyQty!, rule.buyUnit!)} → get ${freePart} free`;
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// App-suggested FOC deals — 3 ready-made options per channel.
+// Deterministic search: for each generosity tier (a target giveaway %), find
+// the "Buy X unit → get Y unit free" combo whose free-goods rate lands closest
+// to the target, preferring small round quantities. Weight-aware: MC size in
+// packs comes from the anchor SKU weight, so a 250g anchor gets different
+// numbers than a 50g one.
+// ────────────────────────────────────────────────────────────────────────────
+
+export type FocSuggestTier = "light" | "standard" | "generous";
+
+export type FocSuggestProfile = {
+  buyUnit: FocUnit;          // the unit this channel naturally buys in
+  freeUnits: FocUnit[];      // allowed free-goods units, in preference order
+  targets: [number, number, number]; // light / standard / generous giveaway %
+  maxBuyQty?: number;        // cap on the buy threshold (default 10)
+};
+
+export type FocSuggestion = {
+  tier: FocSuggestTier;
+  label: string;
+  buyQty: number;
+  buyUnit: FocUnit;
+  freeQty: number;
+  freeUnit: FocUnit;
+  ratePct: number;           // free packs as a % of bought packs
+  rationale: string;
+};
+
+const TIER_ORDER: FocSuggestTier[] = ["light", "standard", "generous"];
+const TIER_LABEL: Record<FocSuggestTier, string> = {
+  light: "Light", standard: "Standard", generous: "Generous",
+};
+function tierRationale(tier: FocSuggestTier, ratePct: number): string {
+  const pct = `${ratePct.toFixed(1).replace(/\.0$/, "")}%`;
+  if (tier === "light") return `Cautious deal — about ${pct} extra product free. Good default when stock is healthy.`;
+  if (tier === "standard") return `The typical trade deal — about ${pct} free. Safe to run all quarter.`;
+  return `Push deal — about ${pct} free. Use when you need this channel to move volume fast.`;
+}
+
+// Returns exactly 3 distinct suggestions (light → generous), or null when the
+// weight can't be parsed (MC size unknown).
+export function suggestFocOptions(profile: FocSuggestProfile, weight: string): FocSuggestion[] | null {
+  const buyPacksPerUnit = unitInPacks(profile.buyUnit, weight);
+  if (buyPacksPerUnit === null) return null;
+  const maxBuy = profile.maxBuyQty ?? 10;
+
+  // Keep free quantities in trade-friendly ranges: nobody writes a deal as
+  // "19 packs free" — that's "an outer and change". Packs may go up to 10,
+  // outers to 6, MC to 3.
+  const FREE_QTY_MAX: Record<FocUnit, number> = { pack: 10, outer: 6, mc: 3 };
+
+  type Candidate = { buyQty: number; freeQty: number; freeUnit: FocUnit; ratePct: number; unitPref: number };
+  const candidates: Candidate[] = [];
+  profile.freeUnits.forEach((freeUnit, unitPref) => {
+    const freePacksPerUnit = unitInPacks(freeUnit, weight);
+    if (freePacksPerUnit === null) return;
+    for (let buyQty = 1; buyQty <= maxBuy; buyQty++) {
+      for (let freeQty = 1; freeQty <= FREE_QTY_MAX[freeUnit]; freeQty++) {
+        const ratePct = (freeQty * freePacksPerUnit) / (buyQty * buyPacksPerUnit) * 100;
+        if (ratePct < 0.5 || ratePct > 30) continue; // never suggest absurd deals
+        candidates.push({ buyQty, freeQty, freeUnit, ratePct, unitPref });
+      }
+    }
+  });
+  if (candidates.length === 0) return null;
+
+  const used = new Set<string>();
+  const out: FocSuggestion[] = [];
+  TIER_ORDER.forEach((tier, i) => {
+    const target = profile.targets[i];
+    let best: Candidate | null = null;
+    let bestScore = Infinity;
+    for (const c of candidates) {
+      if (used.has(`${c.buyQty}|${c.freeQty}|${c.freeUnit}`)) continue;
+      // Closest rate wins; ties broken toward small, round, preferred-unit combos.
+      const score = Math.abs(c.ratePct - target) * 1000 + c.buyQty * 10 + c.freeQty * 2 + c.unitPref * 5;
+      if (score < bestScore) { bestScore = score; best = c; }
+    }
+    if (!best) return;
+    used.add(`${best.buyQty}|${best.freeQty}|${best.freeUnit}`);
+    out.push({
+      tier,
+      label: TIER_LABEL[tier],
+      buyQty: best.buyQty,
+      buyUnit: profile.buyUnit,
+      freeQty: best.freeQty,
+      freeUnit: best.freeUnit,
+      ratePct: best.ratePct,
+      rationale: tierRationale(tier, best.ratePct),
+    });
+  });
+  return out.length === 3 ? out : null;
+}
