@@ -14,6 +14,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
 import {
   Loader2,
@@ -126,15 +133,14 @@ type Knobs = {
   pricingGuard: PricingGuard;
 };
 
-type Channel = "all" | "horeca" | "modern" | "traditional" | "retail" | "wholesale";
+type Channel = "all" | "retail" | "wholesale" | "semiWholesale" | "horeca";
 
 const CHANNEL_LABEL: Record<Channel, string> = {
-  all:         "All channels",
-  horeca:      "HoReCa (cafés & lounges)",
-  modern:      "Modern trade (supermarkets, chains)",
-  traditional: "Traditional trade (shops, kiosks)",
-  retail:      "Retail (shops — POS kit & display deal)",
-  wholesale:   "Wholesale (master distributors)",
+  all:           "All channels",
+  retail:        "Retail (shops & kiosks)",
+  wholesale:     "Wholesale (master distributors)",
+  semiWholesale: "Semi-Wholesale / Tobacconists",
+  horeca:        "HoReCa (cafés & lounges)",
 };
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -147,24 +153,23 @@ const CHANNEL_LABEL: Record<Channel, string> = {
 // database, same as the rest of this page).
 // ────────────────────────────────────────────────────────────────────────────
 type PomChannel = Exclude<Channel, "all">;
-const POM_CHANNELS: PomChannel[] = ["retail", "horeca", "modern", "traditional", "wholesale"];
+const POM_CHANNELS: PomChannel[] = ["retail", "wholesale", "semiWholesale", "horeca"];
 const POM_CHANNEL_SHORT: Record<PomChannel, string> = {
-  retail:      "Retail",
-  horeca:      "HoReCa",
-  modern:      "Modern",
-  traditional: "Trad.",
-  wholesale:   "WS",
+  retail:        "Retail",
+  wholesale:     "WS",
+  semiWholesale: "Semi-WS",
+  horeca:        "HoReCa",
 };
 
 type PomItem = { id: string; name: string; unitValue: number; channelQty: Record<PomChannel, number> };
 
 function emptyChannelQty(): Record<PomChannel, number> {
-  return { retail: 0, horeca: 0, modern: 0, traditional: 0, wholesale: 0 };
+  return { retail: 0, wholesale: 0, semiWholesale: 0, horeca: 0 };
 }
 
 const DEFAULT_POMS: PomItem[] = [
   { id: "pom-stand",   name: "Branded counter display stand", unitValue: 40, channelQty: { ...emptyChannelQty(), retail: 1, horeca: 1 } },
-  { id: "pom-poster",  name: "Poster + shelf-strip pack",     unitValue: 10, channelQty: { ...emptyChannelQty(), retail: 1, traditional: 1, wholesale: 10 } },
+  { id: "pom-poster",  name: "Poster + shelf-strip pack",     unitValue: 10, channelQty: { ...emptyChannelQty(), retail: 1, semiWholesale: 2, wholesale: 10 } },
   { id: "pom-menu",    name: "Flavor menu cards (50 pcs)",    unitValue: 8,  channelQty: { ...emptyChannelQty(), horeca: 1 } },
   { id: "pom-ashtray", name: "Branded ashtrays",              unitValue: 2,  channelQty: { ...emptyChannelQty(), horeca: 6 } },
 ];
@@ -189,6 +194,10 @@ function loadPoms(country: string | null | undefined): PomItem[] {
             const cq = emptyChannelQty();
             if (p.channelQty && typeof p.channelQty === "object") {
               for (const ch of POM_CHANNELS) cq[ch] = sanitizeQty(p.channelQty[ch]);
+              // Migration from the old 5-channel model: modern trade folds
+              // into Retail, traditional trade into Semi-Wholesale.
+              cq.retail += sanitizeQty(p.channelQty.modern);
+              cq.semiWholesale += sanitizeQty(p.channelQty.traditional);
             } else {
               // Migration from the single-qty format — those kits were retail-only.
               cq.retail = sanitizeQty(p.qty);
@@ -232,6 +241,33 @@ function fmt(n: number, digits = 0): string {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: digits, minimumFractionDigits: digits }).format(n);
 }
 function clamp(n: number, lo: number, hi: number): number { return Math.max(lo, Math.min(hi, n)); }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Pack conversions — 1 MC = 6 KG, so: 50g → 120 packs, 250g → 24 pieces,
+// 1kg → 6 pieces per mastercase.  Works for any custom weight.
+// ────────────────────────────────────────────────────────────────────────────
+function weightGrams(weight: string): number | null {
+  const m = /([\d.]+)\s*(kg|g)/i.exec(weight);
+  if (!m) return null;
+  const n = parseFloat(m[1]);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return m[2].toLowerCase() === "kg" ? n * 1000 : n;
+}
+
+function packsPerMc(weight: string): { count: number; unit: "packs" | "pieces" } | null {
+  const g = weightGrams(weight);
+  if (!g) return null;
+  const count = Math.round(6000 / g);
+  if (!Number.isFinite(count) || count <= 0) return null;
+  return { count, unit: g <= 100 ? "packs" : "pieces" };
+}
+
+// "(240 packs)" suffix for an MC quantity of a given weight; empty when the
+// weight can't be parsed.
+function packPhrase(mc: number, weight: string): string {
+  const p = packsPerMc(weight);
+  return p ? ` (${fmt(mc * p.count)} ${p.unit})` : "";
+}
 function ratingTone(r: Risk): string {
   return r === "Low"
     ? "bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-900/40 dark:text-emerald-200"
@@ -790,20 +826,19 @@ function buildRetailShelf(slowList: SkuIntel[], anchor: Anchor, k: Knobs, poms: 
 // template; the channel-specific lists hide decks that don't fit and reorder
 // the rest so the most-relevant pitch sits at the top.
 const CHANNEL_DECK_PRIORITY: Record<Channel, Deck["templateId"][]> = {
-  all:         ["rideAlong", "variety", "subscription", "cafe", "retail", "territory"],
-  horeca:      ["cafe", "rideAlong", "subscription"],
-  modern:      ["variety", "retail", "rideAlong", "subscription"],
-  traditional: ["retail", "rideAlong", "subscription"],
-  retail:      ["retail", "rideAlong", "variety"],
-  wholesale:   ["territory", "variety", "rideAlong"],
+  all:           ["rideAlong", "variety", "subscription", "cafe", "retail", "territory"],
+  retail:        ["retail", "variety", "rideAlong"],
+  wholesale:     ["territory", "variety", "rideAlong"],
+  semiWholesale: ["rideAlong", "subscription", "retail"],
+  horeca:        ["cafe", "rideAlong", "subscription"],
 };
 
 // Which channel each deck is naturally pitched to — decides which POS kit
 // gets stacked onto it.
 const DECK_HOME_CHANNEL: Record<Deck["templateId"], PomChannel> = {
-  rideAlong:    "traditional",
-  variety:      "modern",
-  subscription: "traditional",
+  rideAlong:    "semiWholesale",
+  variety:      "retail",
+  subscription: "semiWholesale",
   cafe:         "horeca",
   retail:       "retail",
   territory:    "wholesale",
@@ -860,16 +895,95 @@ function buildAllDecks(slowList: SkuIntel[], anchor: Anchor, k: Knobs, poms: Pom
 // Marketeer's recommended offer mix — how a trade marketeer would split the
 // dead-stock pile across channels.  Shares reflect standard tobacco-trade
 // wisdom: wholesale moves the most MC per negotiation, retail buys shelf
-// presence with POS kits, traditional piggybacks existing orders, HoReCa
-// builds trial, modern trade lists slowest.
+// presence with POS kits, semi-wholesale/tobacconists piggyback existing
+// weekly orders, HoReCa builds trial.
 // ────────────────────────────────────────────────────────────────────────────
 const MIX_STRATEGY: { channel: PomChannel; share: number; template: Deck["templateId"]; why: string }[] = [
-  { channel: "wholesale",   share: 0.40, template: "territory", why: "Few negotiations, most MC — a handful of master-distributor deals drains the pile fastest." },
-  { channel: "retail",      share: 0.25, template: "retail",    why: "POS kits buy 60 days of eye-level display — dead flavors sell on impulse when they're visible." },
-  { channel: "traditional", share: 0.15, template: "rideAlong", why: "Simplest yes in the market — small baskets piggyback on bestseller orders already going out." },
-  { channel: "horeca",      share: 0.12, template: "cafe",      why: "Cafés create trial and word of mouth — a slow flavor that clicks in HoReCa pulls retail behind it." },
-  { channel: "modern",      share: 0.08, template: "variety",   why: "Chains list slowly but commit big — plant the variety story now, harvest next quarter." },
+  { channel: "wholesale",     share: 0.45, template: "territory", why: "Few negotiations, most MC — a handful of master-distributor deals drains the pile fastest." },
+  { channel: "retail",        share: 0.25, template: "retail",    why: "POS kits buy 60 days of eye-level display — dead flavors sell on impulse when they're visible." },
+  { channel: "semiWholesale", share: 0.18, template: "rideAlong", why: "Tobacconists buy weekly — small baskets piggyback on bestseller orders already going out." },
+  { channel: "horeca",        share: 0.12, template: "cafe",      why: "Cafés create trial and word of mouth — a slow flavor that clicks in HoReCa pulls retail behind it." },
 ];
+
+// ────────────────────────────────────────────────────────────────────────────
+// APPLY OFFER — the presentable per-channel trade-offer sheet.  Every channel
+// gets: a bestseller BUY line, a FOC (free-of-charge) basket of slow flavors,
+// and the channel's POS kit.  Built to be read to an account or copied into
+// WhatsApp as-is — usable any time, anywhere.
+// ────────────────────────────────────────────────────────────────────────────
+type ChannelOffer = {
+  channel: PomChannel;
+  title: string;
+  anchor: Anchor;
+  anchorMc: number;
+  invoice: number;
+  basket: Basket;        // the FOC products
+  focValue: number;
+  kit: PomKit;
+  totalFreeValue: number;
+  terms: string[];
+};
+
+const OFFER_CHANNEL_PARAMS: Record<PomChannel, { anchorMc: number; maxFlavors: number; title: string; commitment: string }> = {
+  wholesale:     { anchorMc: 20, maxFlavors: 4, title: "Wholesale Partner Offer",             commitment: "Distribute the FOC flavors across your active routes within 30 days." },
+  retail:        { anchorMc: 6,  maxFlavors: 3, title: "Retail Shelf Offer",                  commitment: "Branded display stays up 60 days with the FOC flavors at eye level." },
+  semiWholesale: { anchorMc: 10, maxFlavors: 3, title: "Semi-Wholesale / Tobacconist Offer",  commitment: "Keep the FOC flavors visible at the counter for 60 days." },
+  horeca:        { anchorMc: 3,  maxFlavors: 2, title: "HoReCa Starter Offer",                commitment: "Feature the FOC flavors on the menu for 45 days." },
+};
+
+function buildChannelOffer(ch: PomChannel, anchor: Anchor, slowList: SkuIntel[], k: Knobs, poms: PomItem[]): ChannelOffer | null {
+  const p = OFFER_CHANNEL_PARAMS[ch];
+  // FOC size follows the Mix portion knob: FOC MC = mix% of the bestseller MC
+  // bought, rounded UP (min 1 MC so every channel really does get FOC product).
+  const focTarget = Math.max(1, Math.ceil(p.anchorMc * (k.mixPct / 100)));
+  const basket = clearanceBasket(slowList, focTarget, k, p.maxFlavors);
+  if (basket.items.length === 0) return null;
+  const invoice = p.anchorMc * k.pricePerMc;
+  const focValue = basket.totalMc * k.pricePerMc;
+  const kit = kitForChannel(poms, ch);
+  return {
+    channel: ch,
+    title: p.title,
+    anchor,
+    anchorMc: p.anchorMc,
+    invoice,
+    basket,
+    focValue,
+    kit,
+    totalFreeValue: focValue + kit.value,
+    terms: [
+      p.commitment,
+      kit.value > 0 ? "POS kit is installed by our rep and stays as long as it stays on display." : "",
+      "FOC products are free of charge on the same delivery — no hidden conditions.",
+      `Prices per official list — $${fmt(k.pricePerMc, 0)}/MC, unchanged.`,
+      "Offer valid 14 days from presentation.",
+    ].filter(t => t !== ""),
+  };
+}
+
+function offerCopyText(o: ChannelOffer, country: string): string {
+  const date = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  const lines = [
+    `AL FAKHER — ${o.title.toUpperCase()}`,
+    `${CHANNEL_LABEL[o.channel]} · ${country} · ${date}`,
+    "",
+    `BUY: ${o.anchorMc} MC ${o.anchor.name} ${o.anchor.weight}${packPhrase(o.anchorMc, o.anchor.weight)} — $${fmt(o.invoice)}`,
+    "",
+    `FREE OF CHARGE (FOC) — worth $${fmt(o.focValue)}:`,
+    ...o.basket.items.map(i => `• ${i.mc} MC ${i.sku.name} ${i.sku.weight}${packPhrase(i.mc, i.sku.weight)}`),
+  ];
+  if (o.kit.value > 0) {
+    lines.push("", `FREE POS KIT — worth $${fmt(o.kit.value)}:`, ...o.kit.items.map(i => `• ${i.qty}× ${i.name}`));
+  }
+  lines.push(
+    "",
+    `TOTAL FREE VALUE: $${fmt(o.totalFreeValue)} on a $${fmt(o.invoice)} order`,
+    "",
+    "TERMS:",
+    ...o.terms.map(t => `• ${t}`),
+  );
+  return lines.join("\n");
+}
 
 // ────────────────────────────────────────────────────────────────────────────
 // UI sub-components
@@ -881,7 +995,9 @@ const GLOSSARY: { term: string; meaning: string }[] = [
   { term: "Slow flavor",    meaning: "A SKU sitting in the warehouse longer than your stock-month threshold (the slider above). Ranked by $ overhang (closing stock × $/MC) so the biggest cash drag rises first." },
   { term: "Dollar overhang", meaning: "Closing stock × $/MC for a slow flavor — how much cash is tied up in that SKU. Drives the slow-list ranking." },
   { term: "Mastercase (MC)", meaning: "One full mastercase from the warehouse — the unit every order, invoice and bundle on this page is denominated in." },
-  { term: "POM (point-of-sale material)", meaning: "Branded display stands, posters, shelf strips, menu cards — physical marketing items the rep installs at an account in exchange for branded placement. Configure quantities per channel in Offer settings; each channel's kit stacks onto the offer pitched to that channel (Retail → Shelf Takeover, HoReCa → Café Starter, WS → Territory Exclusive…)." },
+  { term: "POM (point-of-sale material)", meaning: "Branded display stands, posters, shelf strips, menu cards — physical marketing items the rep installs at an account in exchange for branded placement. Configure quantities per channel in Offer settings; each channel's kit stacks onto the offer pitched to that channel (Retail → Shelf Takeover, WS → Territory Exclusive, Semi-WS → Ride-Along, HoReCa → Café Starter)." },
+  { term: "FOC (free of charge)",         meaning: "Product we hand over free with the order — the slow-flavor basket in the Apply Offer sheet. The customer pays for the bestseller MC only; the FOC MC ride on the same delivery at no cost." },
+  { term: "Packs / pieces per MC",        meaning: "1 MC = 6 KG, so a 50g SKU is 120 packs per MC, a 250g SKU is 24 pieces, a 1kg SKU is 6 pieces. The offer sheet shows both MC and pack counts so the buyer sees shelf units." },
   { term: "Mix ratio",      meaning: "How many mastercases of bestseller go with each MC of slow. e.g. 10:1 means \"10 bestseller MC + 1 slow MC per bundle\"." },
   { term: "Mix portion",    meaning: "The slow flavor's $ value as a % of the bestseller's $ value. The slider drives the mix ratio." },
   { term: "Swap promise",   meaning: "How many days the retailer has to return unsold slow stock for any bestseller, no questions asked." },
@@ -1106,6 +1222,9 @@ export default function TradeOffersPage() {
     () => POM_CHANNELS.map(ch => ({ ch, kit: kitForChannel(poms, ch) })),
     [poms],
   );
+  // Apply Offer — per-channel offer sheet dialog.
+  const [offerOpen, setOfferOpen] = useState(false);
+  const [offerChannel, setOfferChannel] = useState<PomChannel>("retail");
 
   // Re-apply country defaults whenever the country changes (planner can still
   // override after).  Tracked via a ref-like effect-less guard: when country
@@ -1256,6 +1375,29 @@ export default function TradeOffersPage() {
     const totalKitBudget = rows.reduce((s, r) => s + r.kitBudget, 0);
     return { rows, totalSlowMc, coveredMc, totalDeals, totalKitBudget, anchor: deckSets[0].anchor };
   }, [deckSets, summary, poms]);
+
+  // Apply Offer — build the presentable offer sheet for every channel from
+  // the lead anchor + eligible slow list.
+  const channelOffers = useMemo(() => {
+    if (anchorList.length === 0 || slowList.length === 0) return null;
+    const a = anchorList[0];
+    const eligible = slowList.filter(s => s.flavor !== a.flavor);
+    if (eligible.length === 0) return null;
+    const offers = {} as Record<PomChannel, ChannelOffer | null>;
+    for (const ch of POM_CHANNELS) offers[ch] = buildChannelOffer(ch, a, eligible, knobs, poms);
+    if (POM_CHANNELS.every(ch => offers[ch] === null)) return null;
+    return { anchor: a, offers };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anchorList, slowList, poms, knobs.thresholdMonths, knobs.swapClause, knobs.size, knobs.mixPct, knobs.pricePerMc, knobs.pricingGuard]);
+
+  const activeOffer = channelOffers?.offers[offerChannel] ?? null;
+  const offerDate = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  const copyOffer = () => {
+    if (!activeOffer || !country) return;
+    navigator.clipboard.writeText(offerCopyText(activeOffer, country))
+      .then(() => toast.success("Offer copied — paste it into WhatsApp, email or a print doc"))
+      .catch(() => toast.error("Couldn't copy — select and copy the sheet manually"));
+  };
 
   const totalVisibleDecks = visibleDeckSets.reduce((sum, s) => sum + s.decks.length, 0);
   const lockActive = anchorFlavor !== "auto";
@@ -1455,11 +1597,10 @@ export default function TradeOffersPage() {
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All channels (every deck)</SelectItem>
-                  <SelectItem value="horeca">HoReCa (cafés &amp; lounges)</SelectItem>
-                  <SelectItem value="modern">Modern trade (supermarkets)</SelectItem>
-                  <SelectItem value="traditional">Traditional trade (shops, kiosks)</SelectItem>
-                  <SelectItem value="retail">Retail (POS kit &amp; display deal)</SelectItem>
+                  <SelectItem value="retail">Retail (shops &amp; kiosks)</SelectItem>
                   <SelectItem value="wholesale">Wholesale (master distributors)</SelectItem>
+                  <SelectItem value="semiWholesale">Semi-Wholesale / Tobacconists</SelectItem>
+                  <SelectItem value="horeca">HoReCa (cafés &amp; lounges)</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -1519,12 +1660,24 @@ export default function TradeOffersPage() {
                 <Store className="h-3.5 w-3.5 text-primary" />
                 POS kit — POMs to distribute per channel
               </Label>
-              <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={addPom}>
-                + Add material
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={addPom}>
+                  + Add material
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-7 text-xs"
+                  disabled={!channelOffers}
+                  onClick={() => setOfferOpen(true)}
+                >
+                  <Sparkles className="h-3.5 w-3.5 mr-1" />
+                  Apply Offer
+                </Button>
+              </div>
             </div>
             <p className="text-[10px] text-muted-foreground">
-              Point-of-sale materials (display stands, posters, menu cards…) handed out FREE per deal. Set a quantity under each channel — 0 means that channel doesn't get the item. Each channel's kit is stacked onto the matching offer (Retail → Shelf Takeover, HoReCa → Café Starter, WS → Territory Exclusive, Trad. → Ride-Along &amp; Subscription, Modern → Variety Builder). Saved per country on this device.
+              Point-of-sale materials (display stands, posters, menu cards…) handed out FREE per deal. Set a quantity under each channel — 0 means that channel doesn't get the item. Each channel's kit is stacked onto the matching offer (Retail → Shelf Takeover &amp; Variety Builder, WS → Territory Exclusive, Semi-WS → Ride-Along &amp; Subscription, HoReCa → Café Starter). When you're done, hit <strong>Apply Offer</strong> to get the presentable per-channel offer sheet — FOC products included for every channel. Saved per country on this device.
             </p>
             <div className="flex flex-wrap gap-1.5">
               {kitByChannel.map(({ ch, kit }) => (
@@ -1793,6 +1946,137 @@ export default function TradeOffersPage() {
           <p><strong>Read these as proposals.</strong> Nothing on this page writes to your database. Sales reps copy the script that fits the channel they're using; planning lead reviews the Risk and Appeal pills before sending.</p>
         </CardContent>
       </Card>
+
+      {/* ── Apply Offer — the per-channel presentable offer sheet ─────────── */}
+      <Dialog open={offerOpen} onOpenChange={setOfferOpen}>
+        <DialogContent className="max-w-2xl max-h-[88vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-primary" />
+              Trade offer — ready to present
+            </DialogTitle>
+            <DialogDescription>
+              Pick a channel. Every offer includes FOC (free of charge) products and the channel's POS kit — copy it and use it any time, anywhere.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+            {POM_CHANNELS.map(ch => (
+              <Button
+                key={ch}
+                type="button"
+                size="sm"
+                variant={offerChannel === ch ? "default" : "outline"}
+                className="h-8 text-xs"
+                onClick={() => setOfferChannel(ch)}
+              >
+                {POM_CHANNEL_SHORT[ch]}
+              </Button>
+            ))}
+          </div>
+
+          {!activeOffer ? (
+            <p className="text-sm text-muted-foreground py-4">
+              No offer could be built for {CHANNEL_LABEL[offerChannel]} from the current slow list.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              <div className="rounded-xl border-2 border-primary/25 overflow-hidden shadow-sm">
+                {/* Sheet header */}
+                <div className="bg-primary text-primary-foreground px-5 py-4">
+                  <div className="text-[10px] uppercase tracking-[0.2em] opacity-80">Al Fakher · {country} · {offerDate}</div>
+                  <div className="text-lg font-bold leading-tight mt-0.5">{activeOffer.title}</div>
+                  <div className="text-xs opacity-90">{CHANNEL_LABEL[activeOffer.channel]}</div>
+                </div>
+
+                <div className="p-4 sm:p-5 space-y-4 text-sm">
+                  {/* BUY */}
+                  <div>
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">You buy</div>
+                    <div className="flex items-start justify-between gap-3 rounded-lg border bg-muted/30 px-3 py-2.5">
+                      <div>
+                        <div className="font-semibold">
+                          {activeOffer.anchorMc} MC {activeOffer.anchor.name} {activeOffer.anchor.weight}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {packPhrase(activeOffer.anchorMc, activeOffer.anchor.weight).replace(/^\s*\(|\)$/g, "") || "bestseller anchor"} · {ANCHOR_TIER_LABEL[activeOffer.anchor.tier]}
+                        </div>
+                      </div>
+                      <div className="font-bold whitespace-nowrap">${fmt(activeOffer.invoice)}</div>
+                    </div>
+                  </div>
+
+                  {/* FOC */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-300 flex items-center gap-1">
+                        <Gift className="h-3 w-3" /> Free of charge (FOC)
+                      </div>
+                      <Badge className="bg-emerald-100 text-emerald-800 border border-emerald-300 dark:bg-emerald-900/40 dark:text-emerald-200 text-[10px]">
+                        worth ${fmt(activeOffer.focValue)}
+                      </Badge>
+                    </div>
+                    <div className="rounded-lg border border-emerald-300/60 bg-emerald-50/60 dark:bg-emerald-900/15 divide-y divide-emerald-200/50 dark:divide-emerald-800/40">
+                      {activeOffer.basket.items.map(i => (
+                        <div key={i.sku.id} className="flex items-center justify-between gap-3 px-3 py-2">
+                          <div>
+                            <span className="font-medium">{i.mc} MC {i.sku.name} {i.sku.weight}</span>
+                            <span className="text-xs text-muted-foreground">{packPhrase(i.mc, i.sku.weight)}</span>
+                          </div>
+                          <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 whitespace-nowrap">FREE</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* POS kit */}
+                  {activeOffer.kit.value > 0 && (
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-violet-700 dark:text-violet-300 flex items-center gap-1">
+                          <Store className="h-3 w-3" /> Free POS kit — installed by our rep
+                        </div>
+                        <Badge className="bg-violet-100 text-violet-800 border border-violet-300 dark:bg-violet-900/40 dark:text-violet-200 text-[10px]">
+                          worth ${fmt(activeOffer.kit.value)}
+                        </Badge>
+                      </div>
+                      <div className="rounded-lg border border-violet-300/60 bg-violet-50/60 dark:bg-violet-900/15 px-3 py-2 text-xs space-y-0.5">
+                        {activeOffer.kit.items.map(i => (
+                          <div key={i.name}>{i.qty}× {i.name}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Total free value banner */}
+                  <div className="rounded-lg bg-primary/10 border border-primary/30 px-3 py-2.5 flex items-center justify-between gap-3">
+                    <span className="text-xs font-semibold">Total free value on this order</span>
+                    <span className="font-bold">
+                      ${fmt(activeOffer.totalFreeValue)}
+                      <span className="text-xs font-normal text-muted-foreground"> ({fmt((activeOffer.totalFreeValue / activeOffer.invoice) * 100)}% of invoice)</span>
+                    </span>
+                  </div>
+
+                  {/* Terms */}
+                  <div>
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">Terms</div>
+                    <ul className="text-xs text-muted-foreground space-y-0.5 list-disc pl-4">
+                      {activeOffer.terms.map(t => <li key={t}>{t}</li>)}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end">
+                <Button type="button" onClick={copyOffer} className="gap-1.5">
+                  <Copy className="h-3.5 w-3.5" />
+                  Copy offer text
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
