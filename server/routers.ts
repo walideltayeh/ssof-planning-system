@@ -8,6 +8,7 @@ import { publicProcedure, protectedProcedure, adminProcedure, router } from "./_
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import * as db from "./db";
+import { assertRecordsScopedToCountry } from "./countryScope";
 import type { Country, User } from "../drizzle/schema";
 
 /**
@@ -797,6 +798,7 @@ export const appRouter = router({
             }
           }
         }
+        await assertRecordsScopedToCountry(country, "Forecast", bulkRecords, "Save");
         await db.bulkUpsertForecast(bulkRecords);
         await db.logAudit({
           username: getAuditActor(ctx),
@@ -836,6 +838,7 @@ export const appRouter = router({
             }
           }
         }
+        await assertRecordsScopedToCountry(country, "IMS", bulkRecords, "Save");
         await db.bulkUpsertIms(bulkRecords);
         await db.logAudit({
           username: getAuditActor(ctx),
@@ -861,14 +864,19 @@ export const appRouter = router({
         await requireCountryAdmin(ctx, country);
         const allPeriods = await db.getPeriodsForCountry(country);
         const allSkus = await db.getSkusForCountry(country, true);
-        let processed = 0;
+        const resolved: { skuId: number; periodId: number; value: string }[] = [];
         for (const rec of input.records) {
           const sku = allSkus.find(s => s.name === rec.skuName);
           const period = allPeriods.find(p => p.year === rec.periodYear && p.month === rec.periodMonth);
           if (sku && period) {
-            await db.upsertPlanningFgData(sku.id, period.id, { openingStock: rec.value });
-            processed++;
+            resolved.push({ skuId: sku.id, periodId: period.id, value: rec.value });
           }
+        }
+        await assertRecordsScopedToCountry(country, "Opening Stock", resolved, "Save");
+        let processed = 0;
+        for (const rec of resolved) {
+          await db.upsertPlanningFgData(rec.skuId, rec.periodId, { openingStock: rec.value });
+          processed++;
         }
         await db.logAudit({
           username: getAuditActor(ctx),
@@ -915,6 +923,7 @@ export const appRouter = router({
             }
           }
         }
+        await assertRecordsScopedToCountry(country, "Shipment", bulkRecords, "Save");
         await db.bulkUpsertShipment(bulkRecords);
         await db.logAudit({
           username: getAuditActor(ctx),
@@ -961,6 +970,7 @@ export const appRouter = router({
             }
           }
         }
+        await assertRecordsScopedToCountry(country, "Arrival", bulkRecords, "Save");
         await db.bulkUpsertArrival(bulkRecords);
         await db.logAudit({
           username: getAuditActor(ctx),
@@ -1017,6 +1027,8 @@ export const appRouter = router({
             }
           }
         }
+        await assertRecordsScopedToCountry(country, "Planning FG", pfgRecords, "Save");
+        await assertRecordsScopedToCountry(country, "Planning FG (IMS)", imsRecords, "Save");
         await db.bulkUpsertPlanningFg(pfgRecords);
         if (imsRecords.length > 0) await db.bulkUpsertIms(imsRecords);
         await db.logAudit({

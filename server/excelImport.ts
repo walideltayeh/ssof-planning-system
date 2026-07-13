@@ -1,6 +1,7 @@
 import ExcelJS from "exceljs";
 import * as db from "./db";
 import { loadXlsxBuffer } from "./excelLoad";
+import { assertRecordsScopedToCountry } from "./countryScope";
 
 interface ImportResult {
   updated: number;
@@ -157,42 +158,8 @@ async function resolvePeriodMap(country: string): Promise<Map<string, number>> {
   return map;
 }
 
-/**
- * Runtime guard against cross-country data corruption: before any bulkUpsert
- * write, verify that every resolved skuId and periodId actually belongs to the
- * target country. The ID sets are fetched fresh from the country-scoped
- * getters (independently of the maps used for resolution), so even if the
- * resolution logic ever regresses to a global/country-mixing lookup, the
- * import aborts loudly here and writes nothing instead of silently landing
- * rows under another country.
- */
-async function assertRecordsScopedToCountry(
-  country: string,
-  sheet: string,
-  records: Array<{ skuId: number; periodId: number }>,
-): Promise<void> {
-  if (records.length === 0) return;
-  const [skuList, periodList] = await Promise.all([
-    db.getSkusForCountry(country as any, true),
-    db.getPeriodsForCountry(country as any),
-  ]);
-  const validSkuIds = new Set(skuList.map((s: { id: number }) => s.id));
-  const validPeriodIds = new Set(periodList.map((p: { id: number }) => p.id));
-  for (const r of records) {
-    if (!validSkuIds.has(r.skuId)) {
-      throw new Error(
-        `Import aborted (${sheet}): resolved SKU id ${r.skuId} does not belong to ${country}. ` +
-          `No data was written. This indicates a country-scoping bug in the import — please report it.`,
-      );
-    }
-    if (!validPeriodIds.has(r.periodId)) {
-      throw new Error(
-        `Import aborted (${sheet}): resolved period id ${r.periodId} does not belong to ${country}. ` +
-          `No data was written. This indicates a country-scoping bug in the import — please report it.`,
-      );
-    }
-  }
-}
+// Runtime guard against cross-country data corruption: shared with the
+// in-app bulk-save endpoints in routers.ts. See server/countryScope.ts.
 
 function dedup<T extends { skuId: number; periodId: number }>(records: T[]): T[] {
   const map = new Map<string, T>();
