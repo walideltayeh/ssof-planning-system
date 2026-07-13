@@ -89,6 +89,7 @@ const {
   importShipmentSheet,
   importArrivalSheet,
   importPlanningFgSheet,
+  importActualProductionSheet,
 } = await import("./excelImport");
 const dbModule = await import("./db");
 
@@ -98,6 +99,7 @@ const bulkMocks = {
   shipment: vi.mocked(dbModule.bulkUpsertShipment),
   arrival: vi.mocked(dbModule.bulkUpsertArrival),
   planningFg: vi.mocked(dbModule.bulkUpsertPlanningFgPartial),
+  actualProduction: vi.mocked(dbModule.bulkUpsertActualProduction),
 };
 
 beforeEach(() => {
@@ -171,6 +173,14 @@ function buildPlanningFgBuffer(country: string): Promise<Buffer> {
   });
 }
 
+function buildActualProductionBuffer(): Promise<Buffer> {
+  return workbookBuffer((wb) => {
+    const ws = wb.addWorksheet("Forecast vs Actual");
+    ws.addRow(["SKU Name", "Apr 25"]);
+    ws.addRow(["Double Apple — Actual", 90]);
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -229,6 +239,7 @@ describe("excelImport country scoping (no cross-country data corruption)", () =>
     { name: "shipment", run: async (c) => importShipmentSheet(await buildShipmentBuffer(), c, "tester") },
     { name: "arrival", run: async (c) => importArrivalSheet(await buildArrivalBuffer(), c, "tester") },
     { name: "planning-fg", run: async (c) => importPlanningFgSheet(await buildPlanningFgBuffer(c), "250g", c, "tester") },
+    { name: "forecast-vs-actual", run: async (c) => importActualProductionSheet(await buildActualProductionBuffer(), c, "tester") },
   ];
 
   for (const sheet of sheets) {
@@ -251,6 +262,41 @@ describe("excelImport country scoping (no cross-country data corruption)", () =>
       // is exactly how the original corruption bug crept in).
       expect(dbModule.getAllSkus).not.toHaveBeenCalled();
       expect(dbModule.getAllPeriods).not.toHaveBeenCalled();
+    });
+  }
+
+  // -------------------------------------------------------------------------
+  // Runtime guard: even if the resolution maps somehow produce foreign IDs
+  // (e.g. a future regression back to a global lookup), the import must abort
+  // BEFORE any bulkUpsert write. We force the mismatch by making the FIRST
+  // call to the country-scoped getter (used to build the resolution map)
+  // return the WRONG country's rows, while the guard's own fresh fetch
+  // returns the correct country's rows.
+  // -------------------------------------------------------------------------
+
+  function expectNoUpserts() {
+    for (const mock of Object.values(bulkMocks)) {
+      expect(mock).not.toHaveBeenCalled();
+    }
+  }
+
+  for (const sheet of sheets) {
+    it(`${sheet.name}: aborts with no write when a resolved SKU id belongs to another country`, async () => {
+      // Resolution map gets Syria's SKUs while importing for Lebanon.
+      vi.mocked(dbModule.getSkusForCountry).mockImplementationOnce(
+        (async () => SEED.Syria.skus) as unknown as typeof dbModule.getSkusForCountry,
+      );
+      await expect(sheet.run("Lebanon")).rejects.toThrow(/does not belong to Lebanon/);
+      expectNoUpserts();
+    });
+
+    it(`${sheet.name}: aborts with no write when a resolved period id belongs to another country`, async () => {
+      // Resolution map gets Syria's periods while importing for Lebanon.
+      vi.mocked(dbModule.getPeriodsForCountry).mockImplementationOnce(
+        (async () => SEED.Syria.periods) as unknown as typeof dbModule.getPeriodsForCountry,
+      );
+      await expect(sheet.run("Lebanon")).rejects.toThrow(/does not belong to Lebanon/);
+      expectNoUpserts();
     });
   }
 
