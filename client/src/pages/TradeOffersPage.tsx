@@ -1377,20 +1377,25 @@ export default function TradeOffersPage() {
   }, [deckSets, summary, poms]);
 
   // Apply Offer — build the presentable offer sheet for every channel from
-  // the lead anchor + eligible slow list.
-  const channelOffers = useMemo(() => {
-    if (anchorList.length === 0 || slowList.length === 0) return null;
+  // the lead anchor + eligible slow list.  When nothing can be built, carry a
+  // plain-language reason so the dialog can tell the user what to change
+  // (the button itself is never dimmed).
+  const channelOffers = useMemo((): { offers: Record<PomChannel, ChannelOffer | null> | null; reason: string } => {
+    if (isLoading) return { offers: null, reason: "Still loading your stock and sales data — try again in a moment." };
+    if (enriched.length === 0) return { offers: null, reason: "No stock or sales data found for this country yet — upload IMS and stock data first." };
+    if (slowList.length === 0) return { offers: null, reason: `No slow flavors above the ${thresholdMonths}-month threshold, so there is nothing to give FOC. Lower the "Show flavors with more than…" setting to widen the slow list.` };
+    if (anchorList.length === 0) return { offers: null, reason: "No bestseller anchor available. If you locked an anchor flavor in Offer settings, that flavor may have no selling SKU right now — set it back to Auto or pick another flavor." };
     const a = anchorList[0];
     const eligible = slowList.filter(s => s.flavor !== a.flavor);
-    if (eligible.length === 0) return null;
+    if (eligible.length === 0) return { offers: null, reason: `Every slow flavor is a ${a.flavor} variant — the same flavor as the bestseller anchor, so there is no different-flavor product to give FOC. Change the anchor lock in Offer settings.` };
     const offers = {} as Record<PomChannel, ChannelOffer | null>;
     for (const ch of POM_CHANNELS) offers[ch] = buildChannelOffer(ch, a, eligible, knobs, poms);
-    if (POM_CHANNELS.every(ch => offers[ch] === null)) return null;
-    return { anchor: a, offers };
+    if (POM_CHANNELS.every(ch => offers[ch] === null)) return { offers: null, reason: "The slow flavors have no warehouse stock left to build a FOC basket from." };
+    return { offers, reason: "" };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [anchorList, slowList, poms, knobs.thresholdMonths, knobs.swapClause, knobs.size, knobs.mixPct, knobs.pricePerMc, knobs.pricingGuard]);
+  }, [isLoading, enriched, anchorList, slowList, poms, thresholdMonths, knobs.swapClause, knobs.size, knobs.mixPct, knobs.pricePerMc, knobs.pricingGuard]);
 
-  const activeOffer = channelOffers?.offers[offerChannel] ?? null;
+  const activeOffer = channelOffers.offers?.[offerChannel] ?? null;
   const offerDate = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
   const copyOffer = () => {
     if (!activeOffer || !country) return;
@@ -1668,7 +1673,6 @@ export default function TradeOffersPage() {
                   type="button"
                   size="sm"
                   className="h-7 text-xs"
-                  disabled={!channelOffers}
                   onClick={() => setOfferOpen(true)}
                 >
                   <Sparkles className="h-3.5 w-3.5 mr-1" />
@@ -1977,7 +1981,7 @@ export default function TradeOffersPage() {
 
           {!activeOffer ? (
             <p className="text-sm text-muted-foreground py-4">
-              No offer could be built for {CHANNEL_LABEL[offerChannel]} from the current slow list.
+              {channelOffers.reason || `No offer could be built for ${CHANNEL_LABEL[offerChannel]} from the current slow list.`}
             </p>
           ) : (
             <div className="space-y-3">
