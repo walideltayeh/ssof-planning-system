@@ -1605,6 +1605,10 @@ export const appRouter = router({
         weight: z.string().optional(),
         category: z.enum(["Core", "NPI"]).optional(),
         packagingType: z.enum(["Old", "New"]).optional(),
+        priceToWs: z.number().nonnegative().nullable().optional(),
+        priceWsToSemiWs: z.number().nonnegative().nullable().optional(),
+        priceSemiWsToRetail: z.number().nonnegative().nullable().optional(),
+        finalRspPerPack: z.number().nonnegative().nullable().optional(),
                 skuName: z.string().optional(),
         country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]).optional(),
       }))
@@ -1615,6 +1619,10 @@ export const appRouter = router({
           weight: input.weight,
           category: input.category,
           packagingType: input.packagingType,
+          priceToWs: input.priceToWs,
+          priceWsToSemiWs: input.priceWsToSemiWs,
+          priceSemiWsToRetail: input.priceSemiWsToRetail,
+          finalRspPerPack: input.finalRspPerPack,
         });
         await db.logAudit({
           country,

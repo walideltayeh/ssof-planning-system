@@ -36,6 +36,13 @@ export const skus = pgTable("skus", {
   sortOrder: integer("sortOrder").notNull().default(0),
   isExcludedFromTotal: boolean("isExcludedFromTotal").default(false),
   isActive: boolean("isActive").default(true).notNull(),
+  // Secondary supply-chain price list (per country, per SKU/format).
+  // Trade-tier prices are per MASTERCASE (MC); the final RSP is per pack.
+  // Null = not set yet; the Trade Offers page falls back to the WS list price.
+  priceToWs: numeric("priceToWs", { precision: 12, scale: 2 }),                       // our selling price to Wholesale, $/MC
+  priceWsToSemiWs: numeric("priceWsToSemiWs", { precision: 12, scale: 2 }),           // WS → Semi-WS / Tobacconists, $/MC
+  priceSemiWsToRetail: numeric("priceSemiWsToRetail", { precision: 12, scale: 2 }),   // Semi-WS → Retail, $/MC
+  finalRspPerPack: numeric("finalRspPerPack", { precision: 12, scale: 2 }),           // consumer shelf price, $/pack
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });

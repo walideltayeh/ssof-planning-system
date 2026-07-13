@@ -48,6 +48,12 @@ async function ensureSchemaColumns(dbInstance: any) {
     `ALTER TABLE clearance_events ADD COLUMN IF NOT EXISTS "invoiceRef" varchar(200)`,
     `ALTER TABLE clearance_events ADD COLUMN IF NOT EXISTS "containerRef" varchar(200)`,
     `ALTER TABLE app_users ADD COLUMN IF NOT EXISTS "email" varchar(320)`,
+    // July 2026: secondary supply-chain price list per SKU.
+    // Trade-tier prices are $/MC; finalRspPerPack is $/pack. Null = not set.
+    `ALTER TABLE skus ADD COLUMN IF NOT EXISTS "priceToWs" numeric(12,2)`,
+    `ALTER TABLE skus ADD COLUMN IF NOT EXISTS "priceWsToSemiWs" numeric(12,2)`,
+    `ALTER TABLE skus ADD COLUMN IF NOT EXISTS "priceSemiWsToRetail" numeric(12,2)`,
+    `ALTER TABLE skus ADD COLUMN IF NOT EXISTS "finalRspPerPack" numeric(12,2)`,
     // May 2026: rename revised_forecast_data → actual_production_data.
     // Idempotent: only runs if old table exists and new one does not.
     `DO $$

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { useCountry } from "@/contexts/CountryContext";
+import { packsPerMc, tierPricesOf, hasAnyTierPrice, type TierPrices } from "@/lib/packUnits";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -242,25 +243,8 @@ function fmt(n: number, digits = 0): string {
 }
 function clamp(n: number, lo: number, hi: number): number { return Math.max(lo, Math.min(hi, n)); }
 
-// ────────────────────────────────────────────────────────────────────────────
-// Pack conversions — 1 MC = 6 KG, so: 50g → 120 packs, 250g → 24 pieces,
-// 1kg → 6 pieces per mastercase.  Works for any custom weight.
-// ────────────────────────────────────────────────────────────────────────────
-function weightGrams(weight: string): number | null {
-  const m = /([\d.]+)\s*(kg|g)/i.exec(weight);
-  if (!m) return null;
-  const n = parseFloat(m[1]);
-  if (!Number.isFinite(n) || n <= 0) return null;
-  return m[2].toLowerCase() === "kg" ? n * 1000 : n;
-}
-
-function packsPerMc(weight: string): { count: number; unit: "packs" | "pieces" } | null {
-  const g = weightGrams(weight);
-  if (!g) return null;
-  const count = Math.round(6000 / g);
-  if (!Number.isFinite(count) || count <= 0) return null;
-  return { count, unit: g <= 100 ? "packs" : "pieces" };
-}
+// Pack conversions (1 MC = 6 KG) live in the shared lib — also used by the
+// SKU price list card on the SKU Management page.
 
 // "(240 packs)" suffix for an MC quantity of a given weight; empty when the
 // weight can't be parsed.
@@ -922,7 +906,39 @@ type ChannelOffer = {
   kit: PomKit;
   totalFreeValue: number;
   terms: string[];
+  // Supply-chain price list integration (SKU Management → price list):
+  buyPricePerMc: number;          // $/MC the buyer actually pays for the anchor
+  usedTierPrice: boolean;         // true when buyPricePerMc came from the price list (not the WS list fallback)
+  ladder: TierPrices | null;      // the anchor's four price tiers, when any are set
+  margin: { resalePerMc: number; perMc: number; label: string } | null; // buyer's sell-on story
 };
+
+// Which price tier each channel buys at.  Wholesale buys from us; Semi-WS
+// buys from WS; Retail and HoReCa buy at the Semi-WS → Retail price.
+function channelBuyPrice(ch: PomChannel, tp: TierPrices | null): number | null {
+  if (!tp) return null;
+  if (ch === "wholesale") return tp.toWs;
+  if (ch === "semiWholesale") return tp.wsToSemiWs;
+  return tp.semiWsToRetail; // retail + horeca
+}
+
+// The buyer's next step in the chain — what they resell at, per MC.
+function channelMargin(ch: PomChannel, tp: TierPrices | null, buy: number | null, anchorWeight: string): ChannelOffer["margin"] {
+  if (!tp || buy === null) return null;
+  if (ch === "wholesale" && tp.wsToSemiWs !== null) {
+    return { resalePerMc: tp.wsToSemiWs, perMc: tp.wsToSemiWs - buy, label: "selling on to Semi-WS / Tobacconists" };
+  }
+  if (ch === "semiWholesale" && tp.semiWsToRetail !== null) {
+    return { resalePerMc: tp.semiWsToRetail, perMc: tp.semiWsToRetail - buy, label: "selling on to Retail" };
+  }
+  if (ch === "retail" && tp.rspPerPack !== null) {
+    const p = packsPerMc(anchorWeight);
+    if (!p) return null;
+    const resale = tp.rspPerPack * p.count;
+    return { resalePerMc: resale, perMc: resale - buy, label: `selling at the $${fmt(tp.rspPerPack, 2)} RSP per ${p.unit === "packs" ? "pack" : "piece"}` };
+  }
+  return null; // horeca consumes the product — no resale story
+}
 
 const OFFER_CHANNEL_PARAMS: Record<PomChannel, { anchorMc: number; maxFlavors: number; title: string; commitment: string }> = {
   wholesale:     { anchorMc: 20, maxFlavors: 4, title: "Wholesale Partner Offer",             commitment: "Distribute the FOC flavors across your active routes within 30 days." },
@@ -931,16 +947,33 @@ const OFFER_CHANNEL_PARAMS: Record<PomChannel, { anchorMc: number; maxFlavors: n
   horeca:        { anchorMc: 3,  maxFlavors: 2, title: "HoReCa Starter Offer",                commitment: "Feature the FOC flavors on the menu for 45 days." },
 };
 
-function buildChannelOffer(ch: PomChannel, anchor: Anchor, slowList: SkuIntel[], k: Knobs, poms: PomItem[]): ChannelOffer | null {
+function buildChannelOffer(
+  ch: PomChannel,
+  anchor: Anchor,
+  slowList: SkuIntel[],
+  k: Knobs,
+  poms: PomItem[],
+  priceOf: (skuId: number) => TierPrices | null,
+): ChannelOffer | null {
   const p = OFFER_CHANNEL_PARAMS[ch];
   // FOC size follows the Mix portion knob: FOC MC = mix% of the bestseller MC
   // bought, rounded UP (min 1 MC so every channel really does get FOC product).
   const focTarget = Math.max(1, Math.ceil(p.anchorMc * (k.mixPct / 100)));
   const basket = clearanceBasket(slowList, focTarget, k, p.maxFlavors);
   if (basket.items.length === 0) return null;
-  const invoice = p.anchorMc * k.pricePerMc;
-  const focValue = basket.totalMc * k.pricePerMc;
+  // Supply-chain price list: each channel is invoiced at its own tier price
+  // when one is set on the anchor SKU; otherwise fall back to the WS list
+  // price knob.  FOC value follows the same rule per basket SKU.
+  const anchorTiers = priceOf(anchor.id);
+  const tierBuy = channelBuyPrice(ch, anchorTiers);
+  const buyPricePerMc = tierBuy ?? k.pricePerMc;
+  const invoice = p.anchorMc * buyPricePerMc;
+  const focValue = basket.items.reduce((sum, i) => {
+    const itemBuy = channelBuyPrice(ch, priceOf(i.sku.id)) ?? k.pricePerMc;
+    return sum + i.mc * itemBuy;
+  }, 0);
   const kit = kitForChannel(poms, ch);
+  const ladder = anchorTiers && hasAnyTierPrice(anchorTiers) ? anchorTiers : null;
   return {
     channel: ch,
     title: p.title,
@@ -951,11 +984,19 @@ function buildChannelOffer(ch: PomChannel, anchor: Anchor, slowList: SkuIntel[],
     focValue,
     kit,
     totalFreeValue: focValue + kit.value,
+    buyPricePerMc,
+    usedTierPrice: tierBuy !== null,
+    ladder,
+    // Margin story only when the buy price really came from the price list —
+    // mixing the fallback list price with downstream tiers would mislead.
+    margin: tierBuy !== null ? channelMargin(ch, anchorTiers, buyPricePerMc, anchor.weight) : null,
     terms: [
       p.commitment,
       kit.value > 0 ? "POS kit is installed by our rep and stays as long as it stays on display." : "",
       "FOC products are free of charge on the same delivery — no hidden conditions.",
-      `Prices per official list — $${fmt(k.pricePerMc, 0)}/MC, unchanged.`,
+      tierBuy !== null
+        ? `Invoiced at your ${CHANNEL_LABEL[ch]} tier price — $${fmt(buyPricePerMc, 2)}/MC per the supply-chain price list, unchanged.`
+        : `Prices per official list — $${fmt(k.pricePerMc, 0)}/MC, unchanged.`,
       "Offer valid 14 days from presentation.",
     ].filter(t => t !== ""),
   };
@@ -967,7 +1008,7 @@ function offerCopyText(o: ChannelOffer, country: string): string {
     `AL FAKHER — ${o.title.toUpperCase()}`,
     `${CHANNEL_LABEL[o.channel]} · ${country} · ${date}`,
     "",
-    `BUY: ${o.anchorMc} MC ${o.anchor.name} ${o.anchor.weight}${packPhrase(o.anchorMc, o.anchor.weight)} — $${fmt(o.invoice)}`,
+    `BUY: ${o.anchorMc} MC ${o.anchor.name} ${o.anchor.weight}${packPhrase(o.anchorMc, o.anchor.weight)} — $${fmt(o.invoice)} ($${fmt(o.buyPricePerMc, 2)}/MC)`,
     "",
     `FREE OF CHARGE (FOC) — worth $${fmt(o.focValue)}:`,
     ...o.basket.items.map(i => `• ${i.mc} MC ${i.sku.name} ${i.sku.weight}${packPhrase(i.mc, i.sku.weight)}`),
@@ -978,6 +1019,24 @@ function offerCopyText(o: ChannelOffer, country: string): string {
   lines.push(
     "",
     `TOTAL FREE VALUE: $${fmt(o.totalFreeValue)} on a $${fmt(o.invoice)} order`,
+  );
+  if (o.margin && o.margin.perMc > 0) {
+    lines.push(
+      "",
+      `YOUR MARGIN: buy at $${fmt(o.buyPricePerMc, 2)}/MC, ${o.margin.label} at $${fmt(o.margin.resalePerMc, 2)}/MC — $${fmt(o.margin.perMc, 2)}/MC in your pocket ($${fmt(o.margin.perMc * o.anchorMc)} on this order, before the free product).`,
+    );
+  }
+  if (o.ladder) {
+    const l = o.ladder;
+    const parts = [
+      l.toWs !== null ? `To WS $${fmt(l.toWs, 2)}/MC` : "",
+      l.wsToSemiWs !== null ? `WS→Semi-WS $${fmt(l.wsToSemiWs, 2)}/MC` : "",
+      l.semiWsToRetail !== null ? `Semi-WS→Retail $${fmt(l.semiWsToRetail, 2)}/MC` : "",
+      l.rspPerPack !== null ? `RSP $${fmt(l.rspPerPack, 2)}/pack` : "",
+    ].filter(s => s !== "");
+    if (parts.length > 0) lines.push("", `PRICE LADDER (${o.anchor.name} ${o.anchor.weight}): ${parts.join(" · ")}`);
+  }
+  lines.push(
     "",
     "TERMS:",
     ...o.terms.map(t => `• ${t}`),
@@ -997,6 +1056,7 @@ const GLOSSARY: { term: string; meaning: string }[] = [
   { term: "Mastercase (MC)", meaning: "One full mastercase from the warehouse — the unit every order, invoice and bundle on this page is denominated in." },
   { term: "POM (point-of-sale material)", meaning: "Branded display stands, posters, shelf strips, menu cards — physical marketing items the rep installs at an account in exchange for branded placement. Configure quantities per channel in Offer settings; each channel's kit stacks onto the offer pitched to that channel (Retail → Shelf Takeover, WS → Territory Exclusive, Semi-WS → Ride-Along, HoReCa → Café Starter)." },
   { term: "FOC (free of charge)",         meaning: "Product we hand over free with the order — the slow-flavor basket in the Apply Offer sheet. The customer pays for the bestseller MC only; the FOC MC ride on the same delivery at no cost." },
+  { term: "Supply-chain price list",      meaning: "The four price tiers set per SKU on the SKU Management page: our selling price to WS, WS → Semi-WS / Tobacconists, Semi-WS → Retail (all $/MC), and the Final RSP ($/pack). When a tier price is set, the Apply Offer sheet invoices each channel at its own tier and shows the buyer's margin; when not set, it falls back to the WS list price knob." },
   { term: "Packs / pieces per MC",        meaning: "1 MC = 6 KG, so a 50g SKU is 120 packs per MC, a 250g SKU is 24 pieces, a 1kg SKU is 6 pieces. The offer sheet shows both MC and pack counts so the buyer sees shelf units." },
   { term: "Mix ratio",      meaning: "How many mastercases of bestseller go with each MC of slow. e.g. 10:1 means \"10 bestseller MC + 1 slow MC per bundle\"." },
   { term: "Mix portion",    meaning: "The slow flavor's $ value as a % of the bestseller's $ value. The slider drives the mix ratio." },
@@ -1179,6 +1239,20 @@ export default function TradeOffersPage() {
     { country: validCountry },
     { enabled: !!country },
   );
+  // Supply-chain price list — tier prices per SKU (set on the SKU Management
+  // page).  Used to invoice each Apply Offer channel at its own tier price.
+  const { data: skuRows } = trpc.country.skus.useQuery(
+    { country: validCountry, includeInactive: true },
+    { enabled: !!country },
+  );
+  const priceOf = useMemo(() => {
+    const map = new Map<number, TierPrices>();
+    for (const s of (skuRows as { id: number }[] | undefined) ?? []) {
+      const tp = tierPricesOf(s as Parameters<typeof tierPricesOf>[0]);
+      if (hasAnyTierPrice(tp)) map.set(s.id, tp);
+    }
+    return (skuId: number): TierPrices | null => map.get(skuId) ?? null;
+  }, [skuRows]);
 
   // Visible knobs — kept simple, plain language.
   const [thresholdMonths, setThresholdMonths] = useState(9);
@@ -1389,11 +1463,11 @@ export default function TradeOffersPage() {
     const eligible = slowList.filter(s => s.flavor !== a.flavor);
     if (eligible.length === 0) return { offers: null, reason: `Every slow flavor is a ${a.flavor} variant — the same flavor as the bestseller anchor, so there is no different-flavor product to give FOC. Change the anchor lock in Offer settings.` };
     const offers = {} as Record<PomChannel, ChannelOffer | null>;
-    for (const ch of POM_CHANNELS) offers[ch] = buildChannelOffer(ch, a, eligible, knobs, poms);
+    for (const ch of POM_CHANNELS) offers[ch] = buildChannelOffer(ch, a, eligible, knobs, poms, priceOf);
     if (POM_CHANNELS.every(ch => offers[ch] === null)) return { offers: null, reason: "The slow flavors have no warehouse stock left to build a FOC basket from." };
     return { offers, reason: "" };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoading, enriched, anchorList, slowList, poms, thresholdMonths, knobs.swapClause, knobs.size, knobs.mixPct, knobs.pricePerMc, knobs.pricingGuard]);
+  }, [isLoading, enriched, anchorList, slowList, poms, priceOf, thresholdMonths, knobs.swapClause, knobs.size, knobs.mixPct, knobs.pricePerMc, knobs.pricingGuard]);
 
   const activeOffer = channelOffers.offers?.[offerChannel] ?? null;
   const offerDate = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
@@ -2006,9 +2080,52 @@ export default function TradeOffersPage() {
                           {packPhrase(activeOffer.anchorMc, activeOffer.anchor.weight).replace(/^\s*\(|\)$/g, "") || "bestseller anchor"} · {ANCHOR_TIER_LABEL[activeOffer.anchor.tier]}
                         </div>
                       </div>
-                      <div className="font-bold whitespace-nowrap">${fmt(activeOffer.invoice)}</div>
+                      <div className="text-right whitespace-nowrap">
+                        <div className="font-bold">${fmt(activeOffer.invoice)}</div>
+                        <div className="text-[10px] text-muted-foreground">
+                          ${fmt(activeOffer.buyPricePerMc, 2)}/MC{activeOffer.usedTierPrice ? ` · ${CHANNEL_LABEL[activeOffer.channel]} tier` : " · list price"}
+                        </div>
+                      </div>
                     </div>
                   </div>
+
+                  {/* Buyer margin — the sell-on story from the price list */}
+                  {activeOffer.margin && activeOffer.margin.perMc > 0 && (
+                    <div className="rounded-lg border border-sky-300/60 bg-sky-50/60 dark:bg-sky-900/15 px-3 py-2.5">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-sky-700 dark:text-sky-300 mb-0.5">Your margin</div>
+                      <div className="text-xs text-muted-foreground">
+                        Buy at <strong className="text-foreground">${fmt(activeOffer.buyPricePerMc, 2)}/MC</strong>, {activeOffer.margin.label} at{" "}
+                        <strong className="text-foreground">${fmt(activeOffer.margin.resalePerMc, 2)}/MC</strong> —{" "}
+                        <strong className="text-sky-700 dark:text-sky-300">${fmt(activeOffer.margin.perMc, 2)}/MC in your pocket</strong>
+                        {" "}(${fmt(activeOffer.margin.perMc * activeOffer.anchorMc)} on this order, before the free product).
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Price ladder — the anchor's supply-chain price list */}
+                  {activeOffer.ladder && (
+                    <div>
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">
+                        Price ladder — {activeOffer.anchor.name} {activeOffer.anchor.weight}
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                        {([
+                          { label: "To WS", value: activeOffer.ladder.toWs, unit: "/MC" },
+                          { label: "WS → Semi-WS", value: activeOffer.ladder.wsToSemiWs, unit: "/MC" },
+                          { label: "Semi-WS → Retail", value: activeOffer.ladder.semiWsToRetail, unit: "/MC" },
+                          { label: "Final RSP", value: activeOffer.ladder.rspPerPack, unit: "/pack" },
+                        ] as const).map(step => (
+                          <div key={step.label} className="rounded-lg border bg-muted/30 px-2.5 py-2">
+                            <div className="text-[10px] text-muted-foreground">{step.label}</div>
+                            <div className="font-semibold tabular-nums">
+                              {step.value === null ? "—" : `$${fmt(step.value, 2)}`}
+                              {step.value !== null && <span className="text-[10px] font-normal text-muted-foreground">{step.unit}</span>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* FOC */}
                   <div>

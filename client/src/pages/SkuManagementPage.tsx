@@ -31,6 +31,7 @@ import {
   arrayMove,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import SkuPriceListCard from "@/components/SkuPriceListCard";
 
 // ─── Friendly Weight Input ────────────────────────────────────────────────────
 // Lets the user type a plain number ("500", "1.5") and pick the unit with a
@@ -537,6 +538,9 @@ function LebanonSkuManagement() {
           </CardContent>
         </Card>
       )}
+
+      {/* Supply-chain price list */}
+      <SkuPriceListCard country="Lebanon" isAdmin={isAdmin} />
 
       {/* Create Dialog */}
       <Dialog open={createOpen} onOpenChange={open => { if (!open) { setCreateOpen(false); resetCreateForm(); } }}>
@@ -1101,6 +1105,9 @@ function IntlSkuManagement() {
           </CardContent>
         </Card>
       )}
+
+      {/* Supply-chain price list */}
+      <SkuPriceListCard country={intlCountry} isAdmin={isAdmin} />
 
       {/* Create Dialog */}
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>

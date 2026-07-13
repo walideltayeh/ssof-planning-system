@@ -314,7 +314,10 @@ export async function getExistingYearsForCountry(country: Country) {
   return years.sort();
 }
 
-export async function updateSkuDetails(skuId: number, data: { name?: string; weight?: string; category?: "Core" | "NPI"; packagingType?: "Old" | "New" }) {
+export async function updateSkuDetails(skuId: number, data: {
+  name?: string; weight?: string; category?: "Core" | "NPI"; packagingType?: "Old" | "New";
+  priceToWs?: number | null; priceWsToSemiWs?: number | null; priceSemiWsToRetail?: number | null; finalRspPerPack?: number | null;
+}) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const updates: Record<string, unknown> = {};
@@ -322,6 +325,12 @@ export async function updateSkuDetails(skuId: number, data: { name?: string; wei
   if (data.weight !== undefined) updates.weight = data.weight.trim();
   if (data.category !== undefined) updates.category = data.category;
   if (data.packagingType !== undefined) updates.packagingType = data.packagingType;
+  // Supply-chain price list — numeric columns take strings; null clears a price.
+  const priceCols = ["priceToWs", "priceWsToSemiWs", "priceSemiWsToRetail", "finalRspPerPack"] as const;
+  for (const col of priceCols) {
+    const v = data[col];
+    if (v !== undefined) updates[col] = v === null ? null : String(v);
+  }
   if (Object.keys(updates).length > 0) {
     await db.update(skus).set(updates).where(eq(skus.id, skuId));
   }
