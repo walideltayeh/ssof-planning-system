@@ -28,19 +28,25 @@ the cap — there was no way to FORCE a value onto a 0 SKU. "set" fills that gap
 - Adding a new action means touching BOTH client (SkuAction type, buildSkuDirectives, UI Select/input)
   and server (zod enum, PlannerDirective type, structured mapping, prompt summary, applyDirectiveToRec, zeroedSkuIds).
 
-## Hard 4-week stock gate (July 2026 planner rule)
+## Hard stock gate = 2-week reorder point (July 2026 planner rule)
 
-Any SKU whose Planning FG stock coverage is **above 4 weeks** must get ZERO
-forecast allocation — a hard exclusion, not the old soft 0.82 overstock multiplier.
+A SKU only receives forecast volume when its PROJECTED stock coverage at the
+target month has fallen to **2 weeks or below**. Above 2 weeks projected →
+ZERO allocation (hard exclusion, not a soft multiplier).
 
-**Why:** User explicitly rejected soft reductions ("if the stock level is above
-4 weeks, DO NOT place in the forecast"). Deliberately literal: even the
-"Healthy" 4–6 week zone is excluded. The 99-week sentinel (stock on hand, no
-demand) also gates. It even overrides the new-SKU-with-orders safeguard.
+**Why:** Two user rulings. (1) Hard gate, no soft reductions. (2) "Take IMS
+into consideration — whenever it hits 2 weeks of stock, it triggers
+order/forecast": reorder-point logic, so a SKU with lots of stock today still
+gets volume if IMS drain projects ≤2 weeks by the target month. The original
+4-week gate also missed overstocked SKUs entirely because the server computed
+each month from its own stored Planning FG row (no carry-forward) — future
+months with no row looked like 0 stock.
 
-**How to apply:** The gate must be enforced at EVERY layer (base scores, algo
-fallback, LLM prompt, post-LLM enforcement, every rebalance/refill pass —
-including the new-SKU boost pass). An explicit per-SKU planner directive is the
-ONLY thing that overrides the gate. Gate on target-month coverage when that
-period exists in Planning FG, else current coverage. Don't "fix" this back to
-a soft multiplier.
+**How to apply:** Stock projection must come from the SHARED engine
+(`getStockLevelAnalysis` — carry-forward closing stock, IMS w/ forecast
+fallback, cleared arrivals for intl), never a recomputed per-row view, so the
+recommender matches the FG tab. Gate on target-month projected weeks (current
+weeks if target outside horizon). The 99-week sentinel gates. Enforce at EVERY
+layer (base scores, algo fallback, LLM prompt, post-LLM enforcement, all
+rebalance/refill passes incl. new-SKU boost). Only an explicit per-SKU planner
+directive overrides.

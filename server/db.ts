@@ -3524,6 +3524,9 @@ export async function getStockLevelAnalysis(country: "Lebanon" | "Syria" | "Liby
 
   return {
     periodLabels,
+    // Year/month metadata aligned index-for-index with skuStocks arrays, so
+    // callers (e.g. the Forecast Split recommender) can locate specific months.
+    periodMeta: sortedPeriods.map(p => ({ label: p.label, year: p.year, month: p.month })),
     skuStocks,
     zoneDistribution,
     periodZones,

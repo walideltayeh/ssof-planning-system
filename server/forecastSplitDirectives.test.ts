@@ -64,6 +64,7 @@ vi.mock("./db", () => ({
     arrival: [],
     planningFg: [],
   })),
+  getStockLevelAnalysis: vi.fn(async () => null),
 }));
 
 // LLM mock — `invokeLLM` is queued per-test via `setLlmResponses`.

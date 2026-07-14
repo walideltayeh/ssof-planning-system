@@ -66,6 +66,7 @@ vi.mock("./db", () => ({
     arrival: [],
     planningFg: [],
   })),
+  getStockLevelAnalysis: vi.fn(async () => null),
 }));
 
 // LLM mock — `invokeLLM` is queued per-test via `setLlmResponses`.
@@ -419,5 +420,101 @@ describe("forecastSplit.recommend — coverage validator", () => {
     );
     expect(sumMc).toBe(EXPECTED_TOTAL_MC);
     expect(result.totalMastercases).toBe(EXPECTED_TOTAL_MC);
+  });
+
+  it("stock gate: a SKU whose projected coverage at the target month is above 2 weeks gets 0 MC", async () => {
+    // Algorithmic path (no LLM) so the gate outcome is deterministic.
+    delete process.env.BUILT_IN_FORGE_API_KEY;
+    setLlmResponses([]);
+
+    const db = await import("./db");
+    // Target month is May 2026 (RECOMMEND_INPUT). Blueberry (103) still has
+    // 28 weeks of projected stock at that month → must be gated to 0 MC.
+    // The others are at/below the 2-week reorder point → eligible.
+    vi.mocked(db.getStockLevelAnalysis).mockResolvedValueOnce({
+      periodMeta: [{ label: "May 26", year: 2026, month: 5 }],
+      skuStocks: FIXTURE_SKUS.map(s => ({
+        id: s.id,
+        name: s.name,
+        weight: s.weight,
+        category: s.category,
+        packagingType: s.packagingType,
+        closingStocks: [s.id === 103 ? 2100 : 50],
+        weeksOfStock: [s.id === 103 ? 28 : 1.5],
+        zones: [s.id === 103 ? "Overstock" : "Critical"],
+        currentClosingStock: s.id === 103 ? 2100 : 50,
+        currentWeeks: s.id === 103 ? 28 : 1.5,
+        currentZone: s.id === 103 ? "Overstock" : "Critical",
+        avgWeeks: s.id === 103 ? 28 : 1.5,
+        healthScore: 0,
+        coverageMonths: 0,
+        monthlyIms: [300],
+        monthlyArrivals: [0],
+      })),
+    } as any);
+
+    const caller = appRouter.createCaller(makeCtx());
+    const result = await caller.forecastSplit.recommend(RECOMMEND_INPUT);
+
+    const blueberry = result.recommendations.find((r: any) => r.skuId === 103);
+    expect(blueberry).toBeDefined();
+    expect(blueberry!.recommendedMastercases).toBe(0);
+    expect(blueberry!.reasoning).toMatch(/2-week reorder point/);
+
+    // Freed volume redistributed — total still exact.
+    const sumMc = result.recommendations.reduce(
+      (s: number, r: any) => s + r.recommendedMastercases,
+      0,
+    );
+    expect(sumMc).toBe(EXPECTED_TOTAL_MC);
+
+    // A gate warning is surfaced to the planner.
+    expect((result.warnings ?? []).join(" ")).toMatch(/2-week reorder point/);
+  });
+
+  it("stock gate: falls back to CURRENT coverage when the target month is outside the analysis horizon", async () => {
+    delete process.env.BUILT_IN_FORGE_API_KEY;
+    setLlmResponses([]);
+
+    const db = await import("./db");
+    // Analysis horizon covers only Jul 2026 (the current month per fake
+    // clock is irrelevant — the point is that May 2026, the target, has no
+    // matching period). Blueberry (103) has 30 current weeks → must gate on
+    // current coverage; the rest are at 1 week → eligible.
+    vi.mocked(db.getStockLevelAnalysis).mockResolvedValueOnce({
+      periodMeta: [{ label: "Jul 26", year: 2026, month: 7 }],
+      skuStocks: FIXTURE_SKUS.map(s => ({
+        id: s.id,
+        name: s.name,
+        weight: s.weight,
+        category: s.category,
+        packagingType: s.packagingType,
+        closingStocks: [s.id === 103 ? 2200 : 40],
+        weeksOfStock: [s.id === 103 ? 30 : 1],
+        zones: [s.id === 103 ? "Overstock" : "Critical"],
+        currentClosingStock: s.id === 103 ? 2200 : 40,
+        currentWeeks: s.id === 103 ? 30 : 1,
+        currentZone: s.id === 103 ? "Overstock" : "Critical",
+        avgWeeks: s.id === 103 ? 30 : 1,
+        healthScore: 0,
+        coverageMonths: 0,
+        monthlyIms: [300],
+        monthlyArrivals: [0],
+      })),
+    } as any);
+
+    const caller = appRouter.createCaller(makeCtx());
+    const result = await caller.forecastSplit.recommend(RECOMMEND_INPUT);
+
+    const blueberry = result.recommendations.find((r: any) => r.skuId === 103);
+    expect(blueberry).toBeDefined();
+    expect(blueberry!.recommendedMastercases).toBe(0);
+    expect(blueberry!.reasoning).toMatch(/2-week reorder point/);
+
+    const sumMc = result.recommendations.reduce(
+      (s: number, r: any) => s + r.recommendedMastercases,
+      0,
+    );
+    expect(sumMc).toBe(EXPECTED_TOTAL_MC);
   });
 });

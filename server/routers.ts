@@ -2441,20 +2441,16 @@ export const appRouter = router({
           }
         }
 
-        // 4. Fetch Planning FG data for stock health analysis
-        const planningFgRaw = await db.getFullPlanningDataForCountry(country as import('../drizzle/schema').Country);
-        // Compute closing stock per SKU per period: openingStock + adjustments + arrivals - ims
-        // Then compute weeks of stock = (closingStock / avgNextNIms) * 4.3
-        const pfgPeriodMap = new Map(planningFgRaw.periods.map(p => [p.id, p]));
-        const pfgForecastMap = new Map(planningFgRaw.forecast.map(f => [`${f.skuId}-${f.periodId}`, parseFloat(f.value ?? '0') || 0]));
-        const pfgImsMap = new Map(planningFgRaw.ims.map(i => [`${i.skuId}-${i.periodId}`, parseFloat(i.value ?? '0') || 0]));
-        const pfgPlanMap = new Map(planningFgRaw.planningFg.map(p => [
-          `${p.skuId}-${p.periodId}`,
-          { opening: parseFloat(p.openingStock ?? '0') || 0, adj: parseFloat(p.adjustments ?? '0') || 0, arr: parseFloat(p.arrivals ?? '0') || 0 }
-        ]));
-        // Sort periods chronologically
-        const pfgPeriods = [...planningFgRaw.periods].sort((a, b) => a.year !== b.year ? a.year - b.year : a.month - b.month);
-        // Compute closing stock and weeks per SKU per period
+        // 4. Stock health from the SAME engine that powers the FG tabs / Stock
+        // Levels analysis (db.getStockLevelAnalysis): carry-forward closing
+        // stock (next month opening = previous month closing), IMS with
+        // forecast fallback for future months, and cleared-arrival handling.
+        // The recommender previously recomputed each month from its own stored
+        // Planning FG row in isolation, so a SKU sitting on 28 weeks of stock
+        // TODAY looked like 0 stock in a future target month that had no row —
+        // and slipped past the stock gate. Reusing the shared analysis keeps
+        // the recommender's view identical to what the planner sees on the FG tabs.
+        const stockAnalysis = await db.getStockLevelAnalysis(country as 'Lebanon' | 'Syria' | 'Libya' | 'KSA');
         const stockHealthBySku: Record<number, {
           currentWeeks: number; currentZone: string; trend: string;
           targetMonthWeeks: number; targetMonthZone: string;
@@ -2462,83 +2458,67 @@ export const appRouter = router({
           criticalPeriods: string[]; overstockPeriods: string[];
           healthScore: number;
         }> = {};
-        // SKUs excluded from the forecast entirely because Planning FG shows
-        // more than 4 weeks of stock coverage (hard planner rule).
+        // SKUs excluded from the forecast entirely because their projected
+        // stock coverage has not yet fallen to the 2-week reorder point.
         const stockGatedSkuIds = new Set<number>();
         const stockGateWeeksBySku: Record<number, number> = {};
-        for (const sku of planningFgRaw.skus) {
-          const closingStocks: { periodId: number; label: string; cs: number }[] = [];
-          let runningCS = 0;
-          for (const p of pfgPeriods) {
-            const plan = pfgPlanMap.get(`${sku.id}-${p.id}`) ?? { opening: 0, adj: 0, arr: 0 };
-            const imsVal = pfgImsMap.get(`${sku.id}-${p.id}`) ?? 0;
-            const cs = plan.opening + plan.adj + plan.arr - imsVal;
-            runningCS = cs;
-            closingStocks.push({ periodId: p.id, label: p.label, cs });
-          }
-          // Classify zone
-          const classifyZone = (weeks: number) => {
-            if (!isFinite(weeks) && weeks > 0) return 'Overstock';
-            if (!isFinite(weeks) && weeks < 0) return 'Negative';
-            if (weeks === 0) return 'Out of Stock';
-            if (weeks < 0) return 'Negative';
-            if (weeks < 4) return 'Critical';
-            if (weeks <= 6) return 'Healthy';
-            return 'Overstock';
-          };
-          // Compute weeks of stock for each period
-          const weeksPerPeriod: { label: string; weeks: number; zone: string }[] = [];
-          for (let i = 0; i < closingStocks.length; i++) {
-            const { label, cs } = closingStocks[i];
-            // avg of next 2 IMS values
-            const nextIms = [1, 2].map(offset => {
-              const nextP = pfgPeriods[i + offset];
-              return nextP ? (pfgImsMap.get(`${sku.id}-${nextP.id}`) ?? pfgForecastMap.get(`${sku.id}-${nextP.id}`) ?? 0) : 0;
+        if (stockAnalysis) {
+          const periodMeta = stockAnalysis.periodMeta;
+          const nowD = new Date();
+          const curIdx = periodMeta.findIndex(p => p.year === nowD.getFullYear() && p.month === nowD.getMonth() + 1);
+          const targetIdx = periodMeta.findIndex(p => p.year === targetYear && p.month === targetMonth);
+          const nextY = targetMonth === 12 ? targetYear + 1 : targetYear;
+          const nextM = targetMonth === 12 ? 1 : targetMonth + 1;
+          const nextIdx = periodMeta.findIndex(p => p.year === nextY && p.month === nextM);
+          for (const ss of stockAnalysis.skuStocks) {
+            const weeksAt = (idx: number) => idx >= 0 && idx < ss.weeksOfStock.length ? ss.weeksOfStock[idx] : 0;
+            const zoneAt = (idx: number) => idx >= 0 && idx < ss.zones.length ? ss.zones[idx] : 'Unknown';
+            const currentW = curIdx >= 0 ? weeksAt(curIdx) : ss.currentWeeks;
+            const currentZ = curIdx >= 0 ? zoneAt(curIdx) : ss.currentZone;
+            // If the target/next month is outside the analysis horizon, fall
+            // back to current coverage so the surfaced stock-health fields
+            // match what the gate actually uses (never a misleading 0).
+            const targetW = targetIdx >= 0 ? weeksAt(targetIdx) : currentW;
+            const nextW = nextIdx >= 0 ? weeksAt(nextIdx) : currentW;
+            const criticalPeriods: string[] = [];
+            const overstockPeriods: string[] = [];
+            ss.zones.forEach((z, i) => {
+              const label = periodMeta[i]?.label ?? '';
+              if (z === 'Critical' || z === 'Negative' || z === 'Out of Stock') criticalPeriods.push(label);
+              else if (z === 'Overstock') overstockPeriods.push(label);
             });
-            const avgN = nextIms.filter(v => v > 0).length > 0 ? nextIms.reduce((s, v) => s + v, 0) / nextIms.filter(v => v > 0).length : 0;
-            const weeks = avgN > 0 ? (cs / avgN) * 4.3 : (cs > 0 ? 99 : cs < 0 ? -99 : 0);
-            weeksPerPeriod.push({ label, weeks, zone: classifyZone(weeks) });
-          }
-          // Find target month period
-          const targetPeriod = pfgPeriods.find(p => p.year === targetYear && p.month === targetMonth);
-          const nextPeriod = pfgPeriods.find(p => p.year === (targetMonth === 12 ? targetYear + 1 : targetYear) && p.month === (targetMonth === 12 ? 1 : targetMonth + 1));
-          const currentPeriod = pfgPeriods.find(p => {
-            const now = new Date();
-            return p.year === now.getFullYear() && p.month === now.getMonth() + 1;
-          });
-          const currentW = currentPeriod ? (weeksPerPeriod.find(w => w.label === currentPeriod.label)?.weeks ?? 0) : 0;
-          const targetW = targetPeriod ? (weeksPerPeriod.find(w => w.label === targetPeriod.label)?.weeks ?? 0) : 0;
-          const nextW = nextPeriod ? (weeksPerPeriod.find(w => w.label === nextPeriod.label)?.weeks ?? 0) : 0;
-          const criticalPeriods = weeksPerPeriod.filter(w => w.zone === 'Critical' || w.zone === 'Negative' || w.zone === 'Out of Stock').map(w => w.label);
-          const overstockPeriods = weeksPerPeriod.filter(w => w.zone === 'Overstock').map(w => w.label);
-          const healthyCount = weeksPerPeriod.filter(w => w.zone === 'Healthy').length;
-          const healthScore = weeksPerPeriod.length > 0 ? Math.round(healthyCount / weeksPerPeriod.length * 100) : 100;
-          // Trend: compare first half vs second half avg weeks
-          const mid = Math.floor(weeksPerPeriod.length / 2);
-          const firstHalf = weeksPerPeriod.slice(0, mid).reduce((s, w) => s + Math.min(w.weeks, 12), 0) / (mid || 1);
-          const secondHalf = weeksPerPeriod.slice(mid).reduce((s, w) => s + Math.min(w.weeks, 12), 0) / ((weeksPerPeriod.length - mid) || 1);
-          const trend = secondHalf - firstHalf > 0.5 ? 'improving' : firstHalf - secondHalf > 0.5 ? 'deteriorating' : 'stable';
-          stockHealthBySku[sku.id] = {
-            currentWeeks: Math.round(currentW * 10) / 10,
-            currentZone: classifyZone(currentW),
-            trend,
-            targetMonthWeeks: Math.round(targetW * 10) / 10,
-            targetMonthZone: classifyZone(targetW),
-            nextMonthWeeks: Math.round(nextW * 10) / 10,
-            nextMonthZone: classifyZone(nextW),
-            criticalPeriods: criticalPeriods.slice(0, 5),
-            overstockPeriods: overstockPeriods.slice(0, 5),
-            healthScore,
-          };
-          // HARD STOCK GATE (planner rule): any SKU whose Planning FG stock
-          // coverage is ABOVE 4 weeks must receive ZERO forecast — not a soft
-          // reduction. Gate on the target-month coverage when that period
-          // exists in Planning FG, otherwise on current coverage. The 99-week
-          // sentinel (stock on hand but no IMS/forecast demand) also gates.
-          const gateWeeks = targetPeriod ? targetW : currentW;
-          if (gateWeeks > 4) {
-            stockGatedSkuIds.add(sku.id);
-            stockGateWeeksBySku[sku.id] = Math.round(gateWeeks * 10) / 10;
+            // Trend: compare first half vs second half avg weeks (capped at 12)
+            const mid = Math.floor(ss.weeksOfStock.length / 2);
+            const capW = (w: number) => Math.min(Math.abs(w) >= 99 ? (w > 0 ? 12 : -12) : w, 12);
+            const firstHalf = ss.weeksOfStock.slice(0, mid).reduce((s, w) => s + capW(w), 0) / (mid || 1);
+            const secondHalf = ss.weeksOfStock.slice(mid).reduce((s, w) => s + capW(w), 0) / ((ss.weeksOfStock.length - mid) || 1);
+            const trend = secondHalf - firstHalf > 0.5 ? 'improving' : firstHalf - secondHalf > 0.5 ? 'deteriorating' : 'stable';
+            stockHealthBySku[ss.id] = {
+              currentWeeks: Math.round(currentW * 10) / 10,
+              currentZone: currentZ,
+              trend,
+              targetMonthWeeks: Math.round(targetW * 10) / 10,
+              targetMonthZone: targetIdx >= 0 ? zoneAt(targetIdx) : currentZ,
+              nextMonthWeeks: Math.round(nextW * 10) / 10,
+              nextMonthZone: nextIdx >= 0 ? zoneAt(nextIdx) : currentZ,
+              criticalPeriods: criticalPeriods.slice(0, 5),
+              overstockPeriods: overstockPeriods.slice(0, 5),
+              healthScore: ss.healthScore,
+            };
+            // HARD STOCK GATE — reorder-point rule: stock is projected forward
+            // month by month (carry-forward closing stock drained by IMS, with
+            // forecast fallback for future months). An order/forecast for the
+            // target month is triggered only when the PROJECTED coverage at
+            // that month has fallen to 2 weeks or below. If the projection
+            // still shows more than 2 weeks at the target month, the SKU gets
+            // ZERO — not a soft reduction. The 99-week sentinel (stock on hand
+            // but no demand) also gates. If the target month is outside the
+            // planning horizon, gate on current coverage instead.
+            const gateWeeks = targetIdx >= 0 ? targetW : currentW;
+            if (gateWeeks > 2) {
+              stockGatedSkuIds.add(ss.id);
+              stockGateWeeksBySku[ss.id] = Math.round(gateWeeks * 10) / 10;
+            }
           }
         }
         // 4b. Compute total mastercases available
@@ -2815,7 +2795,8 @@ export const appRouter = router({
           const f5 = historicalShare * (conf / 100) * 0.10;
 
           let baseScore = f1 + f2 + f3 + f4 + f5;
-          // HARD STOCK GATE: >4 weeks of coverage in Planning FG → zero base
+          // HARD STOCK GATE: projected coverage at the target month still
+          // above the 2-week reorder point → zero base
           // score so the SKU gets no allocation and its share flows to
           // eligible SKUs during normalization.
           if (skuObj && stockGatedSkuIds.has(skuObj.id)) baseScore = 0;
@@ -3124,7 +3105,7 @@ ${skuSummaries.map(s => {
     orderLine,
     newSkuFlag,
     health ? `  STOCK HEALTH: Now=${health.currentWeeks}wks [${health.currentZone}] | ${monthName}=${health.targetMonthWeeks}wks [${health.targetMonthZone}] | Next=${health.nextMonthWeeks}wks [${health.nextMonthZone}] | Health score=${health.healthScore}% | Trend=${health.trend}` : '  STOCK HEALTH: No Planning FG data available',
-    stockGatedSkuIds.has(s.skuId) ? `  ⛔ STOCK GATE: Planning FG coverage is above 4 weeks — this SKU MUST receive recommendedMastercases: 0. Do not allocate anything to it.` : '',
+    stockGatedSkuIds.has(s.skuId) ? `  ⛔ STOCK GATE: projected stock coverage at the target month is still above the 2-week reorder point — this SKU MUST receive recommendedMastercases: 0. Do not allocate anything to it.` : '',
     health && health.criticalPeriods.length > 0 ? `  ⚠ CRITICAL STOCK PERIODS: ${health.criticalPeriods.join(', ')} — MUST increase allocation` : '',
     health && health.overstockPeriods.length > 0 ? `  ⚠ OVERSTOCK PERIODS: ${health.overstockPeriods.join(', ')} — MUST reduce allocation` : '',
   ].filter(Boolean).join('\n');
@@ -3133,7 +3114,7 @@ ${skuSummaries.map(s => {
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SECTION E: DECISION FRAMEWORK — APPLY IN THIS ORDER
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-0. HARD STOCK GATE (absolute rule, overrides EVERYTHING below including the new-SKU safeguard): any SKU marked "⛔ STOCK GATE" in Section D has more than 4 weeks of stock coverage in Planning FG and MUST receive recommendedMastercases: 0 and sharePercent: 0. Redistribute its volume to non-gated SKUs. In its "reasoning", state that stock coverage is above the 4-week limit.
+0. HARD STOCK GATE (absolute rule, overrides EVERYTHING below including the new-SKU safeguard): any SKU marked "⛔ STOCK GATE" in Section D still has more than 2 weeks of PROJECTED stock coverage at the target month (stock carried forward and drained by IMS month by month — an order is only triggered once coverage falls to 2 weeks or below) and MUST receive recommendedMastercases: 0 and sharePercent: 0. Redistribute its volume to non-gated SKUs. In its "reasoning", state that projected coverage has not yet reached the 2-week reorder point.
 1. STOCK HEALTH OVERRIDE (highest priority after the hard gate): SKUs in Critical/Negative/Out-of-Stock zones MUST receive +15-25% above base allocation. SKUs in Overstock zones MUST receive -10-20% below base allocation. This is non-negotiable.
 2. RAMADAN/SEASONAL ADJUSTMENT: ${isRamadanMonth ? `Apply +${ramadanBoostPct}% uplift to Tier 1 SKUs (Double Apple, Mint, Grape with Mint). Distribute the extra volume from overstocked/declining SKUs.` : 'Apply seasonal index adjustments. Summer months boost fruity SKUs; winter months reduce overall demand.'}
 3. TREND MOMENTUM: SKUs with >+10% rolling trend deserve above-base allocation. SKUs with >-10% rolling trend should be reduced below base.
@@ -3141,7 +3122,7 @@ SECTION E: DECISION FRAMEWORK — APPLY IN THIS ORDER
 5. COMPETITIVE CONTEXT: In ${country}, Al Fakher competes primarily with ${country === 'Lebanon' ? 'Nakhla and Mazaya' : country === 'Syria' ? 'Nakhla and local Syrian brands' : 'Nakhla and Eastern Company Egypt'}. Premium SKUs (Tier 1) should be prioritized as they are harder for competitors to match.
 6. YEAR-END / Q4 ADJUSTMENT: ${isYearEnd ? 'THIS IS DECEMBER — apply year-end closing logic: reduce NPI by 20-30%, maintain Core at 85-90% of normal. Distributors are minimizing inventory.' : isQ4 ? `Q4 month — be aware of approaching year-end patterns. ${targetMonth === 11 ? 'November may see front-loading before December slowdown.' : 'October is typically stable.'}` : isJanRestock ? 'JANUARY RESTOCKING — expect above-normal demand as distributors rebuild after December. Good time for NPI push.' : 'No special year-end adjustment needed for this month.'}
 7. SMOOTH TRANSITIONS: ${previousMonthContext ? 'This is part of a multi-month forecast. Avoid >15% month-over-month swings in any SKU share unless justified by seasonal shift, Ramadan, or year-end closing.' : 'Single month forecast — optimize for this month independently.'}
-8. NEW SKU SAFEGUARD (mandatory — read carefully): A SKU flagged "🆕 NEW SKU WITH ACTIVE ORDERS" has zero IMS sales history because it was only just launched, but the planner has already committed production/shipment orders for it. NEVER allocate 0 to such a SKU — UNLESS it is also marked "⛔ STOCK GATE" (rule 0 wins: over 4 weeks of stock means no new volume). Treat the orders volume (last 6mo + upcoming 3mo) as the strongest possible intent signal — the planner has put real money behind these SKUs. Allocate at least proportional to their share of total committed orders across all SKUs, and apply seasonal/Ramadan multipliers on top. If a SKU has both IMS history AND orders, weight orders as a forward-looking intent signal that complements (does not replace) IMS history. If a SKU has IMS history but no orders, allocate using the LLM's normal trend/seasonality/stock-health logic. If a SKU has NO IMS and NO orders, it may legitimately receive a very small or zero allocation.
+8. NEW SKU SAFEGUARD (mandatory — read carefully): A SKU flagged "🆕 NEW SKU WITH ACTIVE ORDERS" has zero IMS sales history because it was only just launched, but the planner has already committed production/shipment orders for it. NEVER allocate 0 to such a SKU — UNLESS it is also marked "⛔ STOCK GATE" (rule 0 wins: projected coverage above the 2-week reorder point means no new volume). Treat the orders volume (last 6mo + upcoming 3mo) as the strongest possible intent signal — the planner has put real money behind these SKUs. Allocate at least proportional to their share of total committed orders across all SKUs, and apply seasonal/Ramadan multipliers on top. If a SKU has both IMS history AND orders, weight orders as a forward-looking intent signal that complements (does not replace) IMS history. If a SKU has IMS history but no orders, allocate using the LLM's normal trend/seasonality/stock-health logic. If a SKU has NO IMS and NO orders, it may legitimately receive a very small or zero allocation.
 9. BALANCE: Ensure the sum of all recommendedMastercases equals EXACTLY ${totalMastercases}. Round to whole numbers.
 
 ${progressiveContext}
@@ -3231,7 +3212,7 @@ ${skus.map(s => `  ${s.id} — ${s.name} ${s.weight} (${(s as any).packagingType
             recommendedMastercases: mc,
             sharePercent: isStockGated ? 0 : Math.round(allocPct * 10) / 10,
             reasoning: isStockGated
-              ? `${reasoningPrefix}Excluded from this forecast: Planning FG shows ${stockGateWeeksBySku[sk.skuId] >= 99 ? 'stock on hand with no recent sales' : `${stockGateWeeksBySku[sk.skuId]} weeks of stock coverage`} — above the 4-week limit, so no new volume is placed for this SKU.`
+              ? `${reasoningPrefix}Excluded from this forecast: ${stockGateWeeksBySku[sk.skuId] >= 99 ? 'stock on hand with no recent sales' : `projected stock coverage is ${stockGateWeeksBySku[sk.skuId]} weeks at the target month`} — still above the 2-week reorder point, so no new volume is placed for this SKU.`
               : `${reasoningPrefix}Based on ${sk.monthsOfData} months of IMS data. Average monthly: ${sk.avgMonthly}. Rolling trend: ${sk.rollingTrend}%. ${health ? `Stock health: ${health.currentWeeks}wks [${health.currentZone}].` : ''}`,
             trend,
             seasonalityNote,
@@ -3277,7 +3258,7 @@ ${skus.map(s => `  ${s.id} — ${s.name} ${s.weight} (${(s as any).packagingType
             let iter = 0;
             while (diff !== 0 && iter < maxIter) {
               const idx = i % algorithmicRecs.length;
-              // Never pour MC into a stock-gated SKU (hard 4-week rule).
+              // Never pour MC into a stock-gated SKU (2-week reorder-point rule).
               if (diff > 0 && stockGatedSkuIds.has(algorithmicRecs[idx].skuId)) {
                 i++;
                 iter++;
@@ -3512,8 +3493,8 @@ Use the base allocation hints above as a starting point; you may adjust ±25% ba
           }
 
           // Step 3c: HARD STOCK GATE enforcement — regardless of what the LLM
-          // returned, any SKU with more than 4 weeks of Planning FG stock
-          // coverage is forced to 0 MC. The freed volume is redistributed to
+          // returned, any SKU whose projected coverage at the target month is
+          // still above the 2-week reorder point is forced to 0 MC. The freed volume is redistributed to
           // non-gated SKUs by the Step 4 rebalance below (which skips gated
           // rows as receivers).
           for (const rec of recommendations) {
@@ -3525,8 +3506,8 @@ Use the base allocation hints above as a starting point; you may adjust ±25% ba
             rec.stockAlert = 'overstock';
             rec.primaryDriver = 'stock_overstock';
             const wk = stockGateWeeksBySku[id];
-            const wkText = wk >= 99 ? 'stock on hand with no recent sales' : `${wk} weeks of stock coverage`;
-            rec.reasoning = `Excluded from this forecast: Planning FG shows ${wkText} — above the 4-week limit, so no new volume is placed for this SKU.${before > 0 ? ` (${before} MC redistributed to other SKUs.)` : ''}`;
+            const wkText = wk >= 99 ? 'stock on hand with no recent sales' : `projected stock coverage of ${wk} weeks at the target month`;
+            rec.reasoning = `Excluded from this forecast: ${wkText} — still above the 2-week reorder point, so no new volume is placed for this SKU.${before > 0 ? ` (${before} MC redistributed to other SKUs.)` : ''}`;
           }
 
           // Step 4: rebalance so the sum still equals totalMastercases EXACTLY.
@@ -3585,7 +3566,7 @@ Use the base allocation hints above as a starting point; you may adjust ±25% ba
             // stock-gated (all-gated country), surface it instead of silently
             // returning a lower total.
             if (diffCov > 0) {
-              (parsed.warnings ??= []).push(`Could not place ${diffCov} MC because every remaining SKU has more than 4 weeks of stock coverage. The recommended total is ${totalMastercases - diffCov} MC instead of ${totalMastercases} MC.`);
+              (parsed.warnings ??= []).push(`Could not place ${diffCov} MC because every remaining SKU still has projected stock coverage above the 2-week reorder point. The recommended total is ${totalMastercases - diffCov} MC instead of ${totalMastercases} MC.`);
               console.warn(`[ForecastSplit] Stock gate left ${diffCov} MC unplaced (all eligible SKUs gated).`);
             }
             const finalT = recommendations.reduce((s: number, r: any) => s + Math.max(0, Math.round(r.recommendedMastercases ?? 0)), 0);
@@ -3627,7 +3608,7 @@ Use the base allocation hints above as a starting point; you may adjust ±25% ba
             const sk = newSkuLookup.get(k1) ?? newSkuLookup.get(k2);
             if (!sk) return;
             // HARD STOCK GATE wins over the new-SKU safeguard: a new SKU whose
-            // Planning FG coverage is already above 4 weeks must stay at 0 MC.
+            // projected coverage is still above the 2-week reorder point must stay at 0 MC.
             if (stockGatedSkuIds.has(sk.skuId)) return;
             const skuOrders = sk.recentOrdersMC + sk.upcomingOrdersMC;
             const orderShare = allOrdersTotal > 0 ? (skuOrders / allOrdersTotal) : 0;
@@ -3683,7 +3664,7 @@ Use the base allocation hints above as a starting point; you may adjust ±25% ba
           const gatedNames = skus
             .filter(s => stockGatedSkuIds.has(s.id))
             .map(s => `${s.name} ${s.weight} (${(s as any).packagingType ?? 'New'})`);
-          extraWarnings.push(`${gatedNames.length} SKU(s) excluded from this forecast — Planning FG stock coverage above 4 weeks: ${gatedNames.join(', ')}. Their volume was redistributed to other SKUs.`);
+          extraWarnings.push(`${gatedNames.length} SKU(s) excluded from this forecast — projected stock coverage still above the 2-week reorder point at the target month: ${gatedNames.join(', ')}. Their volume was redistributed to other SKUs.`);
         }
         if (parsedDirectives.length > 0 && recommendations.length > 0) {
           // Helper: find recommendation index by SKU id.
@@ -3785,7 +3766,7 @@ Use the base allocation hints above as a starting point; you may adjust ±25% ba
           // The hard-fallback rebalance must NEVER add MC back to these — that
           // would silently reverse the planner's intent.
           const zeroedSkuIds = new Set<number>();
-          // Stock-gated SKUs (>4 weeks coverage) start locked at 0 so directive
+          // Stock-gated SKUs (projected coverage above the 2-week reorder point) start locked at 0 so directive
           // rebalancing can never pour MC back into them. An explicit planner
           // directive on such a SKU still applies below (planner intent wins
           // over the automatic gate) — applyDirectiveToRec overwrites the value
