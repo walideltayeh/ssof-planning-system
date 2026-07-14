@@ -27,3 +27,20 @@ the cap — there was no way to FORCE a value onto a 0 SKU. "set" fills that gap
 - Keep "cap" a ceiling — do not redefine it to raise values; high-volume planners rely on that.
 - Adding a new action means touching BOTH client (SkuAction type, buildSkuDirectives, UI Select/input)
   and server (zod enum, PlannerDirective type, structured mapping, prompt summary, applyDirectiveToRec, zeroedSkuIds).
+
+## Hard 4-week stock gate (July 2026 planner rule)
+
+Any SKU whose Planning FG stock coverage is **above 4 weeks** must get ZERO
+forecast allocation — a hard exclusion, not the old soft 0.82 overstock multiplier.
+
+**Why:** User explicitly rejected soft reductions ("if the stock level is above
+4 weeks, DO NOT place in the forecast"). Deliberately literal: even the
+"Healthy" 4–6 week zone is excluded. The 99-week sentinel (stock on hand, no
+demand) also gates. It even overrides the new-SKU-with-orders safeguard.
+
+**How to apply:** The gate must be enforced at EVERY layer (base scores, algo
+fallback, LLM prompt, post-LLM enforcement, every rebalance/refill pass —
+including the new-SKU boost pass). An explicit per-SKU planner directive is the
+ONLY thing that overrides the gate. Gate on target-month coverage when that
+period exists in Planning FG, else current coverage. Don't "fix" this back to
+a soft multiplier.

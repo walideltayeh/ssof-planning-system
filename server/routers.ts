@@ -2462,6 +2462,10 @@ export const appRouter = router({
           criticalPeriods: string[]; overstockPeriods: string[];
           healthScore: number;
         }> = {};
+        // SKUs excluded from the forecast entirely because Planning FG shows
+        // more than 4 weeks of stock coverage (hard planner rule).
+        const stockGatedSkuIds = new Set<number>();
+        const stockGateWeeksBySku: Record<number, number> = {};
         for (const sku of planningFgRaw.skus) {
           const closingStocks: { periodId: number; label: string; cs: number }[] = [];
           let runningCS = 0;
@@ -2526,6 +2530,16 @@ export const appRouter = router({
             overstockPeriods: overstockPeriods.slice(0, 5),
             healthScore,
           };
+          // HARD STOCK GATE (planner rule): any SKU whose Planning FG stock
+          // coverage is ABOVE 4 weeks must receive ZERO forecast — not a soft
+          // reduction. Gate on the target-month coverage when that period
+          // exists in Planning FG, otherwise on current coverage. The 99-week
+          // sentinel (stock on hand but no IMS/forecast demand) also gates.
+          const gateWeeks = targetPeriod ? targetW : currentW;
+          if (gateWeeks > 4) {
+            stockGatedSkuIds.add(sku.id);
+            stockGateWeeksBySku[sku.id] = Math.round(gateWeeks * 10) / 10;
+          }
         }
         // 4b. Compute total mastercases available
         const totalKg = totalTons * 1000;
@@ -2800,7 +2814,11 @@ export const appRouter = router({
           // Factor 5: Confidence score (10%)
           const f5 = historicalShare * (conf / 100) * 0.10;
 
-          const baseScore = f1 + f2 + f3 + f4 + f5;
+          let baseScore = f1 + f2 + f3 + f4 + f5;
+          // HARD STOCK GATE: >4 weeks of coverage in Planning FG → zero base
+          // score so the SKU gets no allocation and its share flows to
+          // eligible SKUs during normalization.
+          if (skuObj && stockGatedSkuIds.has(skuObj.id)) baseScore = 0;
           skuBaseScores[sk.name] = baseScore;
           totalBaseScore += baseScore;
         }
@@ -3106,6 +3124,7 @@ ${skuSummaries.map(s => {
     orderLine,
     newSkuFlag,
     health ? `  STOCK HEALTH: Now=${health.currentWeeks}wks [${health.currentZone}] | ${monthName}=${health.targetMonthWeeks}wks [${health.targetMonthZone}] | Next=${health.nextMonthWeeks}wks [${health.nextMonthZone}] | Health score=${health.healthScore}% | Trend=${health.trend}` : '  STOCK HEALTH: No Planning FG data available',
+    stockGatedSkuIds.has(s.skuId) ? `  ⛔ STOCK GATE: Planning FG coverage is above 4 weeks — this SKU MUST receive recommendedMastercases: 0. Do not allocate anything to it.` : '',
     health && health.criticalPeriods.length > 0 ? `  ⚠ CRITICAL STOCK PERIODS: ${health.criticalPeriods.join(', ')} — MUST increase allocation` : '',
     health && health.overstockPeriods.length > 0 ? `  ⚠ OVERSTOCK PERIODS: ${health.overstockPeriods.join(', ')} — MUST reduce allocation` : '',
   ].filter(Boolean).join('\n');
@@ -3114,14 +3133,15 @@ ${skuSummaries.map(s => {
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SECTION E: DECISION FRAMEWORK — APPLY IN THIS ORDER
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. STOCK HEALTH OVERRIDE (highest priority): SKUs in Critical/Negative/Out-of-Stock zones MUST receive +15-25% above base allocation. SKUs in Overstock zones MUST receive -10-20% below base allocation. This is non-negotiable.
+0. HARD STOCK GATE (absolute rule, overrides EVERYTHING below including the new-SKU safeguard): any SKU marked "⛔ STOCK GATE" in Section D has more than 4 weeks of stock coverage in Planning FG and MUST receive recommendedMastercases: 0 and sharePercent: 0. Redistribute its volume to non-gated SKUs. In its "reasoning", state that stock coverage is above the 4-week limit.
+1. STOCK HEALTH OVERRIDE (highest priority after the hard gate): SKUs in Critical/Negative/Out-of-Stock zones MUST receive +15-25% above base allocation. SKUs in Overstock zones MUST receive -10-20% below base allocation. This is non-negotiable.
 2. RAMADAN/SEASONAL ADJUSTMENT: ${isRamadanMonth ? `Apply +${ramadanBoostPct}% uplift to Tier 1 SKUs (Double Apple, Mint, Grape with Mint). Distribute the extra volume from overstocked/declining SKUs.` : 'Apply seasonal index adjustments. Summer months boost fruity SKUs; winter months reduce overall demand.'}
 3. TREND MOMENTUM: SKUs with >+10% rolling trend deserve above-base allocation. SKUs with >-10% rolling trend should be reduced below base.
 4. MARKET INTELLIGENCE: Double Apple is the anchor SKU in ${country} — never allocate below 25% of its historical share unless severely overstocked. Mint is the universal mixer — maintain consistent supply. NPI SKUs with <6 months data should be allocated conservatively (max 5% above base) unless early data shows exceptional traction.
 5. COMPETITIVE CONTEXT: In ${country}, Al Fakher competes primarily with ${country === 'Lebanon' ? 'Nakhla and Mazaya' : country === 'Syria' ? 'Nakhla and local Syrian brands' : 'Nakhla and Eastern Company Egypt'}. Premium SKUs (Tier 1) should be prioritized as they are harder for competitors to match.
 6. YEAR-END / Q4 ADJUSTMENT: ${isYearEnd ? 'THIS IS DECEMBER — apply year-end closing logic: reduce NPI by 20-30%, maintain Core at 85-90% of normal. Distributors are minimizing inventory.' : isQ4 ? `Q4 month — be aware of approaching year-end patterns. ${targetMonth === 11 ? 'November may see front-loading before December slowdown.' : 'October is typically stable.'}` : isJanRestock ? 'JANUARY RESTOCKING — expect above-normal demand as distributors rebuild after December. Good time for NPI push.' : 'No special year-end adjustment needed for this month.'}
 7. SMOOTH TRANSITIONS: ${previousMonthContext ? 'This is part of a multi-month forecast. Avoid >15% month-over-month swings in any SKU share unless justified by seasonal shift, Ramadan, or year-end closing.' : 'Single month forecast — optimize for this month independently.'}
-8. NEW SKU SAFEGUARD (mandatory — read carefully): A SKU flagged "🆕 NEW SKU WITH ACTIVE ORDERS" has zero IMS sales history because it was only just launched, but the planner has already committed production/shipment orders for it. NEVER allocate 0 to such a SKU. Treat the orders volume (last 6mo + upcoming 3mo) as the strongest possible intent signal — the planner has put real money behind these SKUs. Allocate at least proportional to their share of total committed orders across all SKUs, and apply seasonal/Ramadan multipliers on top. If a SKU has both IMS history AND orders, weight orders as a forward-looking intent signal that complements (does not replace) IMS history. If a SKU has IMS history but no orders, allocate using the LLM's normal trend/seasonality/stock-health logic. If a SKU has NO IMS and NO orders, it may legitimately receive a very small or zero allocation.
+8. NEW SKU SAFEGUARD (mandatory — read carefully): A SKU flagged "🆕 NEW SKU WITH ACTIVE ORDERS" has zero IMS sales history because it was only just launched, but the planner has already committed production/shipment orders for it. NEVER allocate 0 to such a SKU — UNLESS it is also marked "⛔ STOCK GATE" (rule 0 wins: over 4 weeks of stock means no new volume). Treat the orders volume (last 6mo + upcoming 3mo) as the strongest possible intent signal — the planner has put real money behind these SKUs. Allocate at least proportional to their share of total committed orders across all SKUs, and apply seasonal/Ramadan multipliers on top. If a SKU has both IMS history AND orders, weight orders as a forward-looking intent signal that complements (does not replace) IMS history. If a SKU has IMS history but no orders, allocate using the LLM's normal trend/seasonality/stock-health logic. If a SKU has NO IMS and NO orders, it may legitimately receive a very small or zero allocation.
 9. BALANCE: Ensure the sum of all recommendedMastercases equals EXACTLY ${totalMastercases}. Round to whole numbers.
 
 ${progressiveContext}
@@ -3167,7 +3187,8 @@ ${skus.map(s => `  ${s.id} — ${s.name} ${s.weight} (${(s as any).packagingType
         // the LLM omits some active SKUs from its response (coverage validator).
         const buildAlgoRecForSku = (sk: typeof skuSummaries[number], reasoningPrefix: string = '') => {
           const allocPct = skuBaseAllocPct[sk.name] ?? 0;
-          const mc = Math.round(totalMastercases * allocPct / 100);
+          const isStockGated = stockGatedSkuIds.has(sk.skuId);
+          const mc = isStockGated ? 0 : Math.round(totalMastercases * allocPct / 100);
           const skuObj = skus.find(s => s.id === sk.skuId);
           const health = skuObj ? stockHealthBySku[skuObj.id] : null;
           const conf = skuConfidenceScores[sk.name] ?? 50;
@@ -3208,8 +3229,10 @@ ${skus.map(s => `  ${s.id} — ${s.name} ${s.weight} (${(s as any).packagingType
             category: sk.category,
             packagingType: sk.packagingType,
             recommendedMastercases: mc,
-            sharePercent: Math.round(allocPct * 10) / 10,
-            reasoning: `${reasoningPrefix}Based on ${sk.monthsOfData} months of IMS data. Average monthly: ${sk.avgMonthly}. Rolling trend: ${sk.rollingTrend}%. ${health ? `Stock health: ${health.currentWeeks}wks [${health.currentZone}].` : ''}`,
+            sharePercent: isStockGated ? 0 : Math.round(allocPct * 10) / 10,
+            reasoning: isStockGated
+              ? `${reasoningPrefix}Excluded from this forecast: Planning FG shows ${stockGateWeeksBySku[sk.skuId] >= 99 ? 'stock on hand with no recent sales' : `${stockGateWeeksBySku[sk.skuId]} weeks of stock coverage`} — above the 4-week limit, so no new volume is placed for this SKU.`
+              : `${reasoningPrefix}Based on ${sk.monthsOfData} months of IMS data. Average monthly: ${sk.avgMonthly}. Rolling trend: ${sk.rollingTrend}%. ${health ? `Stock health: ${health.currentWeeks}wks [${health.currentZone}].` : ''}`,
             trend,
             seasonalityNote,
             stockAlert,
@@ -3254,6 +3277,12 @@ ${skus.map(s => `  ${s.id} — ${s.name} ${s.weight} (${(s as any).packagingType
             let iter = 0;
             while (diff !== 0 && iter < maxIter) {
               const idx = i % algorithmicRecs.length;
+              // Never pour MC into a stock-gated SKU (hard 4-week rule).
+              if (diff > 0 && stockGatedSkuIds.has(algorithmicRecs[idx].skuId)) {
+                i++;
+                iter++;
+                continue;
+              }
               if (diff > 0) {
                 algorithmicRecs[idx].recommendedMastercases += 1;
                 diff -= 1;
@@ -3482,13 +3511,33 @@ Use the base allocation hints above as a starting point; you may adjust ±25% ba
             finalCanonical.forEach(rec => recommendations.push(rec));
           }
 
+          // Step 3c: HARD STOCK GATE enforcement — regardless of what the LLM
+          // returned, any SKU with more than 4 weeks of Planning FG stock
+          // coverage is forced to 0 MC. The freed volume is redistributed to
+          // non-gated SKUs by the Step 4 rebalance below (which skips gated
+          // rows as receivers).
+          for (const rec of recommendations) {
+            const id = typeof rec.skuId === 'number' ? rec.skuId : null;
+            if (id === null || !stockGatedSkuIds.has(id)) continue;
+            const before = Math.max(0, Math.round(rec.recommendedMastercases ?? 0));
+            rec.recommendedMastercases = 0;
+            rec.sharePercent = 0;
+            rec.stockAlert = 'overstock';
+            rec.primaryDriver = 'stock_overstock';
+            const wk = stockGateWeeksBySku[id];
+            const wkText = wk >= 99 ? 'stock on hand with no recent sales' : `${wk} weeks of stock coverage`;
+            rec.reasoning = `Excluded from this forecast: Planning FG shows ${wkText} — above the 4-week limit, so no new volume is placed for this SKU.${before > 0 ? ` (${before} MC redistributed to other SKUs.)` : ''}`;
+          }
+
           // Step 4: rebalance so the sum still equals totalMastercases EXACTLY.
           // Newly-added rows usually push the total above totalMastercases.
           const sumNow = recommendations.reduce((s: number, r: any) => s + Math.max(0, Math.round(r.recommendedMastercases ?? 0)), 0);
           let diffCov = totalMastercases - sumNow;
           if (diffCov !== 0 && recommendations.length > 0) {
+            // Gated rows can never receive MC; when removing MC they are already 0.
             const sortable: { idx: number; mc: number }[] = recommendations
               .map((r: any, idx: number) => ({ idx, mc: Math.max(0, Math.round(r.recommendedMastercases ?? 0)) }))
+              .filter((d: { idx: number; mc: number }) => !(typeof recommendations[d.idx].skuId === 'number' && stockGatedSkuIds.has(recommendations[d.idx].skuId)))
               .sort((a: { idx: number; mc: number }, b: { idx: number; mc: number }) => b.mc - a.mc);
             let i = 0;
             const maxIter = sortable.length * Math.abs(diffCov) + sortable.length + 1;
@@ -3532,6 +3581,13 @@ Use the base allocation hints above as a starting point; you may adjust ±25% ba
                 console.error(`[ForecastSplit] Coverage rebalance could not reach totalMastercases (residual ${diffCov} MC). Total may be off — investigate.`);
               }
             }
+            // If MC still needs to be ADDED but every eligible receiver is
+            // stock-gated (all-gated country), surface it instead of silently
+            // returning a lower total.
+            if (diffCov > 0) {
+              (parsed.warnings ??= []).push(`Could not place ${diffCov} MC because every remaining SKU has more than 4 weeks of stock coverage. The recommended total is ${totalMastercases - diffCov} MC instead of ${totalMastercases} MC.`);
+              console.warn(`[ForecastSplit] Stock gate left ${diffCov} MC unplaced (all eligible SKUs gated).`);
+            }
             const finalT = recommendations.reduce((s: number, r: any) => s + Math.max(0, Math.round(r.recommendedMastercases ?? 0)), 0);
             recommendations.forEach((r: any) => {
               r.sharePercent = finalT > 0 ? Math.round((r.recommendedMastercases / finalT) * 1000) / 10 : 0;
@@ -3570,6 +3626,9 @@ Use the base allocation hints above as a starting point; you may adjust ±25% ba
             const k2 = `${rec.skuName}|${rec.weight}`;
             const sk = newSkuLookup.get(k1) ?? newSkuLookup.get(k2);
             if (!sk) return;
+            // HARD STOCK GATE wins over the new-SKU safeguard: a new SKU whose
+            // Planning FG coverage is already above 4 weeks must stay at 0 MC.
+            if (stockGatedSkuIds.has(sk.skuId)) return;
             const skuOrders = sk.recentOrdersMC + sk.upcomingOrdersMC;
             const orderShare = allOrdersTotal > 0 ? (skuOrders / allOrdersTotal) : 0;
             const proposed = Math.max(1, Math.round(totalMastercases * orderShare));
@@ -3620,6 +3679,12 @@ Use the base allocation hints above as a starting point; you may adjust ±25% ba
         // Runs AFTER both LLM and algorithmic outputs, so the planner's intent is honored
         // regardless of whether the main LLM obeyed the prompt instructions.
         const extraWarnings: string[] = [];
+        if (stockGatedSkuIds.size > 0) {
+          const gatedNames = skus
+            .filter(s => stockGatedSkuIds.has(s.id))
+            .map(s => `${s.name} ${s.weight} (${(s as any).packagingType ?? 'New'})`);
+          extraWarnings.push(`${gatedNames.length} SKU(s) excluded from this forecast — Planning FG stock coverage above 4 weeks: ${gatedNames.join(', ')}. Their volume was redistributed to other SKUs.`);
+        }
         if (parsedDirectives.length > 0 && recommendations.length > 0) {
           // Helper: find recommendation index by SKU id.
           // Primary key is rec.skuId (LLM is told to echo it). Fallback uses
@@ -3720,6 +3785,17 @@ Use the base allocation hints above as a starting point; you may adjust ±25% ba
           // The hard-fallback rebalance must NEVER add MC back to these — that
           // would silently reverse the planner's intent.
           const zeroedSkuIds = new Set<number>();
+          // Stock-gated SKUs (>4 weeks coverage) start locked at 0 so directive
+          // rebalancing can never pour MC back into them. An explicit planner
+          // directive on such a SKU still applies below (planner intent wins
+          // over the automatic gate) — applyDirectiveToRec overwrites the value
+          // and manages the zero-protection itself.
+          const directiveTargetIds = new Set<number>(parsedDirectives.flatMap(d => d.skuIds));
+          for (const gatedId of stockGatedSkuIds) {
+            if (directiveTargetIds.has(gatedId)) continue;
+            lockedSkuIds.add(gatedId);
+            zeroedSkuIds.add(gatedId);
+          }
           const directiveAppliedSummaries: string[] = [];
 
           // Helper: apply a directive's math to a single rec.
