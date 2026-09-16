@@ -2,6 +2,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import fs from "fs";
 import * as db from "./db";
+import { runSyriaClearanceDedup } from "./data-repairs/syriaClearanceDedup";
 
 // __dirname shim for ESM (used in production build)
 const __filename = fileURLToPath(import.meta.url);
@@ -109,6 +110,33 @@ async function ensureSchemaColumns(dbInstance: any) {
   }
 }
 
+async function runDataRepairs(dbInstance: any) {
+  try {
+    const report = await runSyriaClearanceDedup(dbInstance);
+    if (report.lockedByOther) {
+      console.log("[DataRepair] Syria clearance dedup: another instance is running it, skipped.");
+      return;
+    }
+    const applied = report.steps.filter((s) => s.state === "applied").length;
+    const absent = report.steps.filter((s) => s.state === "absent").length;
+    const inconsistent = report.steps.filter((s) => s.state === "inconsistent");
+    if (applied === 0 && inconsistent.length === 0) {
+      console.log(absent === report.steps.length
+        ? "[DataRepair] Syria clearance dedup: no matching events in this database, nothing to repair."
+        : "[DataRepair] Syria clearance dedup: already applied, nothing to do.");
+    }
+    // Anything that is neither applied nor cleanly done needs a human look —
+    // it is never guessed at, only reported.
+    for (const step of inconsistent) {
+      console.warn(`[DataRepair] Syria clearance dedup: event #${step.id} left alone — ${step.detail}`);
+    }
+  } catch (e: any) {
+    // A failed repair must never block the app from starting; the whole
+    // transaction rolled back, so the next start simply tries again.
+    console.error(`[DataRepair] Syria clearance dedup failed (will retry on next start): ${e?.message ?? e}`);
+  }
+}
+
 export async function runStartupMigration() {
   try {
     const dbInstance = await (db as any).getDb?.();
@@ -123,6 +151,9 @@ export async function runStartupMigration() {
     // Force every existing username to its canonical lowercase form so
     // case-insensitive login always works, even for legacy/imported rows.
     await normalizeUsernames(dbInstance);
+
+    // One-off, idempotent data repairs (each is a no-op once applied).
+    await runDataRepairs(dbInstance);
 
     const { getSkusForCountry, restoreSnapshot, importClearanceEvent } = db;
 

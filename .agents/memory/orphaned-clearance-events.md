@@ -11,5 +11,6 @@ description: Why a batch that owns clearance events must always be listed on the
 - Never reintroduce a "production > 0" filter as the only surfacing condition for Arrival batches.
 - The same helper (`arrival.helpers.ts`) is used by Arrival and Planning FG so the orphan rule stays identical (actual = manual actual override else shipment weeks; planned = forecast).
 - Dashboard tiles on Arrival (Expected / Still to Clear / confirmed counts) exclude orphan batches on both the plan and cleared side.
-- Data cleanup happens through the app UI (production DB is read-only for the agent): banner → "Show only these" → expand batch → "Delete all N events".
+- Data cleanup normally happens through the app UI: banner → "Show only these" → expand batch → "Delete all N events". The Sept-2026 Syria duplicates were instead fixed by a guarded startup repair (see [startup data repairs](startup-data-repairs.md)); it is now in the "done" steady state and must stay in place (removing it is harmless, re-running is a no-op).
+- User-confirmed data facts from that incident: Grape 50 MC produced/cleared May 2026 is Grape **50g** (not 1kg); 2025 and the Jan-20-2026 clearances are correct and must not be touched.
 - Clearance-event delete/update are scoped by (id, country, skuId, periodId) and throw when nothing matches — do not relax this back to id-only.

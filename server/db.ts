@@ -788,6 +788,17 @@ export async function updateClearanceEvent(eventId: number, data: {
 async function syncShipmentClearedFromEvents(skuId: number, periodId: number, country: Country): Promise<void> {
   const db = await getDb();
   if (!db) return;
+  await syncShipmentClearedFromEventsWith(db, skuId, periodId, country);
+}
+
+/** Any drizzle handle that can run the sync — the pool db or a transaction. */
+export type DbExecutor = Pick<NonNullable<Awaited<ReturnType<typeof getDb>>>, "select" | "insert" | "update" | "delete">;
+
+/**
+ * Same as `syncShipmentClearedFromEvents` but runs on the given handle so
+ * callers inside a transaction (data repairs) stay atomic with their edits.
+ */
+export async function syncShipmentClearedFromEventsWith(db: DbExecutor, skuId: number, periodId: number, country: Country): Promise<void> {
   const events = await db.select().from(clearanceEvents)
     .where(and(eq(clearanceEvents.skuId, skuId), eq(clearanceEvents.periodId, periodId), eq(clearanceEvents.country, country)));
   const totalCleared = events.reduce((s, e) => s + parseFloat(e.clearedQty ?? "0"), 0);
