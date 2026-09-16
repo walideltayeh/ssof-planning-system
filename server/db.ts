@@ -729,10 +729,27 @@ export async function addClearanceEvent(data: {
   return result?.id ?? 0;
 }
 
+// Delete/update are scoped to the (country, sku, period) the caller was
+// authorized for — never by id alone — so an event id from another country
+// (or another batch) can neither be removed nor edited through this path.
+function clearanceEventScope(eventId: number, skuId: number, periodId: number, country: Country) {
+  return and(
+    eq(clearanceEvents.id, eventId),
+    eq(clearanceEvents.country, country),
+    eq(clearanceEvents.skuId, skuId),
+    eq(clearanceEvents.periodId, periodId),
+  );
+}
+
 export async function deleteClearanceEvent(eventId: number, skuId: number, periodId: number, country: Country): Promise<void> {
   const db = await getDb();
   if (!db) return;
-  await db.delete(clearanceEvents).where(eq(clearanceEvents.id, eventId));
+  const deleted = await db.delete(clearanceEvents)
+    .where(clearanceEventScope(eventId, skuId, periodId, country))
+    .returning({ id: clearanceEvents.id });
+  if (deleted.length === 0) {
+    throw new Error(`Clearance event ${eventId} not found for this ${country} batch`);
+  }
   await syncShipmentClearedFromEvents(skuId, periodId, country);
 }
 
@@ -757,7 +774,12 @@ export async function updateClearanceEvent(eventId: number, data: {
   if (data.invoiceRef !== undefined) updateData.invoiceRef = data.invoiceRef;
   if (data.containerRef !== undefined) updateData.containerRef = data.containerRef;
   if (Object.keys(updateData).length > 0) {
-    await db.update(clearanceEvents).set(updateData).where(eq(clearanceEvents.id, eventId));
+    const updated = await db.update(clearanceEvents).set(updateData)
+      .where(clearanceEventScope(eventId, data.skuId, data.periodId, data.country))
+      .returning({ id: clearanceEvents.id });
+    if (updated.length === 0) {
+      throw new Error(`Clearance event ${eventId} not found for this ${data.country} batch`);
+    }
   }
   await syncShipmentClearedFromEvents(data.skuId, data.periodId, data.country);
 }

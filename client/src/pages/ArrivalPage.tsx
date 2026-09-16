@@ -10,6 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { computeArrivalDate, formatArrivalDate } from "./ShipmentPage";
+import { decideBatchSurface, summarizeOrphans } from "./arrival.helpers";
 import ExportSheetButton from "@/components/ExportSheetButton";
 import ImportSheetButton from "@/components/ImportSheetButton";
 
@@ -127,6 +128,9 @@ export default function ArrivalPage() {
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterYear, setFilterYear] = useState<string>("all");
   const [filterMonth, setFilterMonth] = useState<string>("all");
+  // "Only orphaned" — batches that own clearance events but have no
+  // production. See arrival.helpers.ts for why these must stay visible.
+  const [filterOrphansOnly, setFilterOrphansOnly] = useState(false);
   const [collapsedPeriods, setCollapsedPeriods] = useState<Set<string>>(new Set());
   const togglePeriodCollapse = useCallback((key: string) => {
     setCollapsedPeriods(prev => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n; });
@@ -476,6 +480,11 @@ export default function ArrivalPage() {
         clearedDate: string | null;
         pendingClearDate: string | null;
         note: string | null;
+        // No production (plan or actual) but clearance events are logged
+        // against this batch. Planning FG still counts those events as
+        // arrivals (it sums by cleared date), so they must stay visible here
+        // to be deleted or re-entered under the right batch.
+        isOrphan: boolean;
       };
 
     const batches: Batch[] = [];
@@ -492,9 +501,16 @@ export default function ArrivalPage() {
         const actualTotal = actualEntered !== undefined ? actualEntered : 0;
         const isAwaitingActual = actualTotal === 0 && plannedTotal > 0;
         // A batch surfaces when an Actual was entered OR a forecast plan
-        // exists (so planners can see "awaiting actual" rows). Skip when
-        // both are zero — nothing to track.
-        if (actualTotal === 0 && plannedTotal === 0) continue;
+        // exists (so planners can see "awaiting actual" rows) OR clearance
+        // events are attached to it (orphaned — see Batch.isOrphan). Skip
+        // only when there is nothing at all to track.
+        const surface = decideBatchSurface({
+          actualTotal,
+          plannedTotal,
+          eventCount: clearanceEventsMap.get(key)?.length ?? 0,
+        });
+        if (!surface.surface) continue;
+        const isOrphan = surface.isOrphan;
         // Downstream sizing (cleared/pending qty) needs a number — fall back
         // to the plan when no actual has been entered yet.
         const total = actualTotal > 0 ? actualTotal : plannedTotal;
@@ -511,9 +527,17 @@ export default function ArrivalPage() {
           arrivalOffsetValue: offVal, arrivalOffsetUnit: offUnit, arrivalDate,
           arrivalStatus, clearedQty, clearedDate, pendingClearDate,
           note: shipRow?.note ?? null,
+          isOrphan,
         });
       }
     }
+
+    // ── Orphaned batches (clearance events with no production) ────────────
+    const orphanBatches = batches.filter(b => b.isOrphan);
+    const orphanSummary = summarizeOrphans(
+      orphanBatches.map(b => ({ events: clearanceEventsMap.get(`${b.sku.id}-${b.period.id}`) ?? [] })),
+    );
+    const orphanPeriodLabels = Array.from(new Set(orphanBatches.map(b => b.period.label)));
 
     // Sort by arrival date (nulls last), then by SKU name
     batches.sort((a, b) => {
@@ -571,9 +595,11 @@ export default function ArrivalPage() {
       if (filterStatus !== "all" && b.arrivalStatus !== filterStatus) return false;
       if (filterYear !== "all" && b.period.year !== parseInt(filterYear)) return false;
       if (filterMonth !== "all" && b.period.month !== parseInt(filterMonth)) return false;
+      if (filterOrphansOnly && !b.isOrphan) return false;
       return true;
     });
-    const isFiltered = filterSku !== "" || filterStatus !== "all" || filterYear !== "all" || filterMonth !== "all";
+    const isFiltered = filterSku !== "" || filterStatus !== "all" || filterYear !== "all" || filterMonth !== "all" || filterOrphansOnly;
+    const clearAllFilters = () => { setFilterSku(""); setFilterStatus("all"); setFilterYear("all"); setFilterMonth("all"); setFilterOrphansOnly(false); };
 
     // ── Group filtered batches by period ─────────────────────────────────
     const periodGroups: { periodKey: string; periodLabel: string; periodYear: number; periodMonth: number; batches: typeof filteredBatches }[] = [];
@@ -673,10 +699,22 @@ export default function ArrivalPage() {
               {availableMonths.map(m => <option key={m} value={m}>{MONTH_NAMES[m - 1]}</option>)}
             </select>
           </div>
+          {/* Orphaned-only toggle (only offered when there is something to show) */}
+          {orphanBatches.length > 0 && (
+            <label className="flex items-center gap-1.5 text-[10px] font-medium text-amber-800 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={filterOrphansOnly}
+                onChange={e => setFilterOrphansOnly(e.target.checked)}
+                className="accent-amber-600"
+              />
+              Only batches without production
+            </label>
+          )}
           {/* Clear filters */}
           {isFiltered && (
             <button
-              onClick={() => { setFilterSku(""); setFilterStatus("all"); setFilterYear("all"); setFilterMonth("all"); }}
+              onClick={clearAllFilters}
               className="text-[10px] font-medium text-muted-foreground hover:text-foreground px-2 py-1 rounded border border-border hover:bg-muted transition-colors"
             >Clear Filters</button>
           )}
@@ -685,6 +723,26 @@ export default function ArrivalPage() {
             {isFiltered ? `${filteredBatches.length} of ${totalBatches} batches` : `${totalBatches} batches`}
           </span>
         </div>
+
+        {/* ── Orphaned clearance events warning ── */}
+        {orphanBatches.length > 0 && (
+          <div
+            className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 rounded-lg border border-amber-400 bg-amber-50 text-[11px] text-amber-900"
+            data-testid="orphan-clearance-banner"
+          >
+            <span className="font-bold">
+              ⚠ {orphanSummary.eventCount} clearance event{orphanSummary.eventCount === 1 ? "" : "s"} ({formatVal(orphanSummary.totalQty)} {unitLabel}) attached to {orphanSummary.batchCount} batch{orphanSummary.batchCount === 1 ? "" : "es"} with no production
+              {orphanPeriodLabels.length > 0 && <> — {orphanPeriodLabels.join(", ")}</>}
+            </span>
+            <span className="text-amber-800/90">
+              Planning FG still counts these as arrivals in the month they were cleared. If the same arrivals were re-entered under the correct production batch, delete the copies here — otherwise stock is double-counted.
+            </span>
+            <button
+              onClick={() => setFilterOrphansOnly(v => !v)}
+              className="ml-auto px-2 py-0.5 rounded border border-amber-500 bg-white hover:bg-amber-100 font-semibold text-amber-900 transition-colors"
+            >{filterOrphansOnly ? "Show all batches" : "Show only these"}</button>
+          </div>
+        )}
 
         {/* ── Dashboard summary (always visible, above table) ── */}
         {totalBatches > 0 && (() => {
@@ -717,26 +775,32 @@ export default function ArrivalPage() {
           // ── Plan vs Actual roll-up across every visible batch ──
           // Drives the "Expected Arrivals" + "Actual Confirmed vs Planned"
           // cards required by the May 2026 spec.
-          const confirmedBatches = filteredBatches.filter(b => !b.isAwaitingActual);
-          const awaitingBatches = filteredBatches.filter(b => b.isAwaitingActual);
+          // Orphaned batches have no plan and no actual — they must not be
+          // counted as "confirmed" production or as expected arrivals.
+          const productionBatches = filteredBatches.filter(b => !b.isOrphan);
+          const confirmedBatches = productionBatches.filter(b => !b.isAwaitingActual);
+          const awaitingBatches = productionBatches.filter(b => b.isAwaitingActual);
           const totalActual = confirmedBatches.reduce((s, b) => s + b.actualTotal, 0);
           const confirmedPlanned = confirmedBatches.reduce((s, b) => s + b.plannedTotal, 0);
           const variance = totalActual - confirmedPlanned;
           // "Expected Arrivals" = the planned arrival qty (Forecast Production
            // for each batch's period). Independent of whether actuals were
            // entered — what we *expect to receive*, by the plan.
-          const expectedQty = filteredBatches.reduce((s, b) => s + b.plannedTotal, 0);
+          const expectedQty = productionBatches.reduce((s, b) => s + b.plannedTotal, 0);
           // "Still to Clear" on the dashboard reconciles at the AGGREGATE
           // level — Expected minus Cleared — to match the user's stated
           // formula. (Per-batch max(0, …) clamping inflates the total when a
           // single batch was over-cleared, which is why the dashboard tile
           // does the math at the totals level instead.)
-          const totalClearedQty = filteredBatches.reduce((s, b) => {
+          // Orphan clearances are excluded on BOTH sides: they have no plan,
+          // so counting their cleared qty here would wrongly cancel out the
+          // pending qty of real, still-uncleared production batches.
+          const totalClearedQty = productionBatches.reduce((s, b) => {
             const evs = clearanceEventsMap.get(`${b.sku.id}-${b.period.id}`) ?? [];
             return s + evs.reduce((es, e) => es + parseFloat(e.clearedQty ?? "0"), 0);
           }, 0);
           const dashStillToClearQty = Math.max(0, expectedQty - totalClearedQty);
-          const dashStillToClearBatches = filteredBatches.filter(b => {
+          const dashStillToClearBatches = productionBatches.filter(b => {
             const evs = clearanceEventsMap.get(`${b.sku.id}-${b.period.id}`) ?? [];
             const cleared = evs.reduce((es, e) => es + parseFloat(e.clearedQty ?? "0"), 0);
             return b.plannedTotal - cleared > 0;
@@ -750,7 +814,7 @@ export default function ArrivalPage() {
                 <StatCard
                   label="Expected Arrivals"
                   sublabel="planned (Forecast Production)"
-                  count={filteredBatches.length}
+                  count={productionBatches.length}
                   qty={expectedQty}
                   qtyLabel={`${unitLabel} expected`}
                   accent="bg-slate-50 border-slate-200"
@@ -758,7 +822,7 @@ export default function ArrivalPage() {
                 />
                 <StatCard
                   label="Actual Confirmed vs Planned"
-                  sublabel={`${confirmedBatches.length} confirmed of ${filteredBatches.length}`}
+                  sublabel={`${confirmedBatches.length} confirmed of ${productionBatches.length}`}
                   count={confirmedBatches.length}
                   qty={totalActual}
                   qtyLabel={`${unitLabel} actual`}
@@ -834,8 +898,10 @@ export default function ArrivalPage() {
               // Period-level Plan vs Actual roll-up. "Plan" sums every visible
               // batch's plan, "Actual" only counts confirmed batches so the
               // delta line stays apples-to-apples.
-              const periodConfirmed = periodBatches.filter(b => !b.isAwaitingActual);
-              const periodAwaitingCount = periodBatches.length - periodConfirmed.length;
+              const periodProduction = periodBatches.filter(b => !b.isOrphan);
+              const periodOrphanCount = periodBatches.length - periodProduction.length;
+              const periodConfirmed = periodProduction.filter(b => !b.isAwaitingActual);
+              const periodAwaitingCount = periodProduction.length - periodConfirmed.length;
               const periodPlanned = periodBatches.reduce((s, b) => s + b.plannedTotal, 0);
               const periodActual = periodConfirmed.reduce((s, b) => s + b.actualTotal, 0);
               const periodConfirmedPlanned = periodConfirmed.reduce((s, b) => s + b.plannedTotal, 0);
@@ -868,6 +934,11 @@ export default function ArrivalPage() {
                         {periodAwaitingCount} Awaiting Actual
                       </span>
                     )}
+                    {periodOrphanCount > 0 && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-500">
+                        ⚠ {periodOrphanCount} without production
+                      </span>
+                    )}
                     {periodCleared > 0 && <span className="text-[11px] text-teal-700">Cleared: <strong>{formatVal(periodCleared)}</strong></span>}
                     <div className="flex gap-1 ml-auto flex-wrap">
                       {Object.entries(periodStatusCounts).map(([status, count]) => (
@@ -898,7 +969,8 @@ export default function ArrivalPage() {
               };
 
               return (
-                <Card key={batchKey} className={`overflow-hidden border ${
+                <Card key={batchKey} data-testid={batch.isOrphan ? "orphan-batch" : undefined} className={`overflow-hidden border ${
+                  batch.isOrphan ? "border-amber-400 bg-amber-50/40" :
                   batch.isAwaitingActual ? "border-dashed border-slate-300 bg-slate-50/40" :
                   batch.arrivalStatus === "Cleared" ? "border-emerald-200" :
                   batch.arrivalStatus === "Partially Cleared" ? "border-teal-200" :
@@ -926,7 +998,14 @@ export default function ArrivalPage() {
                           ((batch.sku as any).packagingType ?? 'New') === 'New' ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-700'
                         }`}>{(batch.sku as any).packagingType ?? 'New'}</span>
                         <span className="text-[10px] text-muted-foreground">{batch.sku.category}</span>
-                        {batch.isAwaitingActual ? (
+                        {batch.isOrphan ? (
+                          <span
+                            className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-500"
+                            title="No production is recorded for this batch, but clearance events are attached to it. Planning FG counts them as arrivals in their cleared month."
+                          >
+                            ⚠ No production — events still count in FG
+                          </span>
+                        ) : batch.isAwaitingActual ? (
                           <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-700 border border-slate-400">
                             Awaiting Actual
                           </span>
@@ -1003,6 +1082,30 @@ export default function ArrivalPage() {
                   {/* ── Expanded clearance events panel ── */}
                   {isExpanded && (
                     <div className="border-t border-border bg-slate-50/70 px-4 py-3 space-y-2">
+                      {/* Orphaned batch — explain + offer a one-shot cleanup */}
+                      {batch.isOrphan && (
+                        <div className="flex flex-wrap items-center gap-2 rounded border border-amber-400 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+                          <span>
+                            <strong>No production is recorded for {batch.sku.name} in {batch.period.label}</strong>, yet {events.length} clearance event{events.length === 1 ? "" : "s"} ({formatNumber(totalCleared)} {unitLabel}) {events.length === 1 ? "is" : "are"} attached here.
+                            {" "}Either re-enter the production for this month, or — if these arrivals were already logged under the correct batch — delete them to stop the double count.
+                          </span>
+                          <button
+                            className="ml-auto px-2 py-0.5 rounded border border-red-400 bg-white text-red-700 hover:bg-red-50 font-semibold transition-colors disabled:opacity-50"
+                            disabled={deleteClearanceEvent.isPending}
+                            onClick={async () => {
+                              if (!confirm(`Delete all ${events.length} clearance event(s) for ${batch.sku.name} ${batch.sku.weight} — ${batch.period.label} (${formatNumber(totalCleared)} ${unitLabel})?\n\nPlanning FG arrivals will drop by this amount in the cleared months.`)) return;
+                              let failed = 0;
+                              for (const ev of events) {
+                                try {
+                                  await deleteClearanceEvent.mutateAsync({ eventId: ev.id, skuId: batch.sku.id, periodId: batch.period.id, country: country as "Syria" | "Libya" | "KSA", skuName: batch.sku.name, periodLabel: batch.period.label });
+                                } catch { failed += 1; }
+                              }
+                              if (failed === 0) toast.success(`Removed ${events.length} clearance event(s) from ${batch.sku.name} — ${batch.period.label}`);
+                              else toast.error(`${failed} of ${events.length} event(s) could not be deleted — refresh and retry`);
+                            }}
+                          >Delete all {events.length} event{events.length === 1 ? "" : "s"}</button>
+                        </div>
+                      )}
                       {/* Events table */}
                       {events.length > 0 && (
                         <table className="w-full text-xs border-collapse mb-2">
@@ -1057,9 +1160,13 @@ export default function ArrivalPage() {
                                   </td>
                                   {/* Pending Qty - auto-computed */}
                                   <td className="px-2 py-1.5 text-right">
-                                    <span className={`text-xs font-semibold ${evPendingQty > 0 ? "text-amber-700" : "text-emerald-600"}`}>
-                                      {evPendingQty > 0 ? formatNumber(evPendingQty) : "Fully Cleared"}
-                                    </span>
+                                    {batch.isOrphan ? (
+                                      <span className="text-[10px] text-amber-800 italic" title="No production recorded for this batch, so pending qty cannot be computed">n/a — no production</span>
+                                    ) : (
+                                      <span className={`text-xs font-semibold ${evPendingQty > 0 ? "text-amber-700" : "text-emerald-600"}`}>
+                                        {evPendingQty > 0 ? formatNumber(evPendingQty) : "Fully Cleared"}
+                                      </span>
+                                    )}
                                   </td>
                                   {/* Pending Clear Date - editable only on last event */}
                                   <td className="px-2 py-1.5">

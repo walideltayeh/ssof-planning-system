@@ -14,6 +14,8 @@ import { toast } from "sonner";
 import ExportSheetButton from "@/components/ExportSheetButton";
 import ImportSheetButton from "@/components/ImportSheetButton";
 import { computeArrivalDate } from "./ShipmentPage";
+import { collectOrphanClearances } from "./arrival.helpers";
+import { Link } from "wouter";
 import {
   pushEntry as pushUndoStackEntry,
   clearStackForSku,
@@ -306,6 +308,28 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
     }
     return m;
   }, [data]);
+
+  /**
+   * Clearance events attached to a production batch that no longer has any
+   * production (plan or actual) — e.g. after production was moved to another
+   * month by a re-import. They still land in the arrivals row above (by
+   * cleared date), so if the same arrivals were re-entered under the correct
+   * batch, stock is double-counted. Surface them so the planner can clean up
+   * on the Arrival page.
+   */
+  const orphanClearances = useMemo(() => {
+    const events = (((data as any)?.clearanceEvents ?? []) as Array<{ skuId: number; periodId: number; clearedQty: string | null }>);
+    const skuIds = new Set(
+      (data?.skus ?? []).filter((s) => !weight || s.weight === weight).map((s) => s.id),
+    );
+    const periodLabels = new Map(((data?.periods ?? []) as Period[]).map((p) => [p.id, p.label]));
+    return collectOrphanClearances(events, {
+      includeSku: (skuId) => skuIds.has(skuId),
+      actualFor: (skuId, periodId) => revisedMap.get(`${skuId}-${periodId}`) ?? shipmentMap.get(`${skuId}-${periodId}`) ?? 0,
+      plannedFor: (skuId, periodId) => forecastMap.get(`${skuId}-${periodId}`) ?? 0,
+      periodLabel: (periodId) => periodLabels.get(periodId),
+    });
+  }, [data, weight, revisedMap, shipmentMap, forecastMap]);
 
   // ── Computed rows ─────────────────────────────────────────────────────────
   /**
@@ -818,6 +842,25 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
           )}
         </div>
       </div>
+
+      {/* ── Orphaned clearance events warning (possible double count) ──────── */}
+      {orphanClearances.eventCount > 0 && (
+        <div
+          className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 rounded-lg border border-amber-400 bg-amber-50 text-[11px] text-amber-900"
+          data-testid="fg-orphan-clearance-banner"
+        >
+          <span className="font-bold">
+            ⚠ {formatVal(orphanClearances.totalQty)} {unitLabel} of the arrivals in this sheet come from {orphanClearances.eventCount} clearance event{orphanClearances.eventCount === 1 ? "" : "s"} attached to production batches with no production
+            {orphanClearances.periodLabels.length > 0 && <> ({orphanClearances.periodLabels.join(", ")})</>}
+          </span>
+          <span className="text-amber-800/90">
+            If those arrivals were re-entered under the correct batch, closing stock is double-counted until the old events are removed.
+          </span>
+          <Link href="/arrival" className="ml-auto px-2 py-0.5 rounded border border-amber-500 bg-white hover:bg-amber-100 font-semibold text-amber-900 transition-colors">
+            Review on Arrival page →
+          </Link>
+        </div>
+      )}
 
       {/* ── Filter bar ─────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-3 p-3 rounded-lg border border-border bg-muted/30">
