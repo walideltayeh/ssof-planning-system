@@ -1502,6 +1502,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         await requireCountryAccess(ctx, input.country);
+        await assertRecordsScopedToCountry(input.country, "Forecast", [{ skuId: input.skuId, periodId: input.periodId }], "Save");
         const clamped = Math.max(0, parseFloat(input.value) || 0).toString();
         await db.upsertForecastData(input.skuId, input.periodId, clamped, input.targetWeek);
         await db.logAudit({
@@ -1524,6 +1525,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         await requireCountryAccess(ctx, input.country);
+        await assertRecordsScopedToCountry(input.country, "Forecast", [{ skuId: input.skuId, periodId: input.periodId }], "Save");
         await db.upsertForecastData(input.skuId, input.periodId, undefined as any, input.targetWeek);
         // Also update production to reflect the new week assignment
         const existing = await db.getForecastCellValue(input.skuId, input.periodId);
@@ -1544,6 +1546,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         await requireCountryAccess(ctx, input.country);
+        await assertRecordsScopedToCountry(input.country, "Actual Production", [{ skuId: input.skuId, periodId: input.periodId }], "Save");
         const clamped = Math.max(0, parseFloat(input.value) || 0).toString();
         await db.upsertActualProductionData(input.skuId, input.periodId, clamped);
         await db.logAudit({
@@ -1570,6 +1573,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         await requireCountryAccess(ctx, input.country);
+        await assertRecordsScopedToCountry(input.country, "Production", [{ skuId: input.skuId, periodId: input.periodId }], "Save");
         await db.upsertShipmentData(input.skuId, input.periodId, {
           week1: input.week1, week2: input.week2, week3: input.week3, week4: input.week4,
           arrivalOffsetValue: input.arrivalOffsetValue,
@@ -1596,6 +1600,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         await requireCountryAccess(ctx, input.country);
+        await assertRecordsScopedToCountry(input.country, "Production", [{ skuId: input.skuId, periodId: input.periodId }], "Save");
         await db.upsertShipmentData(input.skuId, input.periodId, {
           invoiceRef: input.invoiceRef,
           containerRef: input.containerRef,
@@ -1619,6 +1624,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         await requireCountryAccess(ctx, input.country);
+        await assertRecordsScopedToCountry(input.country, "Arrival", [{ skuId: input.skuId, periodId: input.periodId }], "Save");
         await db.upsertArrivalData(input.skuId, input.periodId, {
           week1: input.week1, week2: input.week2, week3: input.week3, week4: input.week4,
         });
@@ -1702,6 +1708,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         await requireCountryAccess(ctx, input.country);
+        await assertRecordsScopedToCountry(input.country, "Arrival", [{ skuId: input.skuId, periodId: input.periodId }], "Save");
         await db.updateShipmentArrivalStatus(input.skuId, input.periodId, input.status);
         await db.logAudit({
           country: input.country,
@@ -1728,6 +1735,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         await requireCountryAccess(ctx, input.country);
+        await assertRecordsScopedToCountry(input.country, "Arrival", [{ skuId: input.skuId, periodId: input.periodId }], "Save");
         const result = await db.updateShipmentClearedQty(
           input.skuId,
           input.periodId,
@@ -1760,6 +1768,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         await requireCountryAccess(ctx, input.country);
+        await assertRecordsScopedToCountry(input.country, "Arrival", [{ skuId: input.skuId, periodId: input.periodId }], "Save");
         await db.updateShipmentClearedDate(input.skuId, input.periodId, input.clearedDate);
         await db.logAudit({
           country: input.country,
@@ -1787,6 +1796,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         await requireCountryAccess(ctx, input.country);
+        await assertRecordsScopedToCountry(input.country, "Arrival", [{ skuId: input.skuId, periodId: input.periodId }], "Save");
         await db.updateShipmentPendingClearDate(input.skuId, input.periodId, input.pendingClearDate);
         await db.logAudit({
           country: input.country,
@@ -1827,6 +1837,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         await requireCountryAccess(ctx, input.country);
+        await assertRecordsScopedToCountry(input.country, "Arrival (Clearance)", [{ skuId: input.skuId, periodId: input.periodId }], "Save");
         const id = await db.addClearanceEvent(input);
         await db.logAudit({
           country: input.country,
@@ -1858,6 +1869,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         await requireCountryAccess(ctx, input.country);
+        await assertRecordsScopedToCountry(input.country, "Arrival (Clearance)", [{ skuId: input.skuId, periodId: input.periodId }], "Save");
         const { eventId, skuName, periodLabel, ...rest } = input;
         await db.updateClearanceEvent(eventId, rest);
         await db.logAudit({
@@ -1884,6 +1896,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         await requireCountryAccess(ctx, input.country);
+        await assertRecordsScopedToCountry(input.country, "Arrival (Clearance)", [{ skuId: input.skuId, periodId: input.periodId }], "Save");
         await db.deleteClearanceEvent(input.eventId, input.skuId, input.periodId, input.country);
         await db.logAudit({
           country: input.country,
@@ -1916,6 +1929,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         await requireCountryAccess(ctx, input.country);
+        await assertRecordsScopedToCountry(input.country, "IMS", [{ skuId: input.skuId, periodId: input.periodId }], "Save");
         await db.upsertImsData(input.skuId, input.periodId, input.value, true);
         await db.logAudit({
           country: input.country,
@@ -2016,6 +2030,7 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         await requireCountryAccess(ctx, input.country);
+        await assertRecordsScopedToCountry(input.country, "Planning FG", [{ skuId: input.skuId, periodId: input.periodId }], "Save");
         const fieldMap: Record<string, string> = {
           "Opening Stock": "openingStock",
           "Adjustments": "adjustments",
