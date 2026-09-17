@@ -77,6 +77,41 @@ async function establishAppUserSession(
  * authenticated session (`ctx.user`). Never trust client-supplied usernames
  * for audit identity — always use this helper instead.
  */
+const PERFORMANCE_COUNTRIES = ["Lebanon", "Syria", "Libya", "KSA"] as const;
+
+const performanceRequestSchema = z.object({
+  country: z.enum(PERFORMANCE_COUNTRIES),
+  preset: z.enum(["month", "qtd", "ytd", "l12m", "custom"]).default("ytd"),
+  anchor: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+  from: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+  to: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+  compare: z.enum(["plan", "ly", "prev"]).default("plan"),
+  filters: z.object({
+    weights: z.array(z.string()).optional(),
+    categories: z.array(z.string()).optional(),
+    packaging: z.array(z.string()).optional(),
+    flavours: z.array(z.string()).optional(),
+  }).optional(),
+  refresh: z.boolean().optional(),
+});
+
+/** Countries the caller may read (owners: all four). */
+async function accessibleCountries(ctx: { user: User }): Promise<Array<(typeof PERFORMANCE_COUNTRIES)[number]>> {
+  const username = ctx.user.name;
+  if (!username) return [];
+  const requester = await db.getAppUserByUsername(username);
+  if (!requester) return [];
+  if (requester.isOwner) return [...PERFORMANCE_COUNTRIES];
+  let allowed: string[] = [];
+  try {
+    const parsed: unknown = JSON.parse(requester.countries);
+    if (Array.isArray(parsed)) allowed = parsed.filter((c): c is string => typeof c === "string");
+  } catch {
+    allowed = [];
+  }
+  return PERFORMANCE_COUNTRIES.filter(c => allowed.some(a => a.toLowerCase() === c.toLowerCase()));
+}
+
 function getAuditActor(ctx: { user: User | null }): string {
   return ctx.user?.name?.trim() || "System";
 }
@@ -1929,6 +1964,27 @@ export const appRouter = router({
       .query(async ({ ctx, input }) => {
         await requireCountryAccess(ctx, input.country);
         return db.getCurrentMonthClosingStock(input.country);
+      }),
+
+    // Country Performance pack — one cached aggregate per country + period.
+    performance: protectedProcedure
+      .input(performanceRequestSchema)
+      .query(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
+        const { getCountryPerformance } = await import("./analysis/countryPerformance");
+        return getCountryPerformance(input);
+      }),
+
+    // Side-by-side scorecard, limited to the countries the caller may see.
+    performanceScorecard: protectedProcedure
+      .input(z.object({
+        preset: z.enum(["month", "qtd", "ytd", "l12m", "custom"]).default("ytd"),
+        compare: z.enum(["plan", "ly", "prev"]).default("plan"),
+      }))
+      .query(async ({ ctx, input }) => {
+        const countries = await accessibleCountries(ctx);
+        const { getCountryScorecard } = await import("./analysis/countryPerformance");
+        return getCountryScorecard(countries, input.preset, input.compare);
       }),
 
     competitorData: protectedProcedure

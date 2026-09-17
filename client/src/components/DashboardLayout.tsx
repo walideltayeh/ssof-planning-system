@@ -85,7 +85,7 @@ function buildLebanonMenu(weights: string[]): MenuItem[] {
     { label: "Shipment (Production)", path: "/shipment", adminOnly: false },
     { label: "Arrival to Regie", path: "/arrival", adminOnly: false },
     ...buildPlanningFgItems(weights, false),
-    { label: "Analysis", path: "/analysis", adminOnly: false },
+    { label: "Country Performance", path: "/analysis", adminOnly: false },
     { label: "Competitor Analysis", path: "/competitor-analysis", adminOnly: false },
     { label: "Recommended Forecast Split", path: "/forecast-split", adminOnly: false },
     { label: "Recommended AI Trade Offers", path: "/trade-offers", adminOnly: false },
@@ -107,7 +107,7 @@ function buildIntlMenu(weights: string[]): MenuItem[] {
     { label: "Arrival", path: "/arrival", adminOnly: false },
     { label: "IMS", path: "/intl-ims", adminOnly: false },
     ...buildPlanningFgItems(weights, true),
-    { label: "Analysis", path: "/intl-analysis", adminOnly: false },
+    { label: "Country Performance", path: "/intl-analysis", adminOnly: false },
     { label: "Competitor Analysis", path: "/competitor-analysis", adminOnly: false },
     { label: "Recommended Forecast Split", path: "/forecast-split", adminOnly: false },
     { label: "Recommended AI Trade Offers", path: "/trade-offers", adminOnly: false },
@@ -319,8 +319,8 @@ function DashboardLayoutContent({
     // active menu item's label and falls back to a path-derived label so any
     // weight (e.g. "500g") is presented as "Planning FG 500g" without code
     // changes.
-    "/analysis": "Analysis",
-    "/intl-analysis": "Analysis",
+    "/analysis": "Country Performance",
+    "/intl-analysis": "Country Performance",
     "/data-versions": "Data & Versions",
     "/sku-management": "SKU Management",
     "/add-year": "Add Year",

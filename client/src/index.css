@@ -199,3 +199,46 @@
   font-weight: 600 !important;
   box-shadow: 0 0 0 1px rgba(127, 29, 29, 0.15) !important;
 }
+
+@media print {
+  @page {
+    size: landscape;
+    margin: 10mm;
+  }
+
+  html,
+  body,
+  #root {
+    background: #fff !important;
+    color: #111 !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  body.perf-printing [data-slot="sidebar"],
+  body.perf-printing [data-sidebar],
+  body.perf-printing .perf-no-print {
+    display: none !important;
+  }
+
+  body.perf-printing main {
+    padding: 0 !important;
+  }
+
+  body.perf-printing .perf-print-cover {
+    display: block !important;
+    min-height: 90vh;
+    break-after: page;
+  }
+
+  body.perf-printing [data-perf-section] {
+    break-before: page;
+  }
+
+  body.perf-printing .perf-card,
+  body.perf-printing .break-inside-avoid {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    box-shadow: none !important;
+  }
+}

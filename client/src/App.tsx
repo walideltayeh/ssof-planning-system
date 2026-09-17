@@ -19,11 +19,10 @@ import AddYearPage from "./pages/AddYearPage";
 import UserManagementPage from "./pages/UserManagementPage";
 import AuditTrailPage from "./pages/AuditTrailPage";
 import DataVersionsPage from "./pages/DataVersionsPage";
-import AnalysisPage from "./pages/AnalysisPage";
+import CountryPerformancePage from "./pages/CountryPerformancePage";
 import ForecastVsForecastPage from "@/pages/ForecastVsForecastPage";
 import IntlPlanningFgPage from "@/pages/IntlPlanningFgPage";
 import IntlImsPage from "@/pages/IntlImsPage";
-import IntlAnalysisPage from "@/pages/IntlAnalysisPage";
 import ForecastSplitPage from "@/pages/ForecastSplitPage";
 import ExpiryDashboardPage from "@/pages/ExpiryDashboardPage";
 import CompetitorAnalysisPage from "@/pages/CompetitorAnalysisPage";
@@ -58,7 +57,7 @@ function Dashboard() {
         <Route path="/audit-trail" component={AuditTrailPage} />
         <Route path="/versions" component={DataVersionsPage} />
         <Route path="/data-versions" component={DataVersionsPage} />
-        <Route path="/analysis" component={AnalysisPage} />
+        <Route path="/analysis" component={CountryPerformancePage} />
         <Route path="/forecast-production-vs-actual" component={ForecastVsForecastPage} />
         {/* Legacy alias — kept so existing bookmarks keep working. */}
         <Route path="/forecast-vs-forecast" component={ForecastVsForecastPage} />
@@ -69,7 +68,7 @@ function Dashboard() {
         <Route path="/intl-planning-fg/:weight">{(params) => <IntlPlanningFgPage weight={decodeURIComponent(params.weight)} />}</Route>
         <Route path="/intl-planning-fg">{() => <IntlPlanningFgPage />}</Route>
         <Route path="/intl-ims" component={IntlImsPage} />
-        <Route path="/intl-analysis" component={IntlAnalysisPage} />
+        <Route path="/intl-analysis" component={CountryPerformancePage} />
         <Route path="/forecast-split" component={ForecastSplitPage} />
         <Route path="/expiry-dashboard" component={ExpiryDashboardPage} />
         <Route path="/competitor-analysis" component={CompetitorAnalysisPage} />

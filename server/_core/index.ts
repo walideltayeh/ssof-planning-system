@@ -131,6 +131,37 @@ async function startServer() {
     }
   });
 
+  // Country Performance board pack (one sheet per section). Country access is
+  // enforced here because this bypasses the tRPC requireCountryAccess guard.
+  app.get("/api/export-performance", async (req, res) => {
+    try {
+      const auth = await authenticateHttpRequest(req, res);
+      if (!auth) return;
+      const { parsePerformanceExportQuery, userMayAccessCountry } = await import("../analysis/countryPerformanceExport");
+      const parsed = parsePerformanceExportQuery(req.query as Record<string, unknown>);
+      if (!parsed.ok) {
+        res.status(400).json({ error: parsed.error });
+        return;
+      }
+      if (!(await userMayAccessCountry(auth.user.name ?? null, parsed.request.country))) {
+        res.status(403).json({ error: `You do not have access to ${parsed.request.country}` });
+        return;
+      }
+      const { getCountryPerformance } = await import("../analysis/countryPerformance");
+      const { buildPerformanceWorkbook } = await import("../analysis/countryPerformanceExcel");
+      const pack = await getCountryPerformance(parsed.request);
+      const buffer = await buildPerformanceWorkbook(pack);
+      const now = new Date();
+      const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename=SSOF_${parsed.request.country}_Country_Performance_${dateStr}.xlsx`);
+      res.send(buffer);
+    } catch (err: any) {
+      console.error("[Performance Export] Error:", err);
+      res.status(500).json({ error: err?.message || "Export failed" });
+    }
+  });
+
   app.get("/api/export-ims-template", async (req, res) => {
     try {
       if (!(await authenticateHttpRequest(req, res))) return;
