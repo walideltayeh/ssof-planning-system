@@ -4,13 +4,29 @@ import {
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import { Button } from "@/components/ui/button";
-import type { SectionProps } from "./types";
+import type { SectionProps, VolumeBridge } from "./types";
+
+type BridgeStep = VolumeBridge["steps"][number];
 import {
   EmptyState, PERF_COLORS, QuestionCard, SectionNotes, Sparkline, usePerfFormat,
 } from "./shared";
 
 const th = "px-2 py-2 text-left text-xs font-medium text-muted-foreground";
 const td = "px-2 py-2 text-sm";
+
+/** Floating-bar layout for the LY → TY volume bridge. */
+function bridgeData(steps: BridgeStep[]) {
+  let level = 0;
+  return steps.map((step) => {
+    if (step.kind === "total") {
+      level = step.value;
+      return { ...step, base: Math.min(0, step.value), height: Math.abs(step.value), fill: PERF_COLORS.neutral };
+    }
+    const start = level;
+    level += step.value;
+    return { ...step, base: Math.min(start, level), height: Math.abs(step.value), fill: step.value >= 0 ? PERF_COLORS.positive : PERF_COLORS.negative };
+  });
+}
 
 export default function DemandSection({ pack, presentation }: SectionProps) {
   const d = pack.demand;
@@ -29,6 +45,16 @@ export default function DemandSection({ pack, presentation }: SectionProps) {
       <div className="font-medium">{label}</div>
       {payload.map((p: any) => <div key={p.dataKey} style={{ color: p.color }}>{p.name}: {fmtMc(p.value)}</div>)}
       {row?.autoFilled && <div className="mt-1 text-muted-foreground">Sell-out auto-filled from forecast</div>}
+    </div>;
+  };
+
+  const BridgeTooltip = ({ active, payload }: any) => {
+    if (!active || !payload?.length) return null;
+    const row = payload[0].payload as ReturnType<typeof bridgeData>[number];
+    return <div className="rounded border bg-white p-2 text-xs shadow">
+      <div className="font-medium">{row.label}</div>
+      <div>{row.kind === "total" ? fmtMc(row.value) : fmtMcSigned(row.value)} {unitLabel}</div>
+      {row.detail && <div className="mt-1 max-w-64 whitespace-normal text-muted-foreground">{row.detail}</div>}
     </div>;
   };
 
@@ -59,6 +85,25 @@ export default function DemandSection({ pack, presentation }: SectionProps) {
         </ComposedChart>
       </ResponsiveContainer>
       {!lastYear && <p className="text-sm text-muted-foreground">No prior year data</p>}
+    </QuestionCard>
+
+    <QuestionCard question={`How did we get from ${d.bridge.fromLabel} to ${d.bridge.toLabel}?`} hint="Volume bridge: same-SKU growth, new launches and lost or inactive lines">
+      {!d.bridge.available ? <EmptyState message={d.bridge.note} /> : <div className="grid gap-4 lg:grid-cols-[3fr_2fr]">
+        <ResponsiveContainer width="100%" height={chartH}>
+          <BarChart data={bridgeData(d.bridge.steps)} margin={{ left: 8, right: 8 }}>
+            <CartesianGrid stroke={PERF_COLORS.grid} vertical={false} /><XAxis dataKey="label" interval={0} tick={{ fontSize: 11 }} /><YAxis tickFormatter={axisMc} />
+            <Tooltip content={<BridgeTooltip />} cursor={{ fill: "rgba(0,0,0,0.04)" }} />
+            <Bar dataKey="base" stackId="b" fill="transparent" isAnimationActive={false} />
+            <Bar dataKey="height" stackId="b" isAnimationActive={false}>{bridgeData(d.bridge.steps).map((x) => <Cell key={x.key} fill={x.fill} />)}</Bar>
+          </BarChart>
+        </ResponsiveContainer>
+        <div className="overflow-x-auto">
+          <table className="w-full"><thead><tr>{["Step", unitLabel, "Detail"].map((x) => <th className={th} key={x}>{x}</th>)}</tr></thead>
+            <tbody>{d.bridge.steps.map((st) => <tr className={`border-t ${st.kind === "total" ? "font-semibold" : ""}`} key={st.key}><td className={td}>{st.label}</td><td className={`${td} ${st.kind === "delta" ? (st.value >= 0 ? "text-green-700" : "text-red-700") : ""}`}>{st.kind === "total" ? fmtMc(st.value) : fmtMcSigned(st.value)}</td><td className={`${td} text-xs text-muted-foreground`}>{st.detail ?? ""}</td></tr>)}</tbody></table>
+          {d.bridge.byWeight.length > 0 && <div className="mt-3 flex flex-wrap gap-2">{d.bridge.byWeight.map((w) => <span key={w.key} className={`rounded border px-2 py-1 text-xs ${w.value >= 0 ? "text-green-700" : "text-red-700"}`} title={w.detail}>{w.label}: {fmtMcSigned(w.value)}</span>)}</div>}
+          <p className="mt-2 text-xs text-muted-foreground">{d.bridge.note}</p>
+        </div>
+      </div>}
     </QuestionCard>
 
     <div className="grid gap-4 md:grid-cols-2">

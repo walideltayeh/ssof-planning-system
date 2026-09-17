@@ -147,10 +147,10 @@ async function startServer() {
         res.status(403).json({ error: `You do not have access to ${parsed.request.country}` });
         return;
       }
-      const { getCountryPerformance } = await import("../analysis/countryPerformance");
+      const { getCountryPerformance, loadWorkbookExtras } = await import("../analysis/countryPerformance");
       const { buildPerformanceWorkbook } = await import("../analysis/countryPerformanceExcel");
       const pack = await getCountryPerformance(parsed.request);
-      const buffer = await buildPerformanceWorkbook(pack);
+      const buffer = await buildPerformanceWorkbook(pack, await loadWorkbookExtras(pack));
       const now = new Date();
       const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");

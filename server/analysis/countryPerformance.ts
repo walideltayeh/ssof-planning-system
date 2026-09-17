@@ -8,6 +8,22 @@
  */
 
 import * as db from "../db";
+import { compareHeadlines } from "../../shared/performance/boardCompare";
+import type { WorkbookExtras } from "./countryPerformanceExcel";
+import { BoardHeadlineSchema } from "./countryPerformance.schemas";
+import {
+  baselineFromSnapshot,
+  buildAnomalies,
+  buildEfficiency,
+  buildHeadline,
+  buildLostSales,
+  buildMarket,
+  buildOutlook,
+  buildPortfolio,
+  buildRunningRate,
+  buildVolumeBridge,
+  type BudgetBaseline,
+} from "./countryPerformance.extra";
 import { aggregateProjection, classifyZone, coverDemandReferenceAt, coverRuleFor, mcForWeeks, projectSku } from "../../shared/performance/projection";
 import {
   accuracyByGroup,
@@ -131,9 +147,23 @@ async function loadDataset(country: PerformanceCountry): Promise<PerformanceData
         monthsUntilExpiry: r.monthsUntilExpiry,
       }))
     : [];
+  const inactiveSkus = full.skus.filter((s) => s.isActive === false);
+  const [inactiveIms, competitor] = await Promise.all([
+    inactiveSkus.length ? db.getImsForSkus(inactiveSkus.map((s) => s.id)) : Promise.resolve([]),
+    country === "Lebanon" ? db.getCompetitorData(country) : Promise.resolve(null),
+  ]);
   return {
     country,
     skus: full.skus.filter((s) => s.isActive !== false),
+    inactiveSkus,
+    inactiveIms,
+    competitor: competitor
+      ? {
+          brandMonthly: (competitor.brandMonthly ?? {}) as Record<string, Record<string, number[]>>,
+          uploadedBy: competitor.uploadedBy ?? null,
+          uploadedAt: competitor.uploadedAt ? new Date(competitor.uploadedAt).toISOString() : null,
+        }
+      : null,
     periods: full.periods,
     forecast: full.forecast,
     ims: full.ims,
@@ -166,9 +196,23 @@ export async function getCountryPerformance(req: PerformanceRequest & { refresh?
   if (!req.refresh && hit && Date.now() - hit.at < DATASET_TTL_MS) return hit.pack;
   const ds = await getCountryDataset(req.country, req.refresh);
   const reconciliationSource = await db.getCurrentMonthClosingStock(req.country);
-  const pack = buildPack(ds, req, reconciliationSource?.skuData ?? null);
+  const baseline = await loadBudgetBaseline(ds, req);
+  const pack = buildPack(ds, req, reconciliationSource?.skuData ?? null, baseline);
   packCache.set(cacheKey, { at: Date.now(), pack });
   return pack;
+}
+
+/** The saved version an admin chose as the approved annual plan for the year the request lands in. */
+async function loadBudgetBaseline(ds: PerformanceDataset, req: PerformanceRequest): Promise<BudgetBaseline | null> {
+  const periods = sortedPeriods(ds);
+  if (periods.length === 0) return null;
+  const anchorYm = parseYm(req.preset === "custom" ? req.to : req.anchor);
+  const year = anchorYm?.year ?? periods[Math.max(0, latestActualImsIndex(buildSkuSeries(ds, ds.skus), periods, ds.now))]?.year ?? ds.now.getFullYear();
+  const chosen = await db.getBoardPlanBaseline(ds.country, year);
+  if (!chosen) return null;
+  const version = await db.getVersionById(chosen.versionId);
+  if (!version || version.country !== ds.country) return null;
+  return baselineFromSnapshot(version);
 }
 
 export async function getCountryScorecard(countries: PerformanceCountry[], preset: PerformanceRequest["preset"], compare: PerformanceRequest["compare"]): Promise<ScorecardRow[]> {
@@ -182,6 +226,20 @@ export async function getCountryScorecard(countries: PerformanceCountry[], prese
     }
   }
   return rows;
+}
+
+const ymKey = (p: DatasetPeriod) => `${p.year}-${String(p.month).padStart(2, "0")}`;
+
+/** Everything the Excel export needs beyond the pack: the previous frozen board and presenter notes. */
+export async function loadWorkbookExtras(pack: PerformancePack): Promise<WorkbookExtras> {
+  const [snapshots, notes] = await Promise.all([db.listBoardPackSnapshots(pack.meta.country), db.listPresenterNotes(pack.meta.country, pack.meta.periodKey)]);
+  let comparison: WorkbookExtras["comparison"] = null;
+  if (snapshots[0]) {
+    const prev = await db.getBoardPackSnapshot(snapshots[0].id);
+    const parsed = prev ? BoardHeadlineSchema.safeParse(prev.headline) : null;
+    if (prev && parsed?.success) comparison = { previousName: prev.name, previousDate: prev.createdAt.toISOString(), result: compareHeadlines(pack.headline, parsed.data) };
+  }
+  return { comparison, notes: notes.map((n) => ({ sectionId: n.sectionId, body: n.body, author: n.author, updatedAt: n.updatedAt.toISOString() })) };
 }
 
 function tileValue(pack: PerformancePack, key: string): KpiTile | undefined {
@@ -216,6 +274,7 @@ export function buildPack(
   ds: PerformanceDataset,
   req: PerformanceRequest,
   reconciliationSource: { id: number; name: string; weight: string; closingStock: number }[] | null,
+  baseline: BudgetBaseline | null = null,
 ): PerformancePack {
   const country = ds.country;
   const intl = isIntlCountry(country);
@@ -628,13 +687,30 @@ export function buildPack(
 
   // ── Sections ───────────────────────────────────────────────────────────────
   const flow = buildFlow({ intl, w, series, batches, periods, now, ims, imsPlan, production, productionPlan, arrivals, closing, monthlyDemand, delayed, mIms, mArr });
-  const demand = buildDemand({ series, periods, w, lyW, prevW, chartW, mIms, mImsActual, mPlan });
+  const demandBase = buildDemand({ series, periods, w, lyW, prevW, chartW, mIms, mImsActual, mPlan });
   const supply = buildSupply({ intl, series, periods, chartW, w, batches, now, mPlan, mProd, mIms, mArr, mPlannedArr });
-  const inventory = buildInventory({ intl, series, periods, w, projRows, coverRows, atRisk, overstock, expiryRows, filteredSkus, rule });
+  const inventoryBase = buildInventory({ intl, series, periods, w, projRows, coverRows, atRisk, overstock, expiryRows, filteredSkus, rule });
   const forecastQuality = buildForecastQuality({ series, chartW, w, chronic, acc, accOverall });
   const forward = buildForward({ intl, series, periods, w, projRows, horizonLabels, batches, ds, rule, currentIdx });
   const commercial = buildCommercial({ series, w, lyW, filteredSkus });
   const confidence = buildConfidence({ ds, series: allSeriesUnfiltered, filteredSeries: series, periods, w, currentIdx, latestActualIdx, reconciliationSource, horizon });
+
+  // ── Board additions ────────────────────────────────────────────────────
+  const runningRate = buildRunningRate({ country, series, periods, w, latestActualIdx, mPlan, mIms, mImsActual, rule });
+  const outlook = buildOutlook({ series, periods, w, latestActualIdx, mImsActual, baseline, currentRate: runningRate.headline.value, rule });
+  const inactive = applyFilters(ds.inactiveSkus ?? [], req.filters).map((sku) => ({
+    sku,
+    ims: periods.map((p) => sum((ds.inactiveIms ?? []).filter((r) => r.skuId === sku.id && r.periodId === p.id).map((r) => parseFloat(String(r.value ?? "0")) || 0))),
+  }));
+  const demand: DemandSection = { ...demandBase, bridge: buildVolumeBridge({ series, periods, w, lyW, inactive, windowLabel: wLabel, lyLabel: lyW ? windowLabel(lyW, req.preset) : null }) };
+  const portfolio = buildPortfolio({ series, periods, w, lyW, prevW, rule });
+  const inventory: InventorySection = {
+    ...inventoryBase,
+    lostSales: buildLostSales({ series, periods, w, latestActualIdx }),
+    efficiency: buildEfficiency({ series, periods, w, latestActualIdx, rule }),
+  };
+  const market = buildMarket({ competitor: ds.competitor ?? null, year: periods[w.toIdx].year, endMonth: periods[w.toIdx].month });
+  const anomalies = buildAnomalies({ series, periods, w, latestActualIdx, intl });
 
   const dataAsOf = latestUpdatedAt(ds);
   const meta: PerformanceMeta = {
@@ -646,6 +722,7 @@ export function buildPack(
     compare: req.compare,
     filters: req.filters ?? {},
     window: { from: toPeriodRef(w.months[0]), to: toPeriodRef(w.months[w.months.length - 1]), months: w.months.map(toPeriodRef), label: wLabel },
+    periodKey: `${req.preset}:${ymKey(w.months[0])}:${ymKey(w.months[w.months.length - 1])}`,
     chartWindow: { from: toPeriodRef(chartW.months[0]), to: toPeriodRef(chartW.months[chartW.months.length - 1]), months: chartW.months.map(toPeriodRef), label: windowLabel(chartW, chartW === w ? req.preset : "l12m") },
     compareLabel: compareLabel(req.compare),
     lastYearAvailable: !!lyW,
@@ -658,7 +735,23 @@ export function buildPack(
     activeSkuCountUnfiltered: ds.skus.length,
   };
 
-  return { meta, executive: { tiles, keyMessages, risks }, flow, demand, supply, inventory, forecastQuality, forward, commercial, confidence };
+  const headline = buildHeadline({
+    country,
+    windowLabel: wLabel,
+    generatedAt: meta.generatedAt,
+    runningRate,
+    outlook,
+    closingStock: closing,
+    weeksOfCover: weeks,
+    forecastAccuracyPct: accOverall.accuracyPct,
+    stockoutRiskSkus: atRisk.length,
+    overstockSkus: overstock.length,
+    risks: risks.map((r) => ({ sku: r.sku, issue: r.issue, severity: r.severity })),
+    series,
+    periods,
+  });
+
+  return { meta, runningRate, outlook, executive: { tiles, keyMessages, risks }, flow, demand, supply, inventory, forecastQuality, forward, commercial, portfolio, market, anomalies, confidence, headline };
 }
 
 function latestUpdatedAt(ds: PerformanceDataset): string | null {
@@ -774,7 +867,7 @@ function buildFlow(a: {
   return { waterfall: { supply, stock }, pipeline, leadTimes, delayedBatches: a.delayed, notes };
 }
 
-function buildDemand(a: { series: SkuSeries[]; periods: DatasetPeriod[]; w: Window; lyW: Window | null; prevW: Window | null; chartW: Window; mIms: number[]; mImsActual: (number | null)[]; mPlan: number[] }): DemandSection {
+function buildDemand(a: { series: SkuSeries[]; periods: DatasetPeriod[]; w: Window; lyW: Window | null; prevW: Window | null; chartW: Window; mIms: number[]; mImsActual: (number | null)[]; mPlan: number[] }): Omit<DemandSection, "bridge"> {
   const { series, periods, w, lyW, chartW, mIms, mImsActual, mPlan } = a;
   const notes: string[] = [];
   const lyValue = (i: number): number | null => {
@@ -973,7 +1066,7 @@ function buildInventory(a: {
   intl: boolean; series: SkuSeries[]; periods: DatasetPeriod[]; w: Window; projRows: ReturnType<typeof projectionInputs>;
   coverRows: InventorySection["cover"]; atRisk: InventorySection["atRisk"]; overstock: InventorySection["overstock"];
   expiryRows: ReturnType<typeof expiryAtRisk>; filteredSkus: PerformanceDataset["skus"]; rule: ReturnType<typeof coverRuleFor>;
-}): InventorySection {
+}): Omit<InventorySection, "lostSales" | "efficiency"> {
   const { intl, w, projRows, coverRows, atRisk, overstock, expiryRows, filteredSkus, rule } = a;
   const notes: string[] = [];
   const zoneOrder: InventorySection["zoneCounts"][number]["zone"][] = ["Negative", "Out of Stock", "Critical", "Healthy", "Overstock"];

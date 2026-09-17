@@ -148,6 +148,11 @@ export interface PerformanceDataset {
   clearanceEvents: ClearanceRow[];
   actualProduction: ValueRow[];
   expiryRows?: ExpiryRowLike[];
+  /** Inactive (discontinued) SKUs and their IMS history — only used for the volume bridge. */
+  inactiveSkus?: DatasetSku[];
+  inactiveIms?: ValueRow[];
+  /** Latest competitor upload for the country (market context), if any. */
+  competitor?: { brandMonthly: Record<string, Record<string, number[]>>; uploadedBy: string | null; uploadedAt: string | null } | null;
   /** "Today" — injected so tests are deterministic. */
   now: Date;
 }

@@ -324,3 +324,50 @@ export const competitorData = pgTable("competitor_data", {
   uploadedAt: timestamp("uploaded_at").defaultNow().notNull(),
 });
 export type CompetitorDataRow = typeof competitorData.$inferSelect;
+
+// ── Country Performance board pack ──────────────────────────────────────────
+// September 2026: frozen board packs, presenter notes, per-user slide layout
+// and the saved version that acts as the approved annual plan.
+
+export const boardPackSnapshots = pgTable("board_pack_snapshots", {
+  id: serial("id").primaryKey(),
+  country: varchar("country", { length: 50 }).notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  windowLabel: varchar("windowLabel", { length: 100 }).notNull(),
+  /** BoardHeadline JSON (see server/analysis/countryPerformance.types.ts). */
+  headline: json("headline").notNull(),
+  frozenBy: varchar("frozenBy", { length: 100 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+export type BoardPackSnapshot = typeof boardPackSnapshots.$inferSelect;
+
+export const presenterNotes = pgTable("presenter_notes", {
+  id: serial("id").primaryKey(),
+  country: varchar("country", { length: 50 }).notNull(),
+  /** Period key the note belongs to, e.g. "ytd:2026-05" or "custom:2026-01:2026-05". */
+  periodKey: varchar("periodKey", { length: 60 }).notNull(),
+  sectionId: varchar("sectionId", { length: 60 }).notNull(),
+  body: text("body").notNull(),
+  author: varchar("author", { length: 100 }).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+export type PresenterNote = typeof presenterNotes.$inferSelect;
+
+export const userPreferences = pgTable("user_preferences", {
+  id: serial("id").primaryKey(),
+  username: varchar("username", { length: 100 }).notNull(),
+  key: varchar("key", { length: 100 }).notNull(),
+  value: json("value").notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+export type UserPreference = typeof userPreferences.$inferSelect;
+
+export const boardPlanBaselines = pgTable("board_plan_baselines", {
+  id: serial("id").primaryKey(),
+  country: varchar("country", { length: 50 }).notNull(),
+  year: integer("year").notNull(),
+  versionId: integer("versionId").notNull(),
+  setBy: varchar("setBy", { length: 100 }).notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+});
+export type BoardPlanBaseline = typeof boardPlanBaselines.$inferSelect;

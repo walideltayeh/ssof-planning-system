@@ -3,12 +3,16 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Skeleton } from "@/components/ui/skeleton";
+import BoardChangesSection from "@/components/performance/BoardChangesSection";
+import { PerformanceProvider } from "@/components/performance/PerformanceContext";
 import PerformanceHeader from "@/components/performance/PerformanceHeader";
 import PresentationMode from "@/components/performance/PresentationMode";
+import PresenterNote from "@/components/performance/PresenterNote";
 import ScorecardSection from "@/components/performance/ScorecardSection";
-import { performanceSections, titleForSection } from "@/components/performance/sections";
+import SlideLayoutDialog from "@/components/performance/SlideLayoutDialog";
+import { arrangeSections, performanceSections, titleForSection, type OrderedSection } from "@/components/performance/sections";
 import { SectionFrame } from "@/components/performance/shared";
-import type { CompareMode, PerformanceCountry, PerformanceFilters, PeriodPreset } from "@/components/performance/types";
+import type { CompareMode, PerformanceCountry, PerformanceFilters, PerformanceRequest, PeriodPreset } from "@/components/performance/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCountry } from "@/contexts/CountryContext";
 import { trpc } from "@/lib/trpc";
@@ -28,7 +32,7 @@ function cleanFilters(filters: PerformanceFilters): PerformanceFilters | undefin
 }
 
 export default function CountryPerformancePage() {
-  const { user, isOwner } = useAuth();
+  const { user, isOwner, isAdminFor } = useAuth();
   const { country: appCountry } = useCountry();
   const countries = useMemo(() => {
     if (isOwner) return ALL_COUNTRIES;
@@ -45,7 +49,9 @@ export default function CountryPerformancePage() {
   const [filters, setFilters] = useState<PerformanceFilters>({});
   const [refresh, setRefresh] = useState<true | undefined>();
   const [presentationOpen, setPresentationOpen] = useState(false);
+  const [layoutOpen, setLayoutOpen] = useState(false);
   const [deepDiveOpen, setDeepDiveOpen] = useState(false);
+  const layoutQuery = trpc.country.slideLayout.useQuery();
 
   const queryInput = {
     country,
@@ -67,9 +73,16 @@ export default function CountryPerformancePage() {
   }, [packQuery.isFetching, refresh]);
 
   const visibleSections = useMemo(
-    () => performanceSections.filter((section) => (!section.intlOnly || pack?.meta.isIntl) && (!section.minCountries || countries.length >= section.minCountries)),
-    [countries.length, pack?.meta.isIntl],
+    () => arrangeSections(
+      performanceSections.filter((section) => (!section.intlOnly || pack?.meta.isIntl) && (!section.minCountries || countries.length >= section.minCountries) && (!section.available || !pack || section.available(pack))),
+      layoutQuery.data,
+    ),
+    [countries.length, layoutQuery.data, pack],
   );
+  const slideSections = useMemo(() => visibleSections.filter((section) => !section.hiddenFromSlides), [visibleSections]);
+  const canEdit = isAdminFor(country);
+  const request: PerformanceRequest = { country, preset, anchor, from: preset === "custom" ? from : undefined, to: preset === "custom" ? to : undefined, compare, filters: cleanFilters(filters) };
+
 
   const openCountry = useCallback((nextCountry: PerformanceCountry) => {
     setCountry(nextCountry);
@@ -79,6 +92,14 @@ export default function CountryPerformancePage() {
     setFilters({});
     window.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
+
+  const renderSection = useCallback((section: OrderedSection, presentation = false) => {
+    if (!pack) return null;
+    if (section.id === "scorecard") return <ScorecardSection pack={pack} preset={preset} compare={compare} onOpenCountry={openCountry} presentation={presentation} />;
+    if (section.id === "changes") return <BoardChangesSection pack={pack} request={request} presentation={presentation} />;
+    return <section.Component pack={pack} presentation={presentation} />;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pack, preset, compare, country, anchor, from, to, filters]);
 
   const exportPdf = useCallback(() => {
     document.body.classList.add("perf-printing");
@@ -105,6 +126,7 @@ export default function CountryPerformancePage() {
   const DeepDive = country === "Lebanon" ? LebanonDeepDive : IntlDeepDive;
 
   return (
+    <PerformanceProvider country={country} periodKey={pack?.meta.periodKey ?? null} canEdit={canEdit}>
     <div className="space-y-8">
       <PerformanceHeader
         country={country}
@@ -126,6 +148,7 @@ export default function CountryPerformancePage() {
         onFiltersChange={setFilters}
         onRefresh={() => setRefresh(true)}
         onPresentation={() => setPresentationOpen(true)}
+        onArrangeSlides={() => setLayoutOpen(true)}
         onExportPdf={exportPdf}
         onExportExcel={exportExcel}
       />
@@ -175,12 +198,9 @@ export default function CountryPerformancePage() {
           {visibleSections.map((section) => {
             const title = titleForSection(section, pack.meta.isIntl);
             return (
-              <SectionFrame key={section.id} id={section.id} number={section.number} title={title}>
-                {section.id === "scorecard" ? (
-                  <ScorecardSection pack={pack} preset={preset} compare={compare} onOpenCountry={openCountry} />
-                ) : (
-                  <section.Component pack={pack} />
-                )}
+              <SectionFrame key={section.id} id={section.id} number={section.number} title={title} subtitle={section.hiddenFromSlides ? "hidden from slides and PDF" : undefined} hiddenFromSlides={section.hiddenFromSlides}>
+                {renderSection(section)}
+                <PresenterNote sectionId={section.id} />
               </SectionFrame>
             );
           })}
@@ -201,7 +221,9 @@ export default function CountryPerformancePage() {
         </Collapsible>
       </section>
 
-      {presentationOpen && pack && <PresentationMode pack={pack} sections={visibleSections} onExit={() => setPresentationOpen(false)} />}
+      {presentationOpen && pack && <PresentationMode pack={pack} sections={slideSections} onExit={() => setPresentationOpen(false)} renderSection={(section) => renderSection(section, true)} />}
+      <SlideLayoutDialog open={layoutOpen} onOpenChange={setLayoutOpen} sections={visibleSections} isIntl={pack?.meta.isIntl ?? false} titleFor={(section) => titleForSection(section, pack?.meta.isIntl ?? false)} />
     </div>
+    </PerformanceProvider>
   );
 }

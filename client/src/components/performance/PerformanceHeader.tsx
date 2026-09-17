@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChevronDown, FileDown, FileSpreadsheet, MonitorPlay, RefreshCw } from "lucide-react";
+import { ChevronDown, FileDown, FileSpreadsheet, ListOrdered, MonitorPlay, RefreshCw } from "lucide-react";
 
 const PRESETS: Array<[PeriodPreset, string]> = [
   ["month", "Month"],
@@ -94,6 +94,7 @@ export interface PerformanceHeaderProps {
   onFiltersChange: (value: PerformanceFilters) => void;
   onRefresh: () => void;
   onPresentation: () => void;
+  onArrangeSlides: () => void;
   onExportPdf: () => void;
   onExportExcel: () => void;
 }
@@ -129,6 +130,7 @@ export default function PerformanceHeader(props: PerformanceHeaderProps) {
         <span className="mr-auto text-xs text-muted-foreground">Data as of {props.meta?.dataAsOf ?? "not recorded"}</span>
         <Button variant="outline" size="sm" onClick={props.onRefresh} disabled={props.isRefreshing}><RefreshCw className={props.isRefreshing ? "animate-spin" : ""} />Refresh</Button>
         <Button variant="outline" size="sm" onClick={props.onPresentation}><MonitorPlay />Presentation Mode</Button>
+        <Button variant="outline" size="sm" onClick={props.onArrangeSlides}><ListOrdered />Arrange slides</Button>
         <Button variant="outline" size="sm" onClick={props.onExportPdf}><FileDown />Export PDF</Button>
         <Button variant="outline" size="sm" onClick={props.onExportExcel}><FileSpreadsheet />Export Excel</Button>
       </div>

@@ -79,6 +79,8 @@ async function establishAppUserSession(
  */
 const PERFORMANCE_COUNTRIES = ["Lebanon", "Syria", "Libya", "KSA"] as const;
 
+const countrySchema = z.enum(PERFORMANCE_COUNTRIES);
+
 const performanceRequestSchema = z.object({
   country: z.enum(PERFORMANCE_COUNTRIES),
   preset: z.enum(["month", "qtd", "ytd", "l12m", "custom"]).default("ytd"),
@@ -1999,6 +2001,108 @@ export const appRouter = router({
         const countries = await accessibleCountries(ctx);
         const { getCountryScorecard } = await import("./analysis/countryPerformance");
         return getCountryScorecard(countries, input.preset, input.compare);
+      }),
+
+    // ── Board pack extras: frozen packs, presenter notes, slide layout, budget baseline ──
+    boardSnapshots: protectedProcedure
+      .input(z.object({ country: countrySchema }))
+      .query(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
+        const rows = await db.listBoardPackSnapshots(input.country);
+        return rows.map((r) => ({ id: r.id, name: r.name, windowLabel: r.windowLabel, frozenBy: r.frozenBy, createdAt: r.createdAt.toISOString() }));
+      }),
+
+    boardSnapshot: protectedProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .query(async ({ ctx, input }) => {
+        const row = await db.getBoardPackSnapshot(input.id);
+        if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Board pack snapshot not found" });
+        await requireCountryAccess(ctx, row.country);
+        const { BoardHeadlineSchema } = await import("./analysis/countryPerformance.schemas");
+        const parsed = BoardHeadlineSchema.safeParse(row.headline);
+        if (!parsed.success) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Stored board pack snapshot is not readable" });
+        return { id: row.id, name: row.name, windowLabel: row.windowLabel, frozenBy: row.frozenBy, createdAt: row.createdAt.toISOString(), headline: parsed.data };
+      }),
+
+    freezeBoardPack: protectedProcedure
+      .input(performanceRequestSchema.extend({ name: z.string().trim().min(1).max(255) }))
+      .mutation(async ({ ctx, input }) => {
+        await requireCountryAdmin(ctx, input.country);
+        const { name, ...req } = input;
+        const { getCountryPerformance } = await import("./analysis/countryPerformance");
+        const pack = await getCountryPerformance({ ...req, refresh: true });
+        const row = await db.createBoardPackSnapshot({ country: input.country, name, windowLabel: pack.meta.window.label, headline: pack.headline, frozenBy: ctx.user.name ?? "unknown" });
+        return { id: row.id, name: row.name, windowLabel: row.windowLabel, frozenBy: row.frozenBy, createdAt: row.createdAt.toISOString() };
+      }),
+
+    deleteBoardSnapshot: protectedProcedure
+      .input(z.object({ country: countrySchema, id: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        await requireCountryAdmin(ctx, input.country);
+        await db.deleteBoardPackSnapshot(input.id, input.country);
+        return { ok: true };
+      }),
+
+    presenterNotes: protectedProcedure
+      .input(z.object({ country: countrySchema, periodKey: z.string().min(1).max(60) }))
+      .query(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
+        const rows = await db.listPresenterNotes(input.country, input.periodKey);
+        return rows.map((r) => ({ sectionId: r.sectionId, body: r.body, author: r.author, updatedAt: r.updatedAt.toISOString() }));
+      }),
+
+    savePresenterNote: protectedProcedure
+      .input(z.object({ country: countrySchema, periodKey: z.string().min(1).max(60), sectionId: z.string().min(1).max(60), body: z.string().max(4000) }))
+      .mutation(async ({ ctx, input }) => {
+        await requireCountryAdmin(ctx, input.country);
+        const row = await db.upsertPresenterNote({ ...input, author: ctx.user.name ?? "unknown" });
+        return row ? { sectionId: row.sectionId, body: row.body, author: row.author, updatedAt: row.updatedAt.toISOString() } : null;
+      }),
+
+    slideLayout: protectedProcedure.query(async ({ ctx }) => {
+      const username = ctx.user.name;
+      if (!username) return null;
+      const { SlideLayoutSchema } = await import("./analysis/countryPerformance.schemas");
+      const stored = await db.getUserPreference(username, "performance.slideLayout");
+      const parsed = SlideLayoutSchema.safeParse(stored);
+      return parsed.success ? parsed.data : null;
+    }),
+
+    saveSlideLayout: protectedProcedure
+      .input(z.object({ order: z.array(z.string().min(1).max(60)).max(40), hidden: z.array(z.string().min(1).max(60)).max(40) }))
+      .mutation(async ({ ctx, input }) => {
+        const username = ctx.user.name;
+        if (!username) throw new TRPCError({ code: "FORBIDDEN", message: "No username on session" });
+        await db.setUserPreference(username, "performance.slideLayout", input);
+        return input;
+      }),
+
+    boardPlanBaseline: protectedProcedure
+      .input(z.object({ country: countrySchema, year: z.number().int().min(2000).max(2100) }))
+      .query(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
+        const row = await db.getBoardPlanBaseline(input.country, input.year);
+        const versions = await db.listVersions(input.country);
+        return {
+          versionId: row?.versionId ?? null,
+          setBy: row?.setBy ?? null,
+          updatedAt: row?.updatedAt ? row.updatedAt.toISOString() : null,
+          versions: versions.map((v) => ({ id: v.id, name: v.name, savedBy: v.savedBy, createdAt: v.createdAt.toISOString() })),
+        };
+      }),
+
+    setBoardPlanBaseline: protectedProcedure
+      .input(z.object({ country: countrySchema, year: z.number().int().min(2000).max(2100), versionId: z.number().int().positive().nullable() }))
+      .mutation(async ({ ctx, input }) => {
+        await requireCountryAdmin(ctx, input.country);
+        if (input.versionId !== null) {
+          const version = await db.getVersionById(input.versionId);
+          if (!version || version.country !== input.country) throw new TRPCError({ code: "BAD_REQUEST", message: "That version does not belong to this country" });
+        }
+        await db.setBoardPlanBaseline(input.country, input.year, input.versionId, ctx.user.name ?? "unknown");
+        const { invalidateCountryPerformanceCache } = await import("./analysis/countryPerformance");
+        invalidateCountryPerformanceCache(input.country);
+        return { ok: true };
       }),
 
     competitorData: protectedProcedure

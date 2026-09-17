@@ -1,7 +1,7 @@
 import { eq, and, asc, inArray, sql, desc, gt } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { InsertUser, users, skus, periods, forecastData, imsData, shipmentData, arrivalData, planningFgData, uploadHistory, auditTrail, ssofVersions, versionComments, actualProductionData, clearanceEvents, appUsers, competitorData, appSettings, posmItems, tradeFocRules } from "../drizzle/schema";
+import { InsertUser, users, skus, periods, forecastData, imsData, shipmentData, arrivalData, planningFgData, uploadHistory, auditTrail, ssofVersions, versionComments, actualProductionData, clearanceEvents, appUsers, competitorData, appSettings, posmItems, tradeFocRules, boardPackSnapshots, presenterNotes, userPreferences, boardPlanBaselines } from "../drizzle/schema";
 import type { PosmItemRow, TradeFocRuleRow } from "../drizzle/schema";
 import type { AuditTrail, InsertAuditTrail, InsertSsofVersion, Country, ClearanceEvent, AppUserRow, InsertAppUser } from "../drizzle/schema";
 import type { Sku, InsertSku, Period, ForecastData, ImsData, ShipmentData, ArrivalData, PlanningFgData, SsofVersion } from "../drizzle/schema";
@@ -4125,4 +4125,108 @@ export async function getForecastIntelligence(country: "Lebanon" | "Syria" | "Li
     weightBreakdown: Array.from(byWeight.values()),
     flavorBreakdown: Array.from(byFlavor.values()).sort((a, b) => b.recommended - a.recommended),
   };
+}
+
+
+// ── Country Performance board pack ──────────────────────────────────────────
+
+/** Raw IMS rows for a set of SKUs (used to include inactive SKUs in the volume bridge). */
+export async function getImsForSkus(skuIds: number[]) {
+  const db = await getDb();
+  if (!db || skuIds.length === 0) return [];
+  return db.select().from(imsData).where(inArray(imsData.skuId, skuIds));
+}
+
+export async function listBoardPackSnapshots(country: string) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({ id: boardPackSnapshots.id, name: boardPackSnapshots.name, windowLabel: boardPackSnapshots.windowLabel, frozenBy: boardPackSnapshots.frozenBy, createdAt: boardPackSnapshots.createdAt })
+    .from(boardPackSnapshots)
+    .where(eq(boardPackSnapshots.country, country))
+    .orderBy(desc(boardPackSnapshots.createdAt));
+}
+
+export async function getBoardPackSnapshot(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(boardPackSnapshots).where(eq(boardPackSnapshots.id, id)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function createBoardPackSnapshot(input: { country: string; name: string; windowLabel: string; headline: unknown; frozenBy: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const [row] = await db.insert(boardPackSnapshots).values({ country: input.country, name: input.name, windowLabel: input.windowLabel, headline: input.headline as any, frozenBy: input.frozenBy }).returning();
+  return row;
+}
+
+export async function deleteBoardPackSnapshot(id: number, country: string) {
+  const db = await getDb();
+  if (!db) return;
+  await db.delete(boardPackSnapshots).where(and(eq(boardPackSnapshots.id, id), eq(boardPackSnapshots.country, country)));
+}
+
+export async function listPresenterNotes(country: string, periodKey: string) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(presenterNotes).where(and(eq(presenterNotes.country, country), eq(presenterNotes.periodKey, periodKey)));
+}
+
+export async function upsertPresenterNote(input: { country: string; periodKey: string; sectionId: string; body: string; author: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const existing = await db
+    .select({ id: presenterNotes.id })
+    .from(presenterNotes)
+    .where(and(eq(presenterNotes.country, input.country), eq(presenterNotes.periodKey, input.periodKey), eq(presenterNotes.sectionId, input.sectionId)))
+    .limit(1);
+  if (input.body.trim() === "") {
+    if (existing[0]) await db.delete(presenterNotes).where(eq(presenterNotes.id, existing[0].id));
+    return null;
+  }
+  if (existing[0]) {
+    const [row] = await db.update(presenterNotes).set({ body: input.body, author: input.author, updatedAt: new Date() }).where(eq(presenterNotes.id, existing[0].id)).returning();
+    return row;
+  }
+  const [row] = await db.insert(presenterNotes).values(input).returning();
+  return row;
+}
+
+export async function getUserPreference<T = unknown>(username: string, key: string): Promise<T | null> {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select({ value: userPreferences.value }).from(userPreferences).where(and(eq(userPreferences.username, username), eq(userPreferences.key, key))).limit(1);
+  return rows[0] ? (rows[0].value as T) : null;
+}
+
+export async function setUserPreference(username: string, key: string, value: unknown) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const existing = await db.select({ id: userPreferences.id }).from(userPreferences).where(and(eq(userPreferences.username, username), eq(userPreferences.key, key))).limit(1);
+  if (existing[0]) await db.update(userPreferences).set({ value: value as any, updatedAt: new Date() }).where(eq(userPreferences.id, existing[0].id));
+  else await db.insert(userPreferences).values({ username, key, value: value as any });
+}
+
+export async function getBoardPlanBaseline(country: string, year: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(boardPlanBaselines).where(and(eq(boardPlanBaselines.country, country), eq(boardPlanBaselines.year, year))).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function setBoardPlanBaseline(country: string, year: number, versionId: number | null, setBy: string) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const existing = await getBoardPlanBaseline(country, year);
+  if (versionId === null) {
+    if (existing) await db.delete(boardPlanBaselines).where(eq(boardPlanBaselines.id, existing.id));
+    return null;
+  }
+  if (existing) {
+    const [row] = await db.update(boardPlanBaselines).set({ versionId, setBy, updatedAt: new Date() }).where(eq(boardPlanBaselines.id, existing.id)).returning();
+    return row;
+  }
+  const [row] = await db.insert(boardPlanBaselines).values({ country, year, versionId, setBy }).returning();
+  return row;
 }

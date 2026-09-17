@@ -4,6 +4,7 @@
  * All quantities are exported in MC (master cases).
  */
 import ExcelJS from "exceljs";
+import type { BoardComparison } from "../../shared/performance/boardCompare";
 import type { PerformancePack, Rag } from "./countryPerformance.types";
 
 type Cell = string | number | null | undefined;
@@ -99,12 +100,30 @@ function addSheet(wb: ExcelJS.Workbook, name: string): SheetWriter {
   return new SheetWriter(ws);
 }
 
-export async function buildPerformanceWorkbook(pack: PerformancePack): Promise<Buffer> {
+export interface WorkbookExtras {
+  /** Comparison with the previous frozen board pack, when one exists. */
+  comparison?: { previousName: string; previousDate: string; result: BoardComparison } | null;
+  /** Presenter notes for this country + period. */
+  notes?: { sectionId: string; body: string; author: string; updatedAt: string }[];
+}
+
+export async function buildPerformanceWorkbook(pack: PerformancePack, extras: WorkbookExtras = {}): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
   wb.creator = "SSOF Planning";
   wb.created = new Date();
   const m = pack.meta;
   const isIntl = m.isIntl;
+  let sheetNo = 0;
+  const num = (title: string) => `${++sheetNo} ${title}`;
+  const mc = (v: number | null | undefined) => (v === null || v === undefined ? null : Math.round(v));
+  const noteFor = (sectionId: string) => extras.notes?.find((n) => n.sectionId === sectionId);
+  const presenterNote = (s: SheetWriter, sectionId: string) => {
+    const n = noteFor(sectionId);
+    if (!n) return;
+    s.question("Presenter notes");
+    s.note(`${n.body} — ${n.author}, ${new Date(n.updatedAt).toLocaleDateString("en-GB")}`);
+    s.blank();
+  };
 
   // ── Cover ─────────────────────────────────────────────────────────────────
   {
@@ -136,10 +155,70 @@ export async function buildPerformanceWorkbook(pack: PerformancePack): Promise<B
     );
   }
 
-  // ── 1 Executive Summary ───────────────────────────────────────────────────
+  // ── Running Rate ──────────────────────────────────────────────────────────
   {
-    const s = addSheet(wb, "1 Executive Summary");
+    const s = addSheet(wb, num("Running Rate"));
+    const r = pack.runningRate;
+    s.title("Running Rate", r.asOf ? `Measured at ${r.asOf}` : "No actual IMS in this period");
+    s.note(r.message);
+    s.blank();
+    s.question("How fast is the market running?");
+    s.table(
+      ["Measure", "MC / month", "Plan", "vs plan %", "Last year", "vs last year %", "Status"],
+      [r.headline, r.avg3, r.avg6].map((f) => [f.label, mc(f.value), mc(f.plan), f.vsPlanPct, mc(f.lastYear), f.vsLyPct, RAG_TEXT[f.status]]),
+      { ragColumn: 6, rags: [r.headline, r.avg3, r.avg6].map((f) => f.status) },
+    );
+    s.keyValues([
+      ["Annualised (latest month × 12)", mc(r.annualised)],
+      ["Closing stock (MC)", mc(r.closingStock)],
+      ["Implied weeks of cover", r.coverWeeks === null ? "n/a" : Number(r.coverWeeks.toFixed(1))],
+      ["Cover target", `${r.target.low}–${r.target.high} weeks`],
+      ["Trend", r.trend.text],
+    ]);
+    s.question("By weight and by product type (3-month average)");
+    s.table(
+      ["Group", "SKUs", "Run rate (MC/month)", "Plan", "vs plan %", "Last year", "vs last year %", "Status"],
+      [...r.byWeight, ...r.byType].map((t) => [t.group, t.skuCount, mc(t.current), mc(t.plan), t.vsPlanPct, mc(t.lastYear), t.vsLyPct, RAG_TEXT[t.status]]),
+      { ragColumn: 7, rags: [...r.byWeight, ...r.byType].map((t) => t.status) },
+    );
+    s.question("Which SKUs are driving the run rate up or down?");
+    s.table(["Direction", "SKU", "Weight", "Now (MC/month)", "3 months ago", "Change (MC)", "Change %"], [
+      ...r.up.map((d) => ["Up", d.sku, d.weight, mc(d.current), mc(d.previous), mc(d.changeMc), d.changePct]),
+      ...r.down.map((d) => ["Down", d.sku, d.weight, mc(d.current), mc(d.previous), mc(d.changeMc), d.changePct]),
+    ], { emptyMessage: "No change in run rate by SKU" });
+    s.question("24-month view");
+    s.table(["Month", "Actual IMS", "3-month average", "6-month average", "Plan", "Last year"], r.chart.map((c) => [c.label, mc(c.ims), mc(c.rate3), mc(c.rate6), mc(c.plan), mc(c.lastYear)]));
+    s.note(r.method);
+    for (const n of r.notes) s.note(n);
+    presenterNote(s, "runningRate");
+  }
+
+  // ── Full-Year Outlook ─────────────────────────────────────────────────────
+  {
+    const s = addSheet(wb, num("Full-Year Outlook"));
+    const o = pack.outlook;
+    s.title(`Full-Year Outlook ${o.year}`, o.baseline.label);
+    s.note(o.message);
+    s.note(o.baseline.note);
+    s.blank();
+    s.question("Where will the year land against the annual plan?");
+    const groups = [o.total, ...o.byWeight, ...o.byType];
+    s.table(
+      ["Group", "SKUs", "Actual to date (MC)", "Remaining forecast (MC)", "Landing (MC)", "Annual plan (MC)", "Gap (MC)", "Gap %", "Required MC/month", "Current MC/month", "Stretch %", "Status"],
+      groups.map((g) => [g.group, g.skuCount, mc(g.ytdActual), mc(g.remainingForecast), mc(g.landing), mc(g.annualPlan), mc(g.gapMc), g.gapPct, mc(g.requiredRate), mc(g.currentRate), g.stretchPct, RAG_TEXT[g.status]]),
+      { ragColumn: 11, rags: groups.map((g) => g.status) },
+    );
+    s.question("Month by month");
+    s.table(["Month", "Actual", "Forecast", "Plan", "Cumulative landing", "Cumulative plan"], o.monthly.map((x) => [x.label, mc(x.actual), mc(x.forecast), mc(x.plan), mc(x.cumulativeLanding), mc(x.cumulativePlan)]));
+    for (const n of o.notes) s.note(n);
+    presenterNote(s, "outlook");
+  }
+
+  // ── Executive Summary ─────────────────────────────────────────────────────
+  {
+    const s = addSheet(wb, num("Executive Summary"));
     s.title("Executive Summary", `${m.country} · ${m.window.label} · ${m.compareLabel}`);
+    presenterNote(s, "executive");
     s.question("Key indicators");
     const tiles = pack.executive.tiles;
     s.table(
@@ -180,9 +259,31 @@ export async function buildPerformanceWorkbook(pack: PerformancePack): Promise<B
     s.table(["Indicator", ...labels], tiles.map((t) => [t.label, ...t.sparkline.map((p) => (p.value === null ? null : Number(p.value.toFixed(1))))]));
   }
 
-  // ── 2 Supply Chain Flow ───────────────────────────────────────────────────
+  // ── What changed since the last board ─────────────────────────────────────
   {
-    const s = addSheet(wb, "2 Supply Chain Flow");
+    const s = addSheet(wb, num("Since Last Board"));
+    s.title("What changed since the last board pack", extras.comparison ? `Compared with "${extras.comparison.previousName}" frozen on ${new Date(extras.comparison.previousDate).toLocaleDateString("en-GB")}` : "No previous frozen board pack for this country");
+    if (extras.comparison) {
+      const c = extras.comparison.result;
+      s.note(c.summary);
+      s.blank();
+      s.question("Headline numbers");
+      s.table(["Measure", "Previous pack", "This pack", "Change", "Change %"], c.changes.map((x) => [x.label, x.before, x.after, x.delta, x.pct]));
+      s.question("Risks added");
+      s.table(["SKU", "Issue", "Severity"], c.risksAdded.map((r) => [r.sku, r.issue, RAG_TEXT[r.severity]]), { emptyMessage: "No new risks" });
+      s.question("Risks resolved");
+      s.table(["SKU", "Issue", "Severity"], c.risksResolved.map((r) => [r.sku, r.issue, RAG_TEXT[r.severity]]), { emptyMessage: "No risks resolved" });
+      s.question("Biggest forecast revisions (remaining months of the year)");
+      s.table(["SKU", "Weight", "Previous forecast (MC)", "Current forecast (MC)", "Change (MC)", "Change %"], c.forecastRevisions.slice(0, 25).map((r) => [r.sku, r.weight, mc(r.before), mc(r.after), mc(r.delta), r.pct]), { emptyMessage: c.sameYear ? "No forecast revisions" : "Different planning year — not compared" });
+    } else {
+      s.note("Freeze a board pack from the page header to start tracking changes between boards.");
+    }
+    presenterNote(s, "changes");
+  }
+
+  // ── Supply Chain Flow ─────────────────────────────────────────────────────
+  {
+    const s = addSheet(wb, num("Supply Chain Flow"));
     s.title("Supply Chain Flow", m.window.label);
     s.question("Where did the volume go between plan and shelf?");
     s.table(["Step", "Type", "Value (MC)", "Gap vs previous total (MC)", "Gap %", "Note"], pack.flow.waterfall.supply.map((w) => [w.label, w.kind, Math.round(w.value), w.gapMc === null ? null : Math.round(w.gapMc), w.gapPct, w.note ?? null]));
@@ -203,8 +304,17 @@ export async function buildPerformanceWorkbook(pack: PerformancePack): Promise<B
 
   // ── 3 Demand ──────────────────────────────────────────────────────────────
   {
-    const s = addSheet(wb, "3 Demand");
+    const s = addSheet(wb, num("Demand"));
     s.title("Demand — sell-out (IMS)", m.chartWindow.label);
+    presenterNote(s, "demand");
+    s.question("Where did the growth come from? (volume bridge)");
+    const br = pack.demand.bridge;
+    if (br.available) {
+      s.table(["Step", "Type", "MC", "Detail"], br.steps.map((x) => [x.label, x.kind === "total" ? "Total" : "Change", mc(x.value), x.detail ?? null]));
+      s.table(["By weight", "Type", "MC"], br.byWeight.map((x) => [x.label, x.kind === "total" ? "Total" : "Change", mc(x.value)]));
+    }
+    s.note(br.note);
+    s.blank();
     s.question("Are we selling what we planned, and more than last year?");
     s.table(["Month", "Sell-out (MC)", "Plan (MC)", "Last year (MC)", "3-month average", "6-month average", "Auto-filled"], pack.demand.monthly.map((d) => [d.label, fmtNum(d.ims), Math.round(d.plan), fmtNum(d.lastYear), fmtNum(d.runningRate3), fmtNum(d.runningRate6), d.autoFilled ? "Yes" : ""]));
     s.question("How does each month compare with last year?");
@@ -234,7 +344,7 @@ export async function buildPerformanceWorkbook(pack: PerformancePack): Promise<B
 
   // ── 4 Supply ──────────────────────────────────────────────────────────────
   {
-    const s = addSheet(wb, "4 Supply");
+    const s = addSheet(wb, num("Supply"));
     s.title(isIntl ? "Supply — production, arrivals and clearance" : "Supply — production and arrivals", m.chartWindow.label);
     s.question("Did we produce what we planned each month?");
     s.table(["Month", "Plan (MC)", "Actual (MC)", "Attainment %", "Cumulative plan", "Cumulative actual"], pack.supply.attainment.map((a) => [a.label, Math.round(a.plan), Math.round(a.actual), fmtPct(a.attainmentPct), Math.round(a.cumulativePlan), Math.round(a.cumulativeActual)]));
@@ -264,7 +374,7 @@ export async function buildPerformanceWorkbook(pack: PerformancePack): Promise<B
 
   // ── 5 Inventory Health ────────────────────────────────────────────────────
   {
-    const s = addSheet(wb, "5 Inventory Health");
+    const s = addSheet(wb, num("Inventory Health"));
     const inv = pack.inventory;
     s.title("Inventory Health", `Target ${inv.targetWeeks.low}–${inv.targetWeeks.high} weeks of cover · ${inv.coverFormula}`);
     s.question("Which SKUs are inside the target?");
@@ -289,12 +399,34 @@ export async function buildPerformanceWorkbook(pack: PerformancePack): Promise<B
       ["Share of volume priced %", fmtPct(inv.stockValue.pricedSharePct)],
       ["SKUs missing a price", inv.stockValue.skusMissingPrice.join(", ") || "None"],
     ]);
+    s.question("How much did we lose to stock-outs?");
+    const ls = inv.lostSales;
+    s.keyValues([
+      ["Service level % (SKU-months in stock)", fmtPct(ls.serviceLevelPct)],
+      ["SKU-months measured", ls.skuMonths],
+      ["Stock-out SKU-months", ls.stockoutMonths],
+      ["Estimated lost sales (MC)", mc(ls.lostMc)],
+    ]);
+    s.table(["SKU", "Weight", "Stock-out months", "Lost sales (MC)"], ls.bySku.map((r) => [r.sku, r.weight, r.months, mc(r.lostMc)]), { emptyMessage: "No stock-out months in the last 12 months" });
+    s.table(["SKU", "Weight", "Month", "Closing (MC)", "Sold (MC)", "Run rate (MC)", "Lost (MC)"], ls.rows.map((r) => [r.sku, r.weight, r.month, mc(r.closing), mc(r.ims), mc(r.runRate), mc(r.lostMc)]), { emptyMessage: "No stock-out months" });
+    s.note(ls.method);
+    s.blank();
+    s.question("How efficiently is stock working?");
+    const ef = inv.efficiency;
+    const efGroups = [ef.total, ...ef.byWeight];
+    s.table(["Group", "Turns (annualised)", "Days of inventory", "Avg stock (MC)", "Annualised sales (MC)"], efGroups.map((g) => [g.group, g.turns === null ? null : Number(g.turns.toFixed(1)), g.daysOfInventory === null ? null : Math.round(g.daysOfInventory), mc(g.avgStock), mc(g.annualisedIms)]));
+    s.question("Stock-to-sales trend");
+    s.table(["Month", ...efGroups.map((g) => g.group)], ef.total.trend.map((pt, i) => [pt.label, ...efGroups.map((g) => { const v = g.trend[i]?.stockToSales; return v === null || v === undefined ? null : Number(v.toFixed(2)); })]));
+    s.question("Demand variability and recommended safety stock");
+    s.table(["SKU", "Weight", "Avg monthly sales (MC)", "Variability (CV)", "Volatility", "Recommended safety stock (weeks)", "Target weeks", "Current weeks", "Verdict"], ef.variability.map((v) => [v.sku, v.weight, mc(v.avgIms), v.cv === null ? null : Number(v.cv.toFixed(2)), v.volatility, v.recommendedWeeks === null ? null : Number(v.recommendedWeeks.toFixed(1)), v.targetWeeks, fmtWeeks(v.currentWeeks), v.verdict]), { emptyMessage: "Not enough history" });
+    s.note(ef.method);
     inv.notes.forEach((n) => s.note(n));
+    presenterNote(s, "inventory");
   }
 
   // ── 6 Forecast Quality ────────────────────────────────────────────────────
   {
-    const s = addSheet(wb, "6 Forecast Quality");
+    const s = addSheet(wb, num("Forecast Quality"));
     const q = pack.forecastQuality;
     s.title("Forecast Quality", q.method);
     s.keyValues([
@@ -313,9 +445,51 @@ export async function buildPerformanceWorkbook(pack: PerformancePack): Promise<B
     q.notes.forEach((n) => s.note(n));
   }
 
-  // ── 7 Forward Look ────────────────────────────────────────────────────────
+  // ── Portfolio Health ──────────────────────────────────────────────────────
   {
-    const s = addSheet(wb, "7 Forward Look");
+    const s = addSheet(wb, num("Portfolio Health"));
+    const pf = pack.portfolio;
+    s.title("SKU Portfolio Health", pf.basis);
+    s.question("How is volume spread across the portfolio?");
+    s.table(["Quadrant", "SKUs", "MC", "Share %"], pf.quadrantCounts.map((q) => [q.quadrant, q.count, mc(q.mc), q.sharePct]));
+    s.question("Every SKU");
+    s.table(["SKU", "Weight", "Flavour", "Category", "MC", "Share %", "Growth %", "Quadrant", "Closing stock (MC)"], pf.points.map((x) => [x.sku, x.weight, x.flavour, x.category, mc(x.mc), x.sharePct, x.growthPct, x.quadrant, mc(x.closingStock)]));
+    s.question(`Tail report — ${pf.candidates} rationalisation candidates, ${Math.round(pf.tailStockMc).toLocaleString("en-US")} MC of stock in the tail`);
+    s.table(["SKU", "Weight", "MC", "Share %", "Zero months (last 3)", "Months since last sale", "Stock (MC)", "Weeks of cover", "Candidate", "Reason"], pf.tail.map((t) => [t.sku, t.weight, mc(t.mc), t.sharePct, t.zeroMonthsLast3, t.monthsSinceLastSale, mc(t.stockMc), fmtWeeks(t.weeks), t.candidate ? "Yes" : "", t.reason]), { emptyMessage: "No tail SKUs" });
+    s.question("Flavour ranking");
+    s.table(["Rank", "Flavour", "Movement", "MC", "Share %", "Last year (MC)", "Growth %", "Last year rank"], pf.flavours.map((f) => [f.rank, f.flavour, f.movement, mc(f.mc), f.sharePct, mc(f.lastYearMc), f.growthPct, f.lastYearRank]));
+    pf.notes.forEach((n) => s.note(n));
+    presenterNote(s, "portfolio");
+  }
+
+  // ── Market Context ────────────────────────────────────────────────────────
+  if (pack.market) {
+    const s = addSheet(wb, num("Market Context"));
+    const mk = pack.market;
+    s.title("Market Context", `${mk.year} through month ${mk.monthsCovered} · ${mk.unit} · uploaded ${mk.source.uploadedAt ? new Date(mk.source.uploadedAt).toLocaleDateString("en-GB") : "n/a"}${mk.source.uploadedBy ? ` by ${mk.source.uploadedBy}` : ""}`);
+    s.note(mk.message);
+    s.blank();
+    s.keyValues([
+      ["Our brand", mk.ourBrand],
+      ["Our share %", fmtPct(mk.sharePct)],
+      ["Our share last year %", fmtPct(mk.shareLyPct)],
+      ["Share change (pts)", fmtPct(mk.sharePtsChange)],
+      ["Our growth %", fmtPct(mk.ourGrowthPct)],
+      ["Market growth %", fmtPct(mk.marketGrowthPct)],
+      ["Main competitor", mk.mainCompetitor ?? "n/a"],
+      ["Main competitor growth %", fmtPct(mk.competitorGrowthPct)],
+    ]);
+    s.question("Brands");
+    s.table(["Brand", "Year to date", "Last year", "Growth %", "Share %", "Share last year %", "Share change (pts)"], mk.brands.map((b) => [b.brand, mc(b.ytd), mc(b.lastYear), b.growthPct, b.sharePct, b.shareLyPct, b.sharePtsChange]));
+    s.question("Share by month");
+    s.table(["Month", "Our volume", "Market total", mk.mainCompetitor ?? "Main competitor", "Our share %", "Competitor share %"], mk.trend.map((x) => [x.label, mc(x.ours), mc(x.market), mc(x.competitor), x.sharePct, x.competitorSharePct]));
+    mk.notes.forEach((n) => s.note(n));
+    presenterNote(s, "market");
+  }
+
+  // ── Forward Look ──────────────────────────────────────────────────────────
+  {
+    const s = addSheet(wb, num("Forward Look"));
     const f = pack.forward;
     s.title("Forward Look — next 6 months", `${f.inputs.leadTimeNote} · Target ${f.inputs.target.low}–${f.inputs.target.high} weeks`);
     s.question("Where will stock land over the next 6 months? (plan demand, 0% scenario)");
@@ -331,7 +505,7 @@ export async function buildPerformanceWorkbook(pack: PerformancePack): Promise<B
 
   // ── 8 Commercial Value ────────────────────────────────────────────────────
   {
-    const s = addSheet(wb, "8 Commercial Value");
+    const s = addSheet(wb, num("Commercial Value"));
     const c = pack.commercial;
     s.title("Commercial Value", "USD at our wholesale price (priceToWs); SKUs without a price are not valued");
     if (!c.hasPrices) {
@@ -353,9 +527,20 @@ export async function buildPerformanceWorkbook(pack: PerformancePack): Promise<B
     c.notes.forEach((n) => s.note(n));
   }
 
-  // ── 9 Data Confidence ─────────────────────────────────────────────────────
+  // ── Anomalies ─────────────────────────────────────────────────────────────
   {
-    const s = addSheet(wb, "9 Data Confidence");
+    const s = addSheet(wb, num("Anomalies"));
+    const an = pack.anomalies;
+    s.title("Anomalies", `${an.rows.length} unusual month${an.rows.length === 1 ? "" : "s"} across ${an.monthsScanned} months scanned`);
+    s.table(["Scope", "Name", "Weight", "Measure", "Month", "Value (MC)", "Expected (MC)", "Deviation (MC)", "Deviation %", "Z-score", "Direction", "Severity", "Likely explanation"], an.rows.map((r) => [r.scope === "sku" ? "SKU" : "Weight", r.name, r.weight, r.measure, r.month, mc(r.value), mc(r.expected), mc(r.deviationMc), r.deviationPct, r.zScore, r.direction, RAG_TEXT[r.severity], r.explanation]), { ragColumn: 11, rags: an.rows.map((r) => r.severity), emptyMessage: "No unusual months found" });
+    s.note(an.method);
+    an.notes.forEach((n) => s.note(n));
+    presenterNote(s, "anomalies");
+  }
+
+  // ── Data Confidence ───────────────────────────────────────────────────────
+  {
+    const s = addSheet(wb, num("Data Confidence"));
     const d = pack.confidence;
     s.title("Data Confidence", `Score ${d.score}/100 — ${d.grade}`);
     s.question("Issues");
@@ -378,6 +563,13 @@ export async function buildPerformanceWorkbook(pack: PerformancePack): Promise<B
       ["Auto-filled IMS months", d.autoFilledImsMonths],
       ["SKUs missing a price", d.skusMissingPrice.join(", ") || "None"],
     ]);
+  }
+
+  // ── Presenter notes ───────────────────────────────────────────────────────
+  if (extras.notes?.length) {
+    const s = addSheet(wb, "Presenter Notes");
+    s.title("Presenter notes", `${m.country} · ${m.window.label}`);
+    s.table(["Section", "Note", "Author", "Updated"], extras.notes.map((n) => [n.sectionId, n.body, n.author, new Date(n.updatedAt).toLocaleString("en-GB")]));
   }
 
   const out = await wb.xlsx.writeBuffer();

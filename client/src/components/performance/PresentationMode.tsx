@@ -1,17 +1,20 @@
-import { useCallback, useEffect, useState } from "react";
-import type { PerformanceSectionDefinition } from "./sections";
+import React, { useCallback, useEffect, useState } from "react";
+import type { OrderedSection } from "./sections";
 import { titleForSection } from "./sections";
 import type { PerformancePack } from "./types";
+import PresenterNote from "./PresenterNote";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, ArrowRight, X } from "lucide-react";
 
 interface PresentationModeProps {
   pack: PerformancePack;
-  sections: PerformanceSectionDefinition[];
+  /** Slides in presenter order; hidden sections are already filtered out. */
+  sections: OrderedSection[];
   onExit: () => void;
+  renderSection?: (section: OrderedSection) => React.ReactNode;
 }
 
-export default function PresentationMode({ pack, sections, onExit }: PresentationModeProps) {
+export default function PresentationMode({ pack, sections, onExit, renderSection }: PresentationModeProps) {
   const [slide, setSlide] = useState(0);
   const total = sections.length + 1;
   const previous = useCallback(() => setSlide((value) => Math.max(0, value - 1)), []);
@@ -57,10 +60,11 @@ export default function PresentationMode({ pack, sections, onExit }: Presentatio
         ) : section && SectionComponent ? (
           <div className="mx-auto w-full max-w-[1500px] flex-1">
             <header className="mb-6 flex items-baseline gap-4 border-t-8 border-[#7f1d1d] pt-4">
-              <span className="text-lg font-bold tracking-widest text-[#7f1d1d]">{String(section.number).padStart(2, "0")}</span>
+              <span className="text-lg font-bold tracking-widest text-[#7f1d1d]">{String(slide).padStart(2, "0")}</span>
               <h1 className="text-3xl font-bold">{titleForSection(section, pack.meta.isIntl)}</h1>
             </header>
-            <div className="text-base"><SectionComponent pack={pack} presentation /></div>
+            <div className="text-base">{renderSection ? renderSection(section) : <SectionComponent pack={pack} presentation />}</div>
+            <div className="mt-6"><PresenterNote sectionId={section.id} presentation /></div>
           </div>
         ) : null}
         <footer className="mt-6 flex items-center gap-2 border-t pt-3">

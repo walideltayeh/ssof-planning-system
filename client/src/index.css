@@ -235,6 +235,10 @@
     break-before: page;
   }
 
+  body.perf-printing .perf-hidden-slide {
+    display: none !important;
+  }
+
   body.perf-printing .perf-card,
   body.perf-printing .break-inside-avoid {
     break-inside: avoid;

@@ -225,6 +225,7 @@ export interface NpiRampRow {
 }
 
 export interface DemandSection {
+  bridge: VolumeBridge;
   monthly: DemandMonth[];
   yoy: YoyMonth[];
   seasonality: SeasonalityPoint[];
@@ -354,6 +355,8 @@ export interface InventorySection {
   overstock: OverstockSku[];
   expiryRisk: { rows: ExpiryRiskRow[]; totalAtRiskMc: number } | null;
   stockValue: StockValue;
+  lostSales: LostSales;
+  efficiency: InventoryEfficiency;
   notes: string[];
 }
 
@@ -517,6 +520,8 @@ export interface PerformanceMeta {
   compare: CompareMode;
   filters: PerformanceFilters;
   window: { from: PeriodRef; to: PeriodRef; months: PeriodRef[]; label: string };
+  /** Stable key for the resolved period, e.g. "ytd:2026-01:2026-08" — presenter notes are stored against it. */
+  periodKey: string;
   /** Months used for trend charts: the window when it spans 6+ months, else the last 12 months ending at the window end. */
   chartWindow: { from: PeriodRef; to: PeriodRef; months: PeriodRef[]; label: string };
   compareLabel: string;
@@ -532,6 +537,8 @@ export interface PerformanceMeta {
 
 export interface PerformancePack {
   meta: PerformanceMeta;
+  runningRate: RunningRateSection;
+  outlook: OutlookSection;
   executive: { tiles: KpiTile[]; keyMessages: KeyMessage[]; risks: RiskItem[] };
   flow: FlowSection;
   demand: DemandSection;
@@ -540,7 +547,11 @@ export interface PerformancePack {
   forecastQuality: ForecastQualitySection;
   forward: ForwardSection;
   commercial: CommercialSection;
+  portfolio: PortfolioSection;
+  market: MarketSection | null;
+  anomalies: AnomalySection;
   confidence: DataConfidenceSection;
+  headline: BoardHeadline;
 }
 
 export interface ScorecardRow {
@@ -560,4 +571,360 @@ export interface ScorecardRow {
   expiryRiskMc: number | null;
   confidenceScore: number;
   status: Rag;
+}
+
+// ── Running Rate strip ───────────────────────────────────────────────────────
+
+export interface RateFigure {
+  label: string;
+  /** MC per month. */
+  value: number | null;
+  plan: number | null;
+  lastYear: number | null;
+  vsPlanPct: number | null;
+  vsLyPct: number | null;
+  status: Rag;
+  statusReason: string;
+}
+
+export interface RunningRateTile {
+  group: string;
+  current: number;
+  plan: number | null;
+  lastYear: number | null;
+  vsPlanPct: number | null;
+  vsLyPct: number | null;
+  status: Rag;
+  skuCount: number;
+}
+
+export interface RunningRateDriver {
+  sku: string;
+  weight: string;
+  current: number;
+  previous: number;
+  changeMc: number;
+  changePct: number | null;
+}
+
+export interface RunningRateChartPoint {
+  label: string;
+  ims: number | null;
+  rate3: number | null;
+  rate6: number | null;
+  plan: number;
+  lastYear: number | null;
+  isActual: boolean;
+}
+
+export interface RunningRateSection {
+  /** Month the rate is measured at, e.g. "May 2026" (latest month with actual IMS inside the period). */
+  asOf: string | null;
+  headline: RateFigure;
+  avg3: RateFigure;
+  avg6: RateFigure;
+  annualised: number | null;
+  closingStock: number;
+  coverWeeks: number | null;
+  coverStatus: Rag;
+  coverReason: string;
+  target: { low: number; high: number };
+  trend: { pct: number | null; direction: "up" | "down" | "flat" | "unknown"; text: string };
+  chart: RunningRateChartPoint[];
+  byWeight: RunningRateTile[];
+  byType: RunningRateTile[];
+  up: RunningRateDriver[];
+  down: RunningRateDriver[];
+  message: string;
+  method: string;
+  notes: string[];
+}
+
+// ── Full-year outlook & required run rate ────────────────────────────────────
+
+export interface OutlookGroup {
+  group: string;
+  ytdActual: number;
+  remainingForecast: number;
+  landing: number;
+  annualPlan: number | null;
+  gapMc: number | null;
+  gapPct: number | null;
+  requiredRate: number | null;
+  currentRate: number;
+  stretchPct: number | null;
+  status: Rag;
+  skuCount: number;
+}
+
+export interface OutlookMonth {
+  label: string;
+  actual: number | null;
+  forecast: number;
+  plan: number | null;
+  cumulativeLanding: number;
+  cumulativePlan: number | null;
+}
+
+export interface OutlookBaseline {
+  kind: "version" | "current";
+  label: string;
+  versionId: number | null;
+  versionName: string | null;
+  savedAt: string | null;
+  note: string;
+}
+
+export interface OutlookSection {
+  year: number;
+  ytdThrough: string | null;
+  monthsElapsed: number;
+  monthsRemaining: number;
+  baseline: OutlookBaseline;
+  total: OutlookGroup;
+  byWeight: OutlookGroup[];
+  byType: OutlookGroup[];
+  monthly: OutlookMonth[];
+  message: string;
+  notes: string[];
+}
+
+// ── Volume bridge (Demand) ───────────────────────────────────────────────────
+
+export interface BridgeStep {
+  key: string;
+  label: string;
+  value: number;
+  kind: "total" | "delta";
+  detail?: string;
+}
+
+export interface VolumeBridge {
+  available: boolean;
+  fromLabel: string;
+  toLabel: string;
+  steps: BridgeStep[];
+  byWeight: BridgeStep[];
+  note: string;
+}
+
+// ── Portfolio health ─────────────────────────────────────────────────────────
+
+export type Quadrant = "Stars" | "Core earners" | "Question marks" | "Tail";
+
+export interface PortfolioPoint {
+  sku: string;
+  weight: string;
+  flavour: string;
+  category: string;
+  mc: number;
+  sharePct: number;
+  growthPct: number | null;
+  quadrant: Quadrant;
+  closingStock: number;
+}
+
+export interface TailRow {
+  sku: string;
+  weight: string;
+  mc: number;
+  sharePct: number;
+  zeroMonthsLast3: number;
+  monthsSinceLastSale: number | null;
+  stockMc: number;
+  weeks: number | null;
+  candidate: boolean;
+  reason: string;
+}
+
+export interface FlavourRank {
+  flavour: string;
+  rank: number;
+  lastYearRank: number | null;
+  movement: string;
+  mc: number;
+  lastYearMc: number | null;
+  growthPct: number | null;
+  sharePct: number;
+}
+
+export interface PortfolioSection {
+  thresholds: { shareSplitPct: number; growthSplitPct: number; tailSharePct: number };
+  points: PortfolioPoint[];
+  quadrantCounts: { quadrant: Quadrant; count: number; mc: number; sharePct: number }[];
+  tail: TailRow[];
+  tailStockMc: number;
+  candidates: number;
+  flavours: FlavourRank[];
+  basis: string;
+  notes: string[];
+}
+
+// ── Lost sales & inventory efficiency (Inventory) ────────────────────────────
+
+export interface LostSalesRow {
+  sku: string;
+  weight: string;
+  month: string;
+  closing: number;
+  ims: number;
+  runRate: number;
+  lostMc: number;
+}
+
+export interface LostSales {
+  serviceLevelPct: number | null;
+  skuMonths: number;
+  stockoutMonths: number;
+  lostMc: number;
+  rows: LostSalesRow[];
+  bySku: { sku: string; weight: string; months: number; lostMc: number }[];
+  method: string;
+}
+
+export interface EfficiencyPoint {
+  label: string;
+  stock: number;
+  ims: number;
+  stockToSales: number | null;
+}
+
+export interface EfficiencyGroup {
+  group: string;
+  turns: number | null;
+  daysOfInventory: number | null;
+  avgStock: number;
+  annualisedIms: number;
+  trend: EfficiencyPoint[];
+}
+
+export interface VariabilityRow {
+  sku: string;
+  weight: string;
+  avgIms: number;
+  cv: number | null;
+  volatility: "Low" | "Medium" | "High" | "Unknown";
+  recommendedWeeks: number | null;
+  targetWeeks: number;
+  currentWeeks: number | null;
+  verdict: string;
+}
+
+export interface InventoryEfficiency {
+  total: EfficiencyGroup;
+  byWeight: EfficiencyGroup[];
+  variability: VariabilityRow[];
+  method: string;
+}
+
+// ── Market context ───────────────────────────────────────────────────────────
+
+export interface MarketPoint {
+  label: string;
+  ours: number;
+  market: number;
+  competitor: number | null;
+  sharePct: number | null;
+  competitorSharePct: number | null;
+}
+
+export interface MarketBrandRow {
+  brand: string;
+  ytd: number;
+  lastYear: number | null;
+  growthPct: number | null;
+  sharePct: number | null;
+  shareLyPct: number | null;
+  sharePtsChange: number | null;
+}
+
+export interface MarketSection {
+  available: boolean;
+  unit: string;
+  ourBrand: string;
+  mainCompetitor: string | null;
+  year: number;
+  monthsCovered: number;
+  trend: MarketPoint[];
+  sharePct: number | null;
+  shareLyPct: number | null;
+  sharePtsChange: number | null;
+  ourGrowthPct: number | null;
+  marketGrowthPct: number | null;
+  competitorGrowthPct: number | null;
+  outgrowing: boolean | null;
+  brands: MarketBrandRow[];
+  message: string;
+  source: { uploadedBy: string | null; uploadedAt: string | null };
+  notes: string[];
+}
+
+// ── Anomalies ────────────────────────────────────────────────────────────────
+
+export interface AnomalyRow {
+  scope: "sku" | "weight";
+  name: string;
+  weight: string;
+  measure: "IMS" | "Production" | "Arrivals";
+  month: string;
+  value: number;
+  expected: number;
+  deviationMc: number;
+  deviationPct: number | null;
+  zScore: number;
+  direction: "above" | "below";
+  severity: Rag;
+  explanation: string;
+}
+
+export interface AnomalySection {
+  rows: AnomalyRow[];
+  monthsScanned: number;
+  method: string;
+  notes: string[];
+}
+
+// ── Board freeze headline ────────────────────────────────────────────────────
+
+export interface HeadlineRisk {
+  sku: string;
+  issue: string;
+  severity: Rag;
+}
+
+export interface HeadlineSkuForecast {
+  sku: string;
+  weight: string;
+  remainingForecast: number;
+}
+
+/** The numbers frozen when an admin presses "Freeze Board Pack". Kept small so it can be stored as JSON. */
+export interface BoardHeadline {
+  version: 1;
+  country: PerformanceCountry;
+  windowLabel: string;
+  year: number;
+  asOf: string | null;
+  generatedAt: string;
+  ytdIms: number;
+  ytdPlan: number | null;
+  landing: number | null;
+  annualPlan: number | null;
+  remainingForecast: number | null;
+  runningRate: number | null;
+  closingStock: number;
+  weeksOfCover: number | null;
+  forecastAccuracyPct: number | null;
+  stockoutRiskSkus: number;
+  overstockSkus: number;
+  risks: HeadlineRisk[];
+  skuForecasts: HeadlineSkuForecast[];
+}
+
+export interface BoardSnapshotRef {
+  id: number;
+  name: string;
+  frozenBy: string;
+  createdAt: string;
+  windowLabel: string;
 }
