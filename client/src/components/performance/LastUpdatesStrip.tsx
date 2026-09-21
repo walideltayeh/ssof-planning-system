@@ -5,24 +5,11 @@
  */
 import { Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { trpc } from "@/lib/trpc";
-import { describeUpdate, relativeTime, type CountryLastUpdate } from "../../../../shared/audit/lastUpdate";
+import { formatUpdateTime, lastUpdateSentence, useLastUpdates } from "@/hooks/useLastUpdates";
+import { describeUpdate, relativeTime } from "../../../../shared/audit/lastUpdate";
 import type { PerformanceCountry } from "./types";
 
-export function formatUpdateTime(at: string) {
-  return new Date(at).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
-}
-
-/** Short sentence for the selected country, e.g. "Last update 17 Sep 2026, 09:40 by Walid El Tayeh (5 days ago)". */
-export function lastUpdateSentence(update: CountryLastUpdate | undefined): string {
-  if (!update || !update.at) return "No data update recorded";
-  const who = update.displayName ?? update.username ?? "unknown user";
-  return `Last update ${formatUpdateTime(update.at)} by ${who} (${relativeTime(update.at)})`;
-}
-
-export function useLastUpdates() {
-  return trpc.country.lastUpdates.useQuery(undefined, { staleTime: 60_000, refetchOnWindowFocus: true });
-}
+export { formatUpdateTime, lastUpdateSentence, useLastUpdates };
 
 interface LastUpdatesStripProps {
   selected: PerformanceCountry;

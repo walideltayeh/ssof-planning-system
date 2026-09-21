@@ -1,6 +1,7 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useAppAuth } from "@/contexts/AuthContext";
 import { useCountry, COUNTRY_CONFIG } from "@/contexts/CountryContext";
+import LastUpdatedPanel from "@/components/LastUpdatedPanel";
 import { useUnit, UnitType } from "@/contexts/UnitContext";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -469,6 +470,8 @@ function DashboardLayoutContent({
                 </div>
               </div>
             )}
+            {/* Last data update per accessible country (who, when) */}
+            {!isCollapsed && <LastUpdatedPanel country={country} />}
             {/* Unit toggle (MC / KG / Tons) */}
             {!isCollapsed && (
               <div className="rounded-lg border bg-muted/30 px-2 py-1.5">

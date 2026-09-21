@@ -117,12 +117,23 @@ queryClient.getQueryCache().subscribe(event => {
   resetReloadGuardOnSuccess(event);
 });
 
+// Mutations that never change planning data; everything else may move the
+// "Last updated" indicator, so its query is refreshed after any other success.
+const NON_DATA_MUTATION_PREFIXES = ["presence.", "audit.", "appUsers.verifyLogin"];
+
 queryClient.getMutationCache().subscribe(event => {
   if (event.type === "updated" && event.action.type === "error") {
     const error = event.mutation.state.error;
     redirectToLoginIfUnauthorized(error);
     showCountryAccessToast(error);
     console.error("[API Mutation Error]", error);
+  }
+  if (event.type === "updated" && event.action.type === "success") {
+    const key = event.mutation.options.mutationKey;
+    const path = Array.isArray(key?.[0]) ? (key[0] as unknown[]).join(".") : "";
+    if (!NON_DATA_MUTATION_PREFIXES.some((prefix) => path.startsWith(prefix))) {
+      void queryClient.invalidateQueries({ queryKey: [["country", "lastUpdates"]] });
+    }
   }
   resetReloadGuardOnSuccess(event);
 });
