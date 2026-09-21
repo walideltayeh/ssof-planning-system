@@ -25,7 +25,9 @@ interface PerformanceContextValue {
 const PerformanceContext = createContext<PerformanceContextValue | null>(null);
 
 export function PerformanceProvider({ country, periodKey, canEdit, children }: { country: PerformanceCountry; periodKey: string | null; canEdit: boolean; children: ReactNode }) {
-  const notesQuery = trpc.country.presenterNotes.useQuery({ country, periodKey: periodKey ?? "" }, { enabled: periodKey !== null, placeholderData: (previous) => previous });
+  // No placeholder data: notes are keyed by country + period, so a stale set
+  // must never be shown under a different selection.
+  const notesQuery = trpc.country.presenterNotes.useQuery({ country, periodKey: periodKey ?? "" }, { enabled: periodKey !== null });
   const notes = periodKey === null ? [] : notesQuery.data ?? [];
   const value: PerformanceContextValue = {
     country,

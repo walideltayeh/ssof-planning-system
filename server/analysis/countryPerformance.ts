@@ -10,6 +10,7 @@
 import * as db from "../db";
 import { compareHeadlines } from "../../shared/performance/boardCompare";
 import type { WorkbookExtras } from "./countryPerformanceExcel";
+import { describeUpdate } from "@shared/audit/lastUpdate";
 import { BoardHeadlineSchema } from "./countryPerformance.schemas";
 import {
   baselineFromSnapshot,
@@ -232,14 +233,20 @@ const ymKey = (p: DatasetPeriod) => `${p.year}-${String(p.month).padStart(2, "0"
 
 /** Everything the Excel export needs beyond the pack: the previous frozen board and presenter notes. */
 export async function loadWorkbookExtras(pack: PerformancePack): Promise<WorkbookExtras> {
-  const [snapshots, notes] = await Promise.all([db.listBoardPackSnapshots(pack.meta.country), db.listPresenterNotes(pack.meta.country, pack.meta.periodKey)]);
+  const [snapshots, notes, updates] = await Promise.all([
+    db.listBoardPackSnapshots(pack.meta.country),
+    db.listPresenterNotes(pack.meta.country, pack.meta.periodKey),
+    db.getLatestDataUpdates([pack.meta.country]),
+  ]);
+  const latest = updates[0];
+  const lastUpdate = latest?.at ? { at: latest.at, by: latest.displayName ?? latest.username ?? "unknown user", what: describeUpdate(latest.action ?? "", latest.sheet) } : null;
   let comparison: WorkbookExtras["comparison"] = null;
   if (snapshots[0]) {
     const prev = await db.getBoardPackSnapshot(snapshots[0].id);
     const parsed = prev ? BoardHeadlineSchema.safeParse(prev.headline) : null;
     if (prev && parsed?.success) comparison = { previousName: prev.name, previousDate: prev.createdAt.toISOString(), result: compareHeadlines(pack.headline, parsed.data) };
   }
-  return { comparison, notes: notes.map((n) => ({ sectionId: n.sectionId, body: n.body, author: n.author, updatedAt: n.updatedAt.toISOString() })) };
+  return { comparison, lastUpdate, notes: notes.map((n) => ({ sectionId: n.sectionId, body: n.body, author: n.author, updatedAt: n.updatedAt.toISOString() })) };
 }
 
 function tileValue(pack: PerformancePack, key: string): KpiTile | undefined {

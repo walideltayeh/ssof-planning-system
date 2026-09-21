@@ -100,11 +100,15 @@ function addSheet(wb: ExcelJS.Workbook, name: string): SheetWriter {
   return new SheetWriter(ws);
 }
 
+const fmtWhen = (iso: string) => new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Beirut" });
+
 export interface WorkbookExtras {
   /** Comparison with the previous frozen board pack, when one exists. */
   comparison?: { previousName: string; previousDate: string; result: BoardComparison } | null;
   /** Presenter notes for this country + period. */
   notes?: { sectionId: string; body: string; author: string; updatedAt: string }[];
+  /** Who last changed this country's data, and when (from the audit trail). */
+  lastUpdate?: { at: string; by: string; what: string } | null;
 }
 
 export async function buildPerformanceWorkbook(pack: PerformancePack, extras: WorkbookExtras = {}): Promise<Buffer> {
@@ -132,8 +136,9 @@ export async function buildPerformanceWorkbook(pack: PerformancePack, extras: Wo
     s.keyValues([
       ["Period", m.window.label],
       ["Comparison", m.compareLabel],
-      ["Data as of", m.dataAsOf ?? "not recorded"],
-      ["Generated", m.generatedAt],
+      ["Data as of", m.dataAsOf ? fmtWhen(m.dataAsOf) : "not recorded"],
+      ["Last update", extras.lastUpdate ? `${fmtWhen(extras.lastUpdate.at)} by ${extras.lastUpdate.by} (${extras.lastUpdate.what})` : "no data update recorded"],
+      ["Generated", fmtWhen(m.generatedAt)],
       ["Active SKUs included", m.skuCount],
       ["Filters", describeFilters(m.filters) || "None"],
       ["Quantities", "Master cases (MC)"],

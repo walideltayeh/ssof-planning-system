@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Skeleton } from "@/components/ui/skeleton";
 import BoardChangesSection from "@/components/performance/BoardChangesSection";
+import LastUpdatesStrip, { formatUpdateTime, lastUpdateSentence, useLastUpdates } from "@/components/performance/LastUpdatesStrip";
 import { PerformanceProvider } from "@/components/performance/PerformanceContext";
 import PerformanceHeader from "@/components/performance/PerformanceHeader";
 import PresentationMode from "@/components/performance/PresentationMode";
@@ -52,6 +53,7 @@ export default function CountryPerformancePage() {
   const [layoutOpen, setLayoutOpen] = useState(false);
   const [deepDiveOpen, setDeepDiveOpen] = useState(false);
   const layoutQuery = trpc.country.slideLayout.useQuery();
+  const lastUpdates = useLastUpdates();
 
   const queryInput = {
     country,
@@ -64,7 +66,9 @@ export default function CountryPerformancePage() {
     ...(refresh ? { refresh: true as const } : {}),
   };
   const packQuery = trpc.country.performance.useQuery(queryInput, {
-    placeholderData: (previous) => previous,
+    // Keep the previous pack on screen while a period/filter change loads, but
+    // never show one country's numbers under another country's name.
+    placeholderData: (previous) => (previous && previous.meta.country === country ? previous : undefined),
   });
   const pack = packQuery.data;
 
@@ -81,6 +85,7 @@ export default function CountryPerformancePage() {
   );
   const slideSections = useMemo(() => visibleSections.filter((section) => !section.hiddenFromSlides), [visibleSections]);
   const canEdit = isAdminFor(country);
+  const lastUpdate = lastUpdates.data?.find((row) => row.country === country);
   const request: PerformanceRequest = { country, preset, anchor, from: preset === "custom" ? from : undefined, to: preset === "custom" ? to : undefined, compare, filters: cleanFilters(filters) };
 
 
@@ -138,6 +143,7 @@ export default function CountryPerformancePage() {
         compare={compare}
         filters={filters}
         meta={pack?.meta}
+        lastUpdateText={lastUpdates.data ? lastUpdateSentence(lastUpdate) : undefined}
         isRefreshing={packQuery.isFetching}
         onCountryChange={openCountry}
         onPresetChange={(value) => { setPreset(value); setFrom(undefined); setTo(undefined); }}
@@ -159,9 +165,12 @@ export default function CountryPerformancePage() {
           <h1 className="mt-2 text-5xl font-bold">Country Performance</h1>
           <p className="mt-8 text-2xl">{pack.meta.window.label}</p>
           <p className="mt-2 text-xl">{pack.meta.compareLabel}</p>
-          <p className="mt-12">Data as of {pack.meta.dataAsOf ?? "not recorded"}</p>
+          <p className="mt-12">Data as of {pack.meta.dataAsOf ? formatUpdateTime(pack.meta.dataAsOf) : "not recorded"}</p>
+          {lastUpdates.data && <p className="mt-1">{lastUpdateSentence(lastUpdate)}</p>}
         </div>
       )}
+
+      <LastUpdatesStrip selected={country} onSelect={openCountry} />
 
       <header>
         <h1 className="text-2xl font-bold tracking-tight">Country Performance — {country}</h1>
@@ -221,7 +230,7 @@ export default function CountryPerformancePage() {
         </Collapsible>
       </section>
 
-      {presentationOpen && pack && <PresentationMode pack={pack} sections={slideSections} onExit={() => setPresentationOpen(false)} renderSection={(section) => renderSection(section, true)} />}
+      {presentationOpen && pack && <PresentationMode pack={pack} sections={slideSections} lastUpdateText={lastUpdates.data ? lastUpdateSentence(lastUpdate) : undefined} onExit={() => setPresentationOpen(false)} renderSection={(section) => renderSection(section, true)} />}
       <SlideLayoutDialog open={layoutOpen} onOpenChange={setLayoutOpen} sections={visibleSections} isIntl={pack?.meta.isIntl ?? false} titleFor={(section) => titleForSection(section, pack?.meta.isIntl ?? false)} />
     </div>
     </PerformanceProvider>

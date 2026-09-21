@@ -10,6 +10,7 @@ import { z } from "zod";
 import * as db from "./db";
 import { assertRecordsScopedToCountry } from "./countryScope";
 import { analyzePosmItems } from "./posmAnalysis";
+import { COUNTRIES } from "../drizzle/schema";
 import type { Country, User } from "../drizzle/schema";
 
 /**
@@ -116,6 +117,15 @@ async function accessibleCountries(ctx: { user: User }): Promise<Array<(typeof P
 
 function getAuditActor(ctx: { user: User | null }): string {
   return ctx.user?.name?.trim() || "System";
+}
+
+/** Audit actions the client may record directly; none of them change planning data (see shared/audit/lastUpdate.ts). */
+const CLIENT_AUDIT_ACTIONS = ["page_view", "logout", "export_excel", "export_pdf"] as const;
+
+/** Normalises a request's country string to the audit enum so entries are attributed to the right country (never silently to the default). */
+function auditCountry(country: string | null | undefined): Country | undefined {
+  if (!country) return undefined;
+  return COUNTRIES.find((c) => c.toLowerCase() === country.trim().toLowerCase());
 }
 
 async function requireAppOwner(ctx: { user: User }) {
@@ -497,6 +507,7 @@ export const appRouter = router({
         await assertRecordsScopedToCountry(input.country, "IMS", [{ skuId: input.skuId, periodId: input.periodId }], "Save");
         await db.upsertImsData(input.skuId, input.periodId, input.value, input.isActual);
         await db.logAudit({
+          country: auditCountry(input.country),
           username: getAuditActor(ctx),
           action: "edit_cell",
           sheet: "IMS",
@@ -530,6 +541,7 @@ export const appRouter = router({
         if (weeks.week3 !== undefined) changes.push(`W3: ${oldWeek3 || "0"} → ${weeks.week3}`);
         if (weeks.week4 !== undefined) changes.push(`W4: ${oldWeek4 || "0"} → ${weeks.week4}`);
         await db.logAudit({
+          country: auditCountry(country),
           username: getAuditActor(ctx),
           action: "edit_cell",
           sheet: "Shipment",
@@ -563,6 +575,7 @@ export const appRouter = router({
         if (weeks.week3 !== undefined) changes.push(`W3: ${oldWeek3 || "0"} → ${weeks.week3}`);
         if (weeks.week4 !== undefined) changes.push(`W4: ${oldWeek4 || "0"} → ${weeks.week4}`);
         await db.logAudit({
+          country: auditCountry(country),
           username: getAuditActor(ctx),
           action: "edit_cell",
           sheet: "Arrival",
@@ -592,6 +605,7 @@ export const appRouter = router({
         await db.upsertImsData(input.skuId, input.periodId, clampedValue, false);
         await db.upsertForecastData(input.skuId, input.periodId, clampedValue);
         await db.logAudit({
+          country: auditCountry(input.country),
           username: getAuditActor(ctx),
           action: "edit_cell",
           sheet: input.source || "Planning FG (IMS sync)",
@@ -702,6 +716,7 @@ export const appRouter = router({
           }
         }
         await db.logAudit({
+          country: auditCountry(country),
           username: getAuditActor(ctx),
           action: 'edit_cell',
           sheet: 'Planning FG (Invoiced SHP)',
@@ -735,6 +750,7 @@ export const appRouter = router({
         if (data.invoiced !== undefined) changes.push(`Invoiced: ${oldInvoiced || "0"} → ${data.invoiced}`);
         if (data.arrivals !== undefined) changes.push(`Arrivals: ${oldArrivals || "0"} → ${data.arrivals}`);
         await db.logAudit({
+          country: auditCountry(country),
           username: getAuditActor(ctx),
           action: "edit_cell",
           sheet: "Planning FG",
@@ -762,6 +778,7 @@ export const appRouter = router({
         await db.upsertPlanningFgData(input.skuId, input.periodId, { arrivals: clampedValue });
         await db.upsertArrivalData(input.skuId, input.periodId, { week1: clampedValue, week2: "0", week3: "0", week4: "0" });
         await db.logAudit({
+          country: auditCountry(input.country),
           username: getAuditActor(ctx),
           action: "edit_cell",
           sheet: "Planning FG",
@@ -859,6 +876,7 @@ export const appRouter = router({
         await assertRecordsScopedToCountry(country, "Forecast", bulkRecords, "Save");
         await db.bulkUpsertForecast(bulkRecords);
         await db.logAudit({
+          country: auditCountry(country),
           username: getAuditActor(ctx),
           action: "upload",
           sheet: "Forecast",
@@ -899,6 +917,7 @@ export const appRouter = router({
         await assertRecordsScopedToCountry(country, "IMS", bulkRecords, "Save");
         await db.bulkUpsertIms(bulkRecords);
         await db.logAudit({
+          country: auditCountry(country),
           username: getAuditActor(ctx),
           action: "upload",
           sheet: "IMS Actuals",
@@ -937,6 +956,7 @@ export const appRouter = router({
           processed++;
         }
         await db.logAudit({
+          country: auditCountry(country),
           username: getAuditActor(ctx),
           action: "upload",
           sheet: "Opening Stock",
@@ -984,6 +1004,7 @@ export const appRouter = router({
         await assertRecordsScopedToCountry(country, "Shipment", bulkRecords, "Save");
         await db.bulkUpsertShipment(bulkRecords);
         await db.logAudit({
+          country: auditCountry(country),
           username: getAuditActor(ctx),
           action: "upload",
           sheet: "Shipment",
@@ -1031,6 +1052,7 @@ export const appRouter = router({
         await assertRecordsScopedToCountry(country, "Arrival", bulkRecords, "Save");
         await db.bulkUpsertArrival(bulkRecords);
         await db.logAudit({
+          country: auditCountry(country),
           username: getAuditActor(ctx),
           action: "upload",
           sheet: "Arrival",
@@ -1090,6 +1112,7 @@ export const appRouter = router({
         await db.bulkUpsertPlanningFg(pfgRecords);
         if (imsRecords.length > 0) await db.bulkUpsertIms(imsRecords);
         await db.logAudit({
+          country: auditCountry(country),
           username: getAuditActor(ctx),
           action: "upload",
           sheet: "Planning FG",
@@ -1113,7 +1136,8 @@ export const appRouter = router({
       }),
     logAction: protectedProcedure
       .input(z.object({
-        action: z.string(),
+        country: z.enum(COUNTRIES).optional(),
+        action: z.enum(CLIENT_AUDIT_ACTIONS),
         sheet: z.string().optional(),
         skuName: z.string().optional(),
         periodLabel: z.string().optional(),
@@ -1123,6 +1147,10 @@ export const appRouter = router({
         details: z.string().optional(),
       }))
       .mutation(async ({ ctx, input }) => {
+        // Data changes are audited by the server procedures that make them; the
+        // client may only record navigation/export/sign-out events, and only
+        // against a country it can actually see.
+        if (input.country) await requireCountryAccess(ctx, input.country);
         await db.logAudit({ ...input, username: getAuditActor(ctx) });
         return { success: true };
       }),
@@ -1240,6 +1268,7 @@ export const appRouter = router({
         await requireCountryAdmin(ctx, version.country);
         await db.deleteVersion(input.id);
         await db.logAudit({
+          country: auditCountry(version.country),
           username: getAuditActor(ctx),
           action: 'delete_version',
           sheet: 'SSOF Version',
@@ -2001,6 +2030,13 @@ export const appRouter = router({
         const countries = await accessibleCountries(ctx);
         const { getCountryScorecard } = await import("./analysis/countryPerformance");
         return getCountryScorecard(countries, input.preset, input.compare);
+      }),
+
+    // Who last changed each country's data, and when (countries the caller may see).
+    lastUpdates: protectedProcedure
+      .query(async ({ ctx }) => {
+        const countries = await accessibleCountries(ctx);
+        return db.getLatestDataUpdates(countries);
       }),
 
     // ── Board pack extras: frozen packs, presenter notes, slide layout, budget baseline ──
@@ -4205,6 +4241,7 @@ Use the base allocation hints above as a starting point; you may adjust ±25% ba
         }
         const monthName = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][input.targetMonth - 1];
         await db.logAudit({
+          country: auditCountry(country),
           username: getAuditActor(ctx),
           action: 'edit',
           sheet: 'Forecast',
@@ -4249,6 +4286,7 @@ Use the base allocation hints above as a starting point; you may adjust ±25% ba
         }
         const monthName = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][input.targetMonth - 1];
         await db.logAudit({
+          country: auditCountry(country),
           username: getAuditActor(ctx),
           action: 'edit',
           sheet: 'Forecast',

@@ -2,7 +2,7 @@
  * Lets the presenter hide/show and reorder slides. The layout is saved per user
  * and applies to the page order, Presentation Mode and the PDF.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -31,12 +31,16 @@ export default function SlideLayoutDialog({ open, onOpenChange, sections, titleF
     },
   });
 
+  // Seed the draft only when the dialog opens; a background refetch of the
+  // pack must not wipe edits in progress.
+  const latestSections = useRef(sections);
+  latestSections.current = sections;
   useEffect(() => {
-    if (open) {
-      setOrder(sections.map((s) => s.id));
-      setHidden(new Set(sections.filter((s) => s.hiddenFromSlides).map((s) => s.id)));
-    }
-  }, [open, sections]);
+    if (!open) return;
+    const current = latestSections.current;
+    setOrder(current.map((s) => s.id));
+    setHidden(new Set(current.filter((s) => s.hiddenFromSlides).map((s) => s.id)));
+  }, [open]);
 
   const byId = new Map(sections.map((s) => [s.id, s]));
   const move = (index: number, direction: -1 | 1) => {

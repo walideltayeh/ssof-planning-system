@@ -1,4 +1,5 @@
 import type { CompareMode, PerformanceCountry, PerformanceFilters, PerformanceMeta, PeriodPreset } from "./types";
+import { formatUpdateTime } from "./LastUpdatesStrip";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -84,6 +85,8 @@ export interface PerformanceHeaderProps {
   compare: CompareMode;
   filters: PerformanceFilters;
   meta?: PerformanceMeta;
+  /** "Last update <time> by <user>" for the selected country; undefined while loading. */
+  lastUpdateText?: string;
   isRefreshing: boolean;
   onCountryChange: (value: PerformanceCountry) => void;
   onPresetChange: (value: PeriodPreset) => void;
@@ -127,7 +130,7 @@ export default function PerformanceHeader(props: PerformanceHeaderProps) {
         <MultiFilter label="Flavour" options={props.meta?.filterOptions.flavours ?? []} selected={props.filters.flavours ?? []} onChange={(flavours) => props.onFiltersChange({ ...props.filters, flavours })} />
       </div>
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <span className="mr-auto text-xs text-muted-foreground">Data as of {props.meta?.dataAsOf ?? "not recorded"}</span>
+        <span className="mr-auto text-xs text-muted-foreground">Data as of {props.meta?.dataAsOf ? formatUpdateTime(props.meta.dataAsOf) : "not recorded"}{props.lastUpdateText ? ` · ${props.lastUpdateText}` : ""}</span>
         <Button variant="outline" size="sm" onClick={props.onRefresh} disabled={props.isRefreshing}><RefreshCw className={props.isRefreshing ? "animate-spin" : ""} />Refresh</Button>
         <Button variant="outline" size="sm" onClick={props.onPresentation}><MonitorPlay />Presentation Mode</Button>
         <Button variant="outline" size="sm" onClick={props.onArrangeSlides}><ListOrdered />Arrange slides</Button>

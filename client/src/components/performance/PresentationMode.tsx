@@ -3,6 +3,7 @@ import type { OrderedSection } from "./sections";
 import { titleForSection } from "./sections";
 import type { PerformancePack } from "./types";
 import PresenterNote from "./PresenterNote";
+import { formatUpdateTime } from "./LastUpdatesStrip";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, ArrowRight, X } from "lucide-react";
 
@@ -12,9 +13,11 @@ interface PresentationModeProps {
   sections: OrderedSection[];
   onExit: () => void;
   renderSection?: (section: OrderedSection) => React.ReactNode;
+  /** "Last update <time> by <user>" for the cover slide. */
+  lastUpdateText?: string;
 }
 
-export default function PresentationMode({ pack, sections, onExit, renderSection }: PresentationModeProps) {
+export default function PresentationMode({ pack, sections, onExit, renderSection, lastUpdateText }: PresentationModeProps) {
   const [slide, setSlide] = useState(0);
   const total = sections.length + 1;
   const previous = useCallback(() => setSlide((value) => Math.max(0, value - 1)), []);
@@ -53,7 +56,8 @@ export default function PresentationMode({ pack, sections, onExit, renderSection
             <p className="mt-8 text-2xl">{pack.meta.window.label}</p>
             <p className="mt-2 text-xl text-muted-foreground">{pack.meta.compareLabel}</p>
             <div className="mt-16 grid gap-2 text-base text-muted-foreground">
-              <p>Data as of {pack.meta.dataAsOf ?? "not recorded"}</p>
+              <p>Data as of {pack.meta.dataAsOf ? formatUpdateTime(pack.meta.dataAsOf) : "not recorded"}</p>
+              {lastUpdateText && <p>{lastUpdateText}</p>}
               <p>Generated {new Date(pack.meta.generatedAt).toLocaleString()}</p>
             </div>
           </div>
@@ -68,7 +72,7 @@ export default function PresentationMode({ pack, sections, onExit, renderSection
           </div>
         ) : null}
         <footer className="mt-6 flex items-center gap-2 border-t pt-3">
-          <span className="mr-auto text-sm text-muted-foreground">{slide + 1} / {total} · Data as of {pack.meta.dataAsOf ?? "not recorded"}</span>
+          <span className="mr-auto text-sm text-muted-foreground">{slide + 1} / {total} · Data as of {pack.meta.dataAsOf ? formatUpdateTime(pack.meta.dataAsOf) : "not recorded"}</span>
           <Button variant="outline" onClick={previous} disabled={slide === 0}><ArrowLeft />Prev</Button>
           <Button variant="outline" onClick={next} disabled={slide === total - 1}>Next<ArrowRight /></Button>
           <Button variant="outline" onClick={close}><X />Exit</Button>

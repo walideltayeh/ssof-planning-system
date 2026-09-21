@@ -27,7 +27,9 @@ export default function BoardChangesSection({ pack, presentation, request }: Boa
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [name, setName] = useState("");
   const [showFreeze, setShowFreeze] = useState(false);
-  const chosenId = selectedId ?? snapshots.data?.[0]?.id ?? null;
+  // Only honour a selection that belongs to the current country's list, so a
+  // country switch can never compare against another country's frozen pack.
+  const chosenId = (selectedId !== null && snapshots.data?.some((s) => s.id === selectedId) ? selectedId : snapshots.data?.[0]?.id) ?? null;
   const snapshot = trpc.country.boardSnapshot.useQuery({ id: chosenId ?? 0 }, { enabled: chosenId !== null });
   const freeze = trpc.country.freezeBoardPack.useMutation({
     onSuccess: (row) => {

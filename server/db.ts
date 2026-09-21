@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { InsertUser, users, skus, periods, forecastData, imsData, shipmentData, arrivalData, planningFgData, uploadHistory, auditTrail, ssofVersions, versionComments, actualProductionData, clearanceEvents, appUsers, competitorData, appSettings, posmItems, tradeFocRules, boardPackSnapshots, presenterNotes, userPreferences, boardPlanBaselines } from "../drizzle/schema";
 import type { PosmItemRow, TradeFocRuleRow } from "../drizzle/schema";
+import { NON_DATA_ACTIONS, NON_DATA_SHEETS, type CountryLastUpdate } from "@shared/audit/lastUpdate";
 import type { AuditTrail, InsertAuditTrail, InsertSsofVersion, Country, ClearanceEvent, AppUserRow, InsertAppUser } from "../drizzle/schema";
 import type { Sku, InsertSku, Period, ForecastData, ImsData, ShipmentData, ArrivalData, PlanningFgData, SsofVersion } from "../drizzle/schema";
 import { ENV } from './_core/env';
@@ -1195,6 +1196,46 @@ export async function getAuditLogs(opts?: { limit?: number; offset?: number; use
   const total = Number(countResult[0]?.count || 0);
 
   return { logs, total };
+}
+
+/**
+ * Newest data-changing audit entry per country (who updated what, and when).
+ * Non-data actions (page views, sign-ins, exports, user admin) are ignored so
+ * the answer reflects the last change to planning data. Countries with no
+ * recorded change come back with `at: null`.
+ */
+export async function getLatestDataUpdates(countries: readonly Country[]): Promise<CountryLastUpdate[]> {
+  const db = await getDb();
+  if (!db || countries.length === 0) return countries.map((country) => emptyLastUpdate(country));
+  const rows = await db.execute(sql`
+    select distinct on (a.country)
+      a.country, a.username, a.action, a.sheet, a.details, a."createdAt" as at, u."displayName" as display_name
+    from ${auditTrail} a
+    left join ${appUsers} u on u.username = a.username
+    where a.country in (${sql.join(countries.map((c) => sql`${c}`), sql`, `)})
+      and a.action not in (${sql.join(NON_DATA_ACTIONS.map((a) => sql`${a}`), sql`, `)})
+      and left(a.action, 7) <> 'export_'
+      and (a.sheet is null or a.sheet not in (${sql.join(NON_DATA_SHEETS.map((x) => sql`${x}`), sql`, `)}))
+    order by a.country, a."createdAt" desc, a.id desc
+  `);
+  const byCountry = new Map<string, CountryLastUpdate>();
+  for (const raw of rows.rows as Array<Record<string, unknown>>) {
+    const at = raw.at instanceof Date ? raw.at : new Date(String(raw.at));
+    byCountry.set(String(raw.country), {
+      country: String(raw.country),
+      at: Number.isFinite(at.getTime()) ? at.toISOString() : null,
+      username: raw.username === null || raw.username === undefined ? null : String(raw.username),
+      displayName: raw.display_name === null || raw.display_name === undefined ? null : String(raw.display_name),
+      action: raw.action === null || raw.action === undefined ? null : String(raw.action),
+      sheet: raw.sheet === null || raw.sheet === undefined ? null : String(raw.sheet),
+      details: raw.details === null || raw.details === undefined ? null : String(raw.details),
+    });
+  }
+  return countries.map((country) => byCountry.get(country) ?? emptyLastUpdate(country));
+}
+
+function emptyLastUpdate(country: Country): CountryLastUpdate {
+  return { country, at: null, username: null, displayName: null, action: null, sheet: null, details: null };
 }
 
 // ==================== COMPUTED DATA ====================

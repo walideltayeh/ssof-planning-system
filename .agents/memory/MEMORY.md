@@ -5,3 +5,4 @@
 - [Per-country local mirrors](per-country-local-mirrors.md) — hydrate local editable mirrors of country-scoped data from fresh defaults + overlay, and reset them in the country-switch guard; merging leaks one country's drafts into another.
 - [Orphaned clearance events](orphaned-clearance-events.md) — forecast import re-syncs production and can strand clearance events on zero-production batches; Arrival must list them or FG double-counts.
 - [Startup data repairs](startup-data-repairs.md) — prod DB is agent-read-only; fix live data via guarded, idempotent, single-transaction boot repairs rehearsed in a rolled-back dev tx; publishing = consent.
+- [Audit country attribution](audit-country-attribution.md) — audit_trail.country defaults to Lebanon; every data mutation must forward its country or "last update by country" mis-attributes it.
