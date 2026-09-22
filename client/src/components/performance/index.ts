@@ -6,7 +6,6 @@ export { default as InventorySection } from "./InventorySection";
 export { default as ForecastQualitySection } from "./ForecastQualitySection";
 export { default as ForwardSection } from "./ForwardSection";
 export { default as CommercialSection } from "./CommercialSection";
-export { default as ScorecardSection } from "./ScorecardSection";
 export { default as DataConfidenceSection } from "./DataConfidenceSection";
 export { default as RunningRateSection } from "./RunningRateSection";
 export { default as OutlookSection } from "./OutlookSection";

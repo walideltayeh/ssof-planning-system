@@ -2020,18 +2020,6 @@ export const appRouter = router({
         return getCountryPerformance(input);
       }),
 
-    // Side-by-side scorecard, limited to the countries the caller may see.
-    performanceScorecard: protectedProcedure
-      .input(z.object({
-        preset: z.enum(["month", "qtd", "ytd", "l12m", "custom"]).default("ytd"),
-        compare: z.enum(["plan", "ly", "prev"]).default("plan"),
-      }))
-      .query(async ({ ctx, input }) => {
-        const countries = await accessibleCountries(ctx);
-        const { getCountryScorecard } = await import("./analysis/countryPerformance");
-        return getCountryScorecard(countries, input.preset, input.compare);
-      }),
-
     // Who last changed each country's data, and when (countries the caller may see).
     lastUpdates: protectedProcedure
       .query(async ({ ctx }) => {

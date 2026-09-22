@@ -13,7 +13,6 @@ import {
   OutlookSection,
   PortfolioSection,
   RunningRateSection,
-  ScorecardSection,
   SupplySection,
 } from "./index";
 import type { ComponentType } from "react";
@@ -24,7 +23,6 @@ export interface PerformanceSectionDefinition {
   title: string;
   Component: ComponentType<SectionProps>;
   intlOnly?: boolean;
-  minCountries?: number;
   /** Hide the section entirely when the pack has nothing for it (e.g. no competitor sheet). */
   available?: (pack: PerformancePack) => boolean;
 }
@@ -55,7 +53,6 @@ export const performanceSections: PerformanceSectionDefinition[] = [
   { id: "market", title: "Market Context", Component: MarketSection, available: (pack) => pack.market !== null },
   { id: "forward", title: "Forward Look — next 6 months", Component: ForwardSection },
   { id: "commercial", title: "Commercial Value", Component: CommercialSection },
-  { id: "scorecard", title: "Multi-country Scorecard", Component: ScorecardSection, minCountries: 2 },
   { id: "anomalies", title: "Anomalies", Component: AnomaliesSection },
   { id: "confidence", title: "Data Confidence", Component: DataConfidenceSection },
 ];

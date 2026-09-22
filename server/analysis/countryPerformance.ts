@@ -80,7 +80,6 @@ import {
   topMovers,
   totalWeeksAt,
   windowLabel,
-  worstRag,
   type Batch,
   type DatasetPeriod,
   type PerformanceDataset,
@@ -110,13 +109,12 @@ import type {
   PerformanceRequest,
   PipelineStage,
   Rag,
-  ScorecardRow,
   SupplySection,
   WaterfallStep,
   YoyMonth,
 } from "./countryPerformance.types";
 
-export type { PerformancePack, PerformanceRequest, ScorecardRow } from "./countryPerformance.types";
+export type { PerformancePack, PerformanceRequest } from "./countryPerformance.types";
 
 // ── Dataset cache ────────────────────────────────────────────────────────────
 
@@ -216,19 +214,6 @@ async function loadBudgetBaseline(ds: PerformanceDataset, req: PerformanceReques
   return baselineFromSnapshot(version);
 }
 
-export async function getCountryScorecard(countries: PerformanceCountry[], preset: PerformanceRequest["preset"], compare: PerformanceRequest["compare"]): Promise<ScorecardRow[]> {
-  const rows: ScorecardRow[] = [];
-  for (const country of countries) {
-    try {
-      const pack = await getCountryPerformance({ country, preset: preset === "custom" ? "ytd" : preset, compare });
-      rows.push(scorecardRow(pack));
-    } catch (err) {
-      console.error(`[CountryPerformance] scorecard failed for ${country}:`, err);
-    }
-  }
-  return rows;
-}
-
 const ymKey = (p: DatasetPeriod) => `${p.year}-${String(p.month).padStart(2, "0")}`;
 
 /** Everything the Excel export needs beyond the pack: the previous frozen board and presenter notes. */
@@ -249,31 +234,6 @@ export async function loadWorkbookExtras(pack: PerformancePack): Promise<Workboo
   return { comparison, lastUpdate, notes: notes.map((n) => ({ sectionId: n.sectionId, body: n.body, author: n.author, updatedAt: n.updatedAt.toISOString() })) };
 }
 
-function tileValue(pack: PerformancePack, key: string): KpiTile | undefined {
-  return pack.executive.tiles.find((t) => t.key === key);
-}
-
-export function scorecardRow(pack: PerformancePack): ScorecardRow {
-  const t = (k: string) => tileValue(pack, k);
-  return {
-    country: pack.meta.country,
-    windowLabel: pack.meta.window.label,
-    imsMc: t("ims")?.value ?? null,
-    imsVsPlanPct: t("ims")?.vsPlan?.pct ?? null,
-    imsVsLyPct: t("ims")?.vsLastYear?.pct ?? null,
-    productionMc: t("production")?.value ?? null,
-    planAttainmentPct: t("attainment")?.value ?? null,
-    closingStockMc: t("closing")?.value ?? null,
-    weeksOfCover: t("cover")?.value ?? null,
-    forecastAccuracyPct: t("accuracy")?.value ?? null,
-    stockoutRiskSkus: t("stockoutRisk")?.value ?? 0,
-    overstockSkus: t("overstock")?.value ?? 0,
-    pendingClearanceMc: t("pendingClearance")?.value ?? null,
-    expiryRiskMc: t("expiryRisk")?.value ?? null,
-    confidenceScore: pack.confidence.score,
-    status: worstRag(pack.executive.tiles.filter((x) => ["ims", "cover", "stockoutRisk"].includes(x.key)).map((x) => x.status)),
-  };
-}
 
 // ── Pack builder (pure given a dataset) ──────────────────────────────────────
 

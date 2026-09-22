@@ -554,25 +554,6 @@ export interface PerformancePack {
   headline: BoardHeadline;
 }
 
-export interface ScorecardRow {
-  country: PerformanceCountry;
-  windowLabel: string;
-  imsMc: number | null;
-  imsVsPlanPct: number | null;
-  imsVsLyPct: number | null;
-  productionMc: number | null;
-  planAttainmentPct: number | null;
-  closingStockMc: number | null;
-  weeksOfCover: number | null;
-  forecastAccuracyPct: number | null;
-  stockoutRiskSkus: number;
-  overstockSkus: number;
-  pendingClearanceMc: number | null;
-  expiryRiskMc: number | null;
-  confidenceScore: number;
-  status: Rag;
-}
-
 // ── Running Rate strip ───────────────────────────────────────────────────────
 
 export interface RateFigure {

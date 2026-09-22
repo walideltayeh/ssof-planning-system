@@ -16,22 +16,31 @@ vi.mock("@/hooks/useLastUpdates", async () => {
 describe("LastUpdatedPanel", () => {
   afterEach(cleanup);
 
-  it("lists every accessible country and expands the selected one", () => {
+  it("shows only the selected country, with time and actor", () => {
     render(<LastUpdatedPanel country="Syria" />);
     expect(screen.getByText("Last Updated")).toBeInTheDocument();
-    expect(screen.getByText(/Lebanon/)).toBeInTheDocument();
-    expect(screen.getByText(/KSA/)).toBeInTheDocument();
-    // Selected country shows the full time + actor (username fallback when no display name)
+    expect(screen.getByText(/Syria/)).toBeInTheDocument();
+    // Username fallback when the account has no display name
     expect(screen.getByText(/Jul 2026.*· sary/)).toBeInTheDocument();
-    // Non-selected countries only show the relative age
-    expect(screen.queryByText(/Jun 2026/)).not.toBeInTheDocument();
-    expect(screen.getByText("no update")).toBeInTheDocument();
+    // Other countries never appear
+    expect(screen.queryByText(/Lebanon/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/KSA/)).not.toBeInTheDocument();
   });
 
   it("puts the who/what detail in the tooltip", () => {
     render(<LastUpdatedPanel country="Lebanon" />);
-    const lebanon = screen.getByText(/Lebanon/).closest("[title]");
-    expect(lebanon?.getAttribute("title")).toMatch(/by Walid El Tayeh — Import — Planning FG 1kg/);
+    expect(screen.getByTestId("last-updated-panel").getAttribute("title")).toMatch(/by Walid El Tayeh — Import — Planning FG 1kg/);
     expect(screen.getByText(/Jun 2026.*· Walid El Tayeh/)).toBeInTheDocument();
+  });
+
+  it("says so when the selected country has no recorded update", () => {
+    render(<LastUpdatedPanel country="KSA" />);
+    expect(screen.getByText("no update")).toBeInTheDocument();
+    expect(screen.getByText("No edits, uploads or imports recorded")).toBeInTheDocument();
+  });
+
+  it("renders nothing for a country the user cannot see", () => {
+    const { container } = render(<LastUpdatedPanel country="Libya" />);
+    expect(container).toBeEmptyDOMElement();
   });
 });

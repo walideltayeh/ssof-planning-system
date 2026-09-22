@@ -33,7 +33,6 @@ export type {
   Rag,
   RiskItem,
   RunningRateSection,
-  ScorecardRow,
   SparkPoint,
   SupplySection,
   VolumeBridge,

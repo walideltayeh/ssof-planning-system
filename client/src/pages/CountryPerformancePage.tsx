@@ -8,7 +8,6 @@ import { PerformanceProvider } from "@/components/performance/PerformanceContext
 import PerformanceHeader from "@/components/performance/PerformanceHeader";
 import PresentationMode from "@/components/performance/PresentationMode";
 import PresenterNote from "@/components/performance/PresenterNote";
-import ScorecardSection from "@/components/performance/ScorecardSection";
 import SlideLayoutDialog from "@/components/performance/SlideLayoutDialog";
 import { arrangeSections, performanceSections, titleForSection, type OrderedSection } from "@/components/performance/sections";
 import { SectionFrame } from "@/components/performance/shared";
@@ -18,11 +17,9 @@ import { useCountry } from "@/contexts/CountryContext";
 import { formatUpdateTime, lastUpdateSentence, useLastUpdates } from "@/hooks/useLastUpdates";
 import { trpc } from "@/lib/trpc";
 import { ChevronDown } from "lucide-react";
-import { useLocation } from "wouter";
 
 const LebanonDeepDive = lazy(() => import("@/pages/AnalysisPage"));
 const IntlDeepDive = lazy(() => import("@/pages/IntlAnalysisPage"));
-const ALL_COUNTRIES: PerformanceCountry[] = ["Lebanon", "Syria", "Libya", "KSA"];
 
 function cleanFilters(filters: PerformanceFilters): PerformanceFilters | undefined {
   const cleaned: PerformanceFilters = {};
@@ -34,18 +31,10 @@ function cleanFilters(filters: PerformanceFilters): PerformanceFilters | undefin
 }
 
 export default function CountryPerformancePage() {
-  const { user, isOwner, isAdminFor } = useAuth();
-  const { country: appCountry, setCountry: setAppCountry } = useCountry();
-  const [, setLocation] = useLocation();
-  // Countries the user may see — only used to decide whether the
-  // multi-country scorecard applies. The page itself always shows the
-  // country selected in the sidebar.
-  const countries = useMemo(() => {
-    if (isOwner) return ALL_COUNTRIES;
-    const allowed = new Set((user?.countries ?? []).map((country) => country.toLowerCase()));
-    return ALL_COUNTRIES.filter((country) => allowed.has(country.toLowerCase()));
-  }, [isOwner, user?.countries]);
-  const country = (appCountry ?? countries[0] ?? "Lebanon") as PerformanceCountry;
+  const { isAdminFor } = useAuth();
+  const { country: appCountry } = useCountry();
+  // The page always shows the country selected in the sidebar — nothing else.
+  const country = (appCountry ?? "Lebanon") as PerformanceCountry;
   const [preset, setPreset] = useState<PeriodPreset>("ytd");
   const [anchor, setAnchor] = useState<string>();
   const [from, setFrom] = useState<string>();
@@ -82,10 +71,10 @@ export default function CountryPerformancePage() {
 
   const visibleSections = useMemo(
     () => arrangeSections(
-      performanceSections.filter((section) => (!section.intlOnly || pack?.meta.isIntl) && (!section.minCountries || countries.length >= section.minCountries) && (!section.available || !pack || section.available(pack))),
+      performanceSections.filter((section) => (!section.intlOnly || pack?.meta.isIntl) && (!section.available || !pack || section.available(pack))),
       layoutQuery.data,
     ),
-    [countries.length, layoutQuery.data, pack],
+    [layoutQuery.data, pack],
   );
   const slideSections = useMemo(() => visibleSections.filter((section) => !section.hiddenFromSlides), [visibleSections]);
   const canEdit = isAdminFor(country);
@@ -93,23 +82,8 @@ export default function CountryPerformancePage() {
   const request: PerformanceRequest = { country, preset, anchor, from: preset === "custom" ? from : undefined, to: preset === "custom" ? to : undefined, compare, filters: cleanFilters(filters) };
 
 
-  // Scorecard country links switch the whole app to that country (same as
-  // the sidebar switcher) and stay on its Analysis page.
-  const openCountry = useCallback((nextCountry: PerformanceCountry) => {
-    setAnchor(undefined);
-    setFrom(undefined);
-    setTo(undefined);
-    setFilters({});
-    if (nextCountry !== country) {
-      setAppCountry(nextCountry);
-      setLocation(nextCountry === "Lebanon" ? "/analysis" : "/intl-analysis");
-    }
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }, [country, setAppCountry, setLocation]);
-
   const renderSection = useCallback((section: OrderedSection, presentation = false) => {
     if (!pack) return null;
-    if (section.id === "scorecard") return <ScorecardSection pack={pack} preset={preset} compare={compare} onOpenCountry={openCountry} presentation={presentation} />;
     if (section.id === "changes") return <BoardChangesSection pack={pack} request={request} presentation={presentation} />;
     return <section.Component pack={pack} presentation={presentation} />;
     // eslint-disable-next-line react-hooks/exhaustive-deps
