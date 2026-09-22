@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Skeleton } from "@/components/ui/skeleton";
 import BoardChangesSection from "@/components/performance/BoardChangesSection";
-import LastUpdatesStrip, { formatUpdateTime, lastUpdateSentence, useLastUpdates } from "@/components/performance/LastUpdatesStrip";
 import { PerformanceProvider } from "@/components/performance/PerformanceContext";
 import PerformanceHeader from "@/components/performance/PerformanceHeader";
 import PresentationMode from "@/components/performance/PresentationMode";
@@ -16,8 +15,10 @@ import { SectionFrame } from "@/components/performance/shared";
 import type { CompareMode, PerformanceCountry, PerformanceFilters, PerformanceRequest, PeriodPreset } from "@/components/performance/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCountry } from "@/contexts/CountryContext";
+import { formatUpdateTime, lastUpdateSentence, useLastUpdates } from "@/hooks/useLastUpdates";
 import { trpc } from "@/lib/trpc";
 import { ChevronDown } from "lucide-react";
+import { useLocation } from "wouter";
 
 const LebanonDeepDive = lazy(() => import("@/pages/AnalysisPage"));
 const IntlDeepDive = lazy(() => import("@/pages/IntlAnalysisPage"));
@@ -34,14 +35,17 @@ function cleanFilters(filters: PerformanceFilters): PerformanceFilters | undefin
 
 export default function CountryPerformancePage() {
   const { user, isOwner, isAdminFor } = useAuth();
-  const { country: appCountry } = useCountry();
+  const { country: appCountry, setCountry: setAppCountry } = useCountry();
+  const [, setLocation] = useLocation();
+  // Countries the user may see — only used to decide whether the
+  // multi-country scorecard applies. The page itself always shows the
+  // country selected in the sidebar.
   const countries = useMemo(() => {
     if (isOwner) return ALL_COUNTRIES;
     const allowed = new Set((user?.countries ?? []).map((country) => country.toLowerCase()));
     return ALL_COUNTRIES.filter((country) => allowed.has(country.toLowerCase()));
   }, [isOwner, user?.countries]);
-  const initialCountry = (appCountry && countries.includes(appCountry as PerformanceCountry) ? appCountry : countries[0] ?? "Lebanon") as PerformanceCountry;
-  const [country, setCountry] = useState<PerformanceCountry>(initialCountry);
+  const country = (appCountry ?? countries[0] ?? "Lebanon") as PerformanceCountry;
   const [preset, setPreset] = useState<PeriodPreset>("ytd");
   const [anchor, setAnchor] = useState<string>();
   const [from, setFrom] = useState<string>();
@@ -89,14 +93,19 @@ export default function CountryPerformancePage() {
   const request: PerformanceRequest = { country, preset, anchor, from: preset === "custom" ? from : undefined, to: preset === "custom" ? to : undefined, compare, filters: cleanFilters(filters) };
 
 
+  // Scorecard country links switch the whole app to that country (same as
+  // the sidebar switcher) and stay on its Analysis page.
   const openCountry = useCallback((nextCountry: PerformanceCountry) => {
-    setCountry(nextCountry);
     setAnchor(undefined);
     setFrom(undefined);
     setTo(undefined);
     setFilters({});
+    if (nextCountry !== country) {
+      setAppCountry(nextCountry);
+      setLocation(nextCountry === "Lebanon" ? "/analysis" : "/intl-analysis");
+    }
     window.scrollTo({ top: 0, behavior: "smooth" });
-  }, []);
+  }, [country, setAppCountry, setLocation]);
 
   const renderSection = useCallback((section: OrderedSection, presentation = false) => {
     if (!pack) return null;
@@ -134,8 +143,6 @@ export default function CountryPerformancePage() {
     <PerformanceProvider country={country} periodKey={pack?.meta.periodKey ?? null} canEdit={canEdit}>
     <div className="space-y-8">
       <PerformanceHeader
-        country={country}
-        countries={countries}
         preset={preset}
         anchor={anchor}
         from={from}
@@ -145,7 +152,6 @@ export default function CountryPerformancePage() {
         meta={pack?.meta}
         lastUpdateText={lastUpdates.data ? lastUpdateSentence(lastUpdate) : undefined}
         isRefreshing={packQuery.isFetching}
-        onCountryChange={openCountry}
         onPresetChange={(value) => { setPreset(value); setFrom(undefined); setTo(undefined); }}
         onAnchorChange={setAnchor}
         onFromChange={setFrom}
@@ -162,7 +168,7 @@ export default function CountryPerformancePage() {
       {pack && (
         <div className="perf-print-cover hidden border-t-8 border-[#7f1d1d] pt-8">
           <p className="text-xl font-semibold text-[#7f1d1d]">{country}</p>
-          <h1 className="mt-2 text-5xl font-bold">Country Performance</h1>
+          <h1 className="mt-2 text-5xl font-bold">Analysis</h1>
           <p className="mt-8 text-2xl">{pack.meta.window.label}</p>
           <p className="mt-2 text-xl">{pack.meta.compareLabel}</p>
           <p className="mt-12">Data as of {pack.meta.dataAsOf ? formatUpdateTime(pack.meta.dataAsOf) : "not recorded"}</p>
@@ -170,20 +176,24 @@ export default function CountryPerformancePage() {
         </div>
       )}
 
-      <LastUpdatesStrip selected={country} onSelect={openCountry} />
-
       <header>
-        <h1 className="text-2xl font-bold tracking-tight">Country Performance — {country}</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Analysis — {country}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {pack ? `${pack.meta.window.label} · ${pack.meta.compareLabel}` : "Plan to sell-out (IMS)"}
         </p>
       </header>
 
       {pack && (
-        <nav className="perf-no-print flex flex-wrap gap-x-4 gap-y-2 border-y py-3" aria-label="Performance pack sections">
+        <nav className="perf-no-print grid gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4" aria-label="Analysis sections">
           {visibleSections.map((section) => (
-            <button key={section.id} type="button" className="text-sm font-medium text-muted-foreground hover:text-[#7f1d1d]" onClick={() => document.getElementById(section.id)?.scrollIntoView({ behavior: "smooth" })}>
-              {String(section.number).padStart(2, "0")} {titleForSection(section, pack.meta.isIntl)}
+            <button
+              key={section.id}
+              type="button"
+              className="flex items-center gap-3 rounded-lg border border-[#7f1d1d]/20 bg-[#7f1d1d]/5 px-3 py-2 text-left text-sm font-medium text-foreground transition hover:border-[#7f1d1d]/50 hover:bg-[#7f1d1d]/10"
+              onClick={() => document.getElementById(section.id)?.scrollIntoView({ behavior: "smooth" })}
+            >
+              <span className="w-6 shrink-0 text-xs font-bold tracking-widest text-[#7f1d1d]">{String(section.number).padStart(2, "0")}</span>
+              <span className="truncate">{titleForSection(section, pack.meta.isIntl)}</span>
             </button>
           ))}
         </nav>
@@ -197,7 +207,7 @@ export default function CountryPerformancePage() {
 
       {packQuery.error && !pack && (
         <Alert variant="destructive">
-          <AlertTitle>Country Performance could not be loaded</AlertTitle>
+          <AlertTitle>Analysis could not be loaded</AlertTitle>
           <AlertDescription>{isForbidden ? "You do not have access to this country" : packQuery.error.message}</AlertDescription>
         </Alert>
       )}
@@ -224,7 +234,6 @@ export default function CountryPerformancePage() {
             </Button>
           </CollapsibleTrigger>
           <CollapsibleContent className="pt-4">
-            {appCountry !== country && <p className="mb-3 text-sm text-muted-foreground">Deep Dive shows the app&apos;s active country ({appCountry ?? "not selected"})</p>}
             <Suspense fallback={<Skeleton className="h-80 w-full" />}><DeepDive /></Suspense>
           </CollapsibleContent>
         </Collapsible>

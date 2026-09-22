@@ -3,7 +3,7 @@ import type { OrderedSection } from "./sections";
 import { titleForSection } from "./sections";
 import type { PerformancePack } from "./types";
 import PresenterNote from "./PresenterNote";
-import { formatUpdateTime } from "./LastUpdatesStrip";
+import { formatUpdateTime } from "@/hooks/useLastUpdates";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, ArrowRight, X } from "lucide-react";
 
@@ -52,7 +52,7 @@ export default function PresentationMode({ pack, sections, onExit, renderSection
         {slide === 0 ? (
           <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col justify-center border-t-8 border-[#7f1d1d]">
             <p className="mt-8 text-xl font-semibold text-[#7f1d1d]">{pack.meta.country}</p>
-            <h1 className="mt-3 text-5xl font-bold tracking-tight md:text-7xl">Country Performance</h1>
+            <h1 className="mt-3 text-5xl font-bold tracking-tight md:text-7xl">Analysis</h1>
             <p className="mt-8 text-2xl">{pack.meta.window.label}</p>
             <p className="mt-2 text-xl text-muted-foreground">{pack.meta.compareLabel}</p>
             <div className="mt-16 grid gap-2 text-base text-muted-foreground">

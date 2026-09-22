@@ -165,7 +165,7 @@ export function SectionNotes({ notes }: { notes: string[] }) {
 /** Section wrapper used by the page and by presentation mode. */
 export function SectionFrame({ id, number, title, subtitle, hiddenFromSlides, children }: { id: string; number: number; title: string; subtitle?: string; hiddenFromSlides?: boolean; children: ReactNode }) {
   return (
-    <section id={id} data-perf-section={id} className={cn("perf-section scroll-mt-40 space-y-4", hiddenFromSlides && "perf-hidden-slide")}>
+    <section id={id} data-perf-section={id} className={cn("perf-section scroll-mt-40 space-y-4 rounded-xl border border-[#7f1d1d]/15 bg-muted/30 p-4 md:p-5", hiddenFromSlides && "perf-hidden-slide")}>
       <header className="flex items-baseline gap-3 border-b border-[#7f1d1d]/30 pb-2">
         <span className="text-xs font-bold tracking-widest text-[#7f1d1d]">{String(number).padStart(2, "0")}</span>
         <h2 className="text-xl font-bold text-foreground">{title}</h2>

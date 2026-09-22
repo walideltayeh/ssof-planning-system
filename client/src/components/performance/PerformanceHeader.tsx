@@ -1,5 +1,5 @@
-import type { CompareMode, PerformanceCountry, PerformanceFilters, PerformanceMeta, PeriodPreset } from "./types";
-import { formatUpdateTime } from "./LastUpdatesStrip";
+import type { CompareMode, PerformanceFilters, PerformanceMeta, PeriodPreset } from "./types";
+import { formatUpdateTime } from "@/hooks/useLastUpdates";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -76,8 +76,6 @@ function MultiFilter({ label, options, selected, onChange }: {
 }
 
 export interface PerformanceHeaderProps {
-  country: PerformanceCountry;
-  countries: PerformanceCountry[];
   preset: PeriodPreset;
   anchor?: string;
   from?: string;
@@ -88,7 +86,6 @@ export interface PerformanceHeaderProps {
   /** "Last update <time> by <user>" for the selected country; undefined while loading. */
   lastUpdateText?: string;
   isRefreshing: boolean;
-  onCountryChange: (value: PerformanceCountry) => void;
   onPresetChange: (value: PeriodPreset) => void;
   onAnchorChange: (value: string) => void;
   onFromChange: (value: string) => void;
@@ -112,9 +109,6 @@ export default function PerformanceHeader(props: PerformanceHeaderProps) {
   return (
     <div className="perf-no-print sticky top-0 z-20 -mx-4 border-b bg-background/95 px-4 py-3 backdrop-blur">
       <div className="flex flex-wrap items-end gap-2">
-        {props.countries.length > 1 && (
-          <LabeledSelect label="Country" value={props.country} onValueChange={(value) => props.onCountryChange(value as PerformanceCountry)} items={props.countries.map((country) => [country, country])} />
-        )}
         <LabeledSelect label="Period" value={props.preset} onValueChange={(value) => props.onPresetChange(value as PeriodPreset)} items={PRESETS} className="min-w-36" />
         {shownAnchor && props.preset !== "custom" && <LabeledSelect label="Ending month" value={shownAnchor} onValueChange={props.onAnchorChange} items={periodItems} className="min-w-36" />}
         {props.preset === "custom" && shownFrom && shownTo && (

@@ -6,3 +6,4 @@
 - [Orphaned clearance events](orphaned-clearance-events.md) — forecast import re-syncs production and can strand clearance events on zero-production batches; Arrival must list them or FG double-counts.
 - [Startup data repairs](startup-data-repairs.md) — prod DB is agent-read-only; fix live data via guarded, idempotent, single-transaction boot repairs rehearsed in a rolled-back dev tx; publishing = consent.
 - [Audit country attribution](audit-country-attribution.md) — audit_trail.country defaults to Lebanon; every data mutation must forward its country or "last update by country" mis-attributes it.
+- [Headless screenshots behind login](headless-screenshot-login.md) — Screenshot tool stops at login; use /repl/tools/bin/chromium on the https dev domain via a temporary auto-login html (delete it after).
