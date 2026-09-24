@@ -1659,8 +1659,9 @@ export const appRouter = router({
       const plan = await wsTracker.buildPlan();
       await assertRecordsScopedToCountry(
         wsTracker.WS_TRACKER_COUNTRY,
-        "WS Tracker (IMS/Arrival)",
-        plan.rows.map(r => ({ skuId: r.skuId, periodId: r.periodId })),
+        "WS Tracker (IMS/Arrival/Clearance)",
+        [...plan.rows.map(r => ({ skuId: r.skuId, periodId: r.periodId })),
+         ...plan.clearance.events.map(e => ({ skuId: e.skuId, periodId: e.periodId }))],
         "Save",
       );
       const res = await wsTracker.applyPlan(plan);
@@ -1669,13 +1670,16 @@ export const appRouter = router({
         username: getAuditActor(ctx),
         action: "upload",
         sheet: "WS Tracker",
-        details: `Synced ${res.imsCells} IMS cells and ${res.arrivalCells} arrival cells from the WS Tracker (${plan.changed.length} changed)`,
+        details: `Synced ${res.imsCells} IMS cells, ${res.arrivalCells} arrival cells and ${res.clearanceEvents} clearance events (replaced ${res.clearanceRemoved}) from the WS Tracker`,
       });
       return {
         success: true,
         imsCells: res.imsCells,
         arrivalCells: res.arrivalCells,
         changed: plan.changed.length,
+        clearanceEvents: res.clearanceEvents,
+        clearanceRemoved: res.clearanceRemoved,
+        clearanceOverflow: plan.clearance.overflow,
         unmatchedProducts: plan.unmatchedProducts,
         unmatchedMonths: plan.unmatchedMonths,
       };

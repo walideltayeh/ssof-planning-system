@@ -29,6 +29,13 @@ type Plan = {
   unmatchedProducts: { flavour: string; format: string; qty: number; expected: string }[];
   unmatchedMonths: string[];
   syriaSkus: string[];
+  clearance: {
+    events: { skuLabel: string; periodLabel: string; date: string; qty: number }[];
+    overflow: { skuLabel: string; date: string; qty: number }[];
+    replacing: number;
+    replacingQty: number;
+    newQty: number;
+  };
 };
 
 const mc = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: 0 });
@@ -99,6 +106,18 @@ export default function WsTrackerSyncCard({ section }: { section: "IMS" | "Arriv
             {plan.unmatchedMonths.length > 0 && (
               <div className="rounded border border-amber-300 bg-amber-50 p-2 text-amber-900">
                 Months missing from Syria's period list: {plan.unmatchedMonths.join(", ")}
+              </div>
+            )}
+            {section === "Arrival" && plan.clearance && (
+              <div className="rounded border bg-muted/40 p-2">
+                <div className="font-medium">Cleared arrivals → SSOF Arrival "Cleared" + FG</div>
+                <div>Each dated warehouse inbound becomes a clearance event on its own date, attached to the oldest open production batch. Production is not changed.</div>
+                <div className="mt-1">Writing <b>{mc(plan.clearance.newQty)} MC</b> across <b>{plan.clearance.events.length}</b> clearance events; replacing <b>{plan.clearance.replacing}</b> existing ({mc(plan.clearance.replacingQty)} MC).</div>
+                {plan.clearance.overflow.length > 0 && (
+                  <div className="mt-1 text-amber-700">
+                    Could not clear (production too low for these dates): {plan.clearance.overflow.map(o => `${o.skuLabel} ${o.date} (${mc(o.qty)})`).join(" · ")}
+                  </div>
+                )}
               </div>
             )}
             {mine.length === 0 ? (
