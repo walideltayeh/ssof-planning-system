@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { computeArrivalDate, formatArrivalDate } from "./ShipmentPage";
 import { decideBatchSurface, summarizeOrphans } from "./arrival.helpers";
 import ExportSheetButton from "@/components/ExportSheetButton";
+import WsTrackerSyncCard from "@/components/WsTrackerSyncCard";
 import ImportSheetButton from "@/components/ImportSheetButton";
 
 type ArrivalStatus = "Pending" | "In Transit" | "Arrived" | "Delayed" | "Cleared" | "Partially Cleared";
@@ -647,6 +648,8 @@ export default function ArrivalPage() {
             {isSyncing ? 'Syncing...' : 'Sync All'}
           </button>
         </div>
+
+        <WsTrackerSyncCard section="Arrival" />
 
         {/* ── Filter bar ── */}
         <div className="flex flex-wrap items-center gap-2 bg-muted/40 border border-border rounded-lg px-3 py-2">
