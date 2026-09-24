@@ -265,7 +265,20 @@ export async function buildPlan(feed?: Feed): Promise<SyncPlan> {
         clearanceEvents.push({ skuId, skuLabel: label(sku), periodId: b.periodId, periodLabel: b.label, date: mv.date, qty: take });
         b.remaining -= take; left -= take;
       }
-      if (left > 0.0001) overflow.push({ skuLabel: label(sku), date: mv.date, qty: left });
+      if (left > 0.0001) {
+        // Production is exhausted but the tracker says more arrived (tracker is the source
+        // of truth). Keep the remainder on the newest production batch so nothing is lost;
+        // if the SKU has no production at all, log it as an orphan in the arrival month.
+        if (batches.length > 0) {
+          const b = batches[batches.length - 1];
+          clearanceEvents.push({ skuId, skuLabel: label(sku), periodId: b.periodId, periodLabel: b.label, date: mv.date, qty: left });
+          overflow.push({ skuLabel: label(sku), date: mv.date, qty: left });
+        } else {
+          const per = periodBy.get(mv.date.slice(0, 7));
+          if (per) clearanceEvents.push({ skuId, skuLabel: label(sku), periodId: per.id, periodLabel: per.label, date: mv.date, qty: left });
+          else overflow.push({ skuLabel: label(sku), date: mv.date, qty: left });
+        }
+      }
     }
   }
   const replacingQty = existingClearance.reduce((a, e) => a + (Number(e.clearedQty) || 0), 0);
