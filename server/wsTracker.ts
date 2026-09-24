@@ -259,27 +259,18 @@ export async function buildPlan(feed?: Feed): Promise<SyncPlan> {
     const batches = (batchesBySku.get(skuId) ?? []).map(b => ({ ...b }));
     moves.sort((a, b) => a.date.localeCompare(b.date));
     for (const mv of moves) {
-      let left = mv.qty;
-      for (const b of batches) {
-        if (left <= 0) break;
-        if (b.remaining <= 0) continue;
-        const take = Math.min(left, b.remaining);
-        clearanceEvents.push({ skuId, skuLabel: label(sku), periodId: b.periodId, periodLabel: b.label, date: mv.date, qty: take });
-        b.remaining -= take; left -= take;
-      }
-      if (left > 0.0001) {
-        // Production is exhausted but the tracker says more arrived (tracker is the source
-        // of truth). Keep the remainder on the newest production batch so nothing is lost;
-        // if the SKU has no production at all, log it as an orphan in the arrival month.
-        if (batches.length > 0) {
-          const b = batches[batches.length - 1];
-          clearanceEvents.push({ skuId, skuLabel: label(sku), periodId: b.periodId, periodLabel: b.label, date: mv.date, qty: left });
-          overflow.push({ skuLabel: label(sku), date: mv.date, qty: left });
-        } else {
-          const per = periodBy.get(mv.date.slice(0, 7));
-          if (per) clearanceEvents.push({ skuId, skuLabel: label(sku), periodId: per.id, periodLabel: per.label, date: mv.date, qty: left });
-          else overflow.push({ skuLabel: label(sku), date: mv.date, qty: left });
-        }
+      // One clearance per tracker delivery, with its full quantity and the tracker's date —
+      // never split, so each SSOF row reads exactly like the tracker. It is logged on the
+      // oldest production batch not yet fully cleared (the newest when all are), or on the
+      // arrival month when the SKU has no production at all.
+      const b = batches.find(x => x.remaining > 0) ?? batches[batches.length - 1];
+      if (b) {
+        clearanceEvents.push({ skuId, skuLabel: label(sku), periodId: b.periodId, periodLabel: b.label, date: mv.date, qty: mv.qty });
+        b.remaining -= mv.qty;
+      } else {
+        const per = periodBy.get(mv.date.slice(0, 7));
+        if (per) clearanceEvents.push({ skuId, skuLabel: label(sku), periodId: per.id, periodLabel: per.label, date: mv.date, qty: mv.qty });
+        else overflow.push({ skuLabel: label(sku), date: mv.date, qty: mv.qty });
       }
     }
   }
