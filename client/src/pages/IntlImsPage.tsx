@@ -9,6 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "sonner";
 import ExportSheetButton from "@/components/ExportSheetButton";
 import ImportSheetButton from "@/components/ImportSheetButton";
+import WsTrackerSyncCard from "@/components/WsTrackerSyncCard";
 
 const WEIGHT_ORDER: Record<string, number> = { "1kg": 0, "250g": 1, "50g": 2 };
 
@@ -295,6 +296,8 @@ export default function IntlImsPage() {
           <ExportSheetButton sheet="ims" country={country} label="Export IMS" />
         </div>
       </div>
+
+      <WsTrackerSyncCard section="IMS" />
 
       <Card>
         <CardContent className="p-0">

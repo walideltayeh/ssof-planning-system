@@ -9,6 +9,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import * as db from "./db";
 import { assertRecordsScopedToCountry } from "./countryScope";
+import * as wsTracker from "./wsTracker";
 import { analyzePosmItems } from "./posmAnalysis";
 import { COUNTRIES } from "../drizzle/schema";
 import type { Country, User } from "../drizzle/schema";
@@ -1645,6 +1646,41 @@ export const appRouter = router({
         return { success: true };
       }),
     // Update arrival cell
+    // ==================== WS TRACKER (Syria only) ====================
+    // Reads the WS Tracker's Syria feed: IMS = sales to wholesalers, Arrival =
+    // goods received into the Lattakia warehouse, per flavour, per format, per
+    // month, in mastercases. Preview shows what would change; sync writes it.
+    wsTrackerPreview: protectedProcedure.mutation(async ({ ctx }) => {
+      await requireCountryAccess(ctx, wsTracker.WS_TRACKER_COUNTRY);
+      return wsTracker.buildPlan();
+    }),
+    wsTrackerSync: protectedProcedure.mutation(async ({ ctx }) => {
+      await requireCountryAdmin(ctx, wsTracker.WS_TRACKER_COUNTRY);
+      const plan = await wsTracker.buildPlan();
+      await assertRecordsScopedToCountry(
+        wsTracker.WS_TRACKER_COUNTRY,
+        "WS Tracker (IMS/Arrival)",
+        plan.rows.map(r => ({ skuId: r.skuId, periodId: r.periodId })),
+        "Save",
+      );
+      const res = await wsTracker.applyPlan(plan);
+      await db.logAudit({
+        country: wsTracker.WS_TRACKER_COUNTRY,
+        username: getAuditActor(ctx),
+        action: "upload",
+        sheet: "WS Tracker",
+        details: `Synced ${res.imsCells} IMS cells and ${res.arrivalCells} arrival cells from the WS Tracker (${plan.changed.length} changed)`,
+      });
+      return {
+        success: true,
+        imsCells: res.imsCells,
+        arrivalCells: res.arrivalCells,
+        changed: plan.changed.length,
+        unmatchedProducts: plan.unmatchedProducts,
+        unmatchedMonths: plan.unmatchedMonths,
+      };
+    }),
+
     updateArrival: protectedProcedure
       .input(z.object({
         skuId: z.number(), periodId: z.number(),
