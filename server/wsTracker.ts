@@ -218,14 +218,26 @@ export async function buildPlan(feed?: Feed): Promise<SyncPlan> {
 
   rows.sort((a, b) => a.section.localeCompare(b.section) || a.month.localeCompare(b.month) || a.skuLabel.localeCompare(b.skuLabel) || (a.week ?? 0) - (b.week ?? 0));
 
-  // ----- clearance: each dated tracker inbound is cleared in full on its date -----
-  // The tracker is the source of truth, so we do NOT cap at SSOF production.
-  // SSOF's Arrival "Cleared" sums clearance events uncapped and surfaces a batch
-  // even with no production, so the cleared total equals the tracker's arrivals.
+  // ----- clearance: attach each dated inbound to its production batch (oldest first) -----
+  // SSOF logs clearance under the PRODUCTION period, with the arrival date as the
+  // cleared date. The tracker knows the arrival (date + qty); SSOF knows production
+  // per period, so we fill the oldest open production batch first (FIFO). Anything the
+  // tracker cleared beyond SSOF's production for that SKU is reported, not forced.
+  const shipment = await db.getShipmentDataForCountry(WS_TRACKER_COUNTRY);
   const existingClearance = await db.getClearanceEventsForCountry(WS_TRACKER_COUNTRY);
   const label = (sku: (typeof skus)[number]) => `${sku.name} ${sku.weight}${sku.packagingType ? ` (${sku.packagingType})` : ""}`;
-  const clearanceEvents: SyncPlan["clearance"]["events"] = [];
-  const overflow: SyncPlan["clearance"]["overflow"] = [];
+  const periodById = new Map(periods.map(pp => [pp.id, pp]));
+  const batchesBySku = new Map<number, { periodId: number; sortOrder: number; label: string; remaining: number }[]>();
+  for (const sh of shipment) {
+    const produced = (Number(sh.week1) || 0) + (Number(sh.week2) || 0) + (Number(sh.week3) || 0) + (Number(sh.week4) || 0);
+    if (produced <= 0) continue;
+    const per = periodById.get(sh.periodId); if (!per) continue;
+    const list = batchesBySku.get(sh.skuId) ?? [];
+    list.push({ periodId: sh.periodId, sortOrder: per.sortOrder, label: per.label, remaining: produced });
+    batchesBySku.set(sh.skuId, list);
+  }
+  for (const list of batchesBySku.values()) list.sort((a, b) => a.sortOrder - b.sortOrder);
+  const movesBySku = new Map<number, { date: string; qty: number }[]>();
   for (const mv of f.arrivalMovements ?? []) {
     const found = findSku(mv.flavour, mv.format);
     if (!found.sku) {
@@ -234,12 +246,30 @@ export async function buildPlan(feed?: Feed): Promise<SyncPlan> {
       u.qty += mv.qty; unmatchedProducts.set(k, u);
       continue;
     }
-    const month = mv.date.slice(0, 7);
-    const period = periodBy.get(month);
-    if (!period) { unmatchedMonths.add(month); overflow.push({ skuLabel: label(found.sku), date: mv.date, qty: mv.qty }); continue; }
-    clearanceEvents.push({ skuId: found.sku.id, skuLabel: label(found.sku), periodId: period.id, periodLabel: period.label, date: mv.date, qty: mv.qty });
+    const list = movesBySku.get(found.sku.id) ?? [];
+    list.push({ date: mv.date, qty: mv.qty });
+    movesBySku.set(found.sku.id, list);
+  }
+  const clearanceEvents: SyncPlan["clearance"]["events"] = [];
+  const overflow: SyncPlan["clearance"]["overflow"] = [];
+  for (const [skuId, moves] of movesBySku) {
+    const sku = skus.find(x => x.id === skuId)!;
+    const batches = (batchesBySku.get(skuId) ?? []).map(b => ({ ...b }));
+    moves.sort((a, b) => a.date.localeCompare(b.date));
+    for (const mv of moves) {
+      let left = mv.qty;
+      for (const b of batches) {
+        if (left <= 0) break;
+        if (b.remaining <= 0) continue;
+        const take = Math.min(left, b.remaining);
+        clearanceEvents.push({ skuId, skuLabel: label(sku), periodId: b.periodId, periodLabel: b.label, date: mv.date, qty: take });
+        b.remaining -= take; left -= take;
+      }
+      if (left > 0.0001) overflow.push({ skuLabel: label(sku), date: mv.date, qty: left });
+    }
   }
   const replacingQty = existingClearance.reduce((a, e) => a + (Number(e.clearedQty) || 0), 0);
+
 
 
   return {
