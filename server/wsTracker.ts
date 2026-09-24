@@ -43,6 +43,8 @@ export const SKU_MAP: { flavour: string; format: string; name: string; weight: s
   { flavour: "Red", format: "50g", name: "Double Apple", weight: "50g", packagingType: "Old" },
   { flavour: "Two Apples", format: "250g", name: "Double Apple", weight: "250g", packagingType: "New" },
   { flavour: "Two Apples", format: "Kg", name: "Double Apple", weight: "1kg", packagingType: "New" },
+  { flavour: "Two Apples Frosty", format: "50g", name: "Double Apple Frosty", weight: "50g" },
+  // the tracker called this flavour "Two Apples Iced" until 24 Sep 2026; keep reading the old name
   { flavour: "Two Apples Iced", format: "50g", name: "Double Apple Frosty", weight: "50g" },
   { flavour: "Grape", format: "50g", name: "Grape", weight: "50g" },
   { flavour: "Grape", format: "250g", name: "Grape", weight: "250g" },
@@ -122,7 +124,7 @@ export async function buildPlan(feed?: Feed): Promise<SyncPlan> {
   const mapped = new Map<number, { flavour: string; format: string }>();
   for (const m of SKU_MAP) {
     const { sku } = findSku(m.flavour, m.format);
-    if (sku) mapped.set(sku.id, { flavour: m.flavour, format: m.format });
+    if (sku && !mapped.has(sku.id)) mapped.set(sku.id, { flavour: m.flavour, format: m.format });
   }
 
   const imsNow = new Map(ims.map(r => [`${r.skuId}-${r.periodId}`, Number(r.value ?? 0)]));
