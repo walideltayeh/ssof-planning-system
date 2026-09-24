@@ -66,6 +66,16 @@ export default function WsTrackerSyncCard({ section }: { section: "IMS" | "Arriv
   if (country !== "Syria") return null;
   const mine = plan?.changed.filter(r => r.section === section) ?? [];
   const busy = preview.isPending || sync.isPending;
+  const byDate = (() => {
+    const m = new Map<string, Map<string, number>>();
+    for (const e of plan?.clearance?.events ?? []) {
+      const d = m.get(e.date) ?? new Map<string, number>();
+      d.set(e.skuLabel, (d.get(e.skuLabel) ?? 0) + e.qty);
+      m.set(e.date, d);
+    }
+    return [...m.entries()].sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, d]) => ({ date, total: [...d.values()].reduce((a, v) => a + v, 0), lines: [...d.entries()].map(([sku, qty]) => ({ sku, qty })) }));
+  })();
 
   return (
     <Card className="mb-4">
@@ -109,15 +119,40 @@ export default function WsTrackerSyncCard({ section }: { section: "IMS" | "Arriv
               </div>
             )}
             {section === "Arrival" && plan.clearance && (
-              <div className="rounded border bg-muted/40 p-2">
-                <div className="font-medium">Cleared arrivals → SSOF Arrival "Cleared" + FG</div>
-                <div>Each dated warehouse inbound becomes a clearance event on its own date, attached to the oldest open production batch. Production is not changed.</div>
-                <div className="mt-1">Writing <b>{mc(plan.clearance.newQty)} MC</b> across <b>{plan.clearance.events.length}</b> clearance events; replacing <b>{plan.clearance.replacing}</b> existing ({mc(plan.clearance.replacingQty)} MC).</div>
-                {plan.clearance.overflow.length > 0 && (
-                  <div className="mt-1 text-amber-700">
-                    Could not clear (production too low for these dates): {plan.clearance.overflow.map(o => `${o.skuLabel} ${o.date} (${mc(o.qty)})`).join(" · ")}
-                  </div>
-                )}
+              <div className="rounded border bg-muted/40 p-2 space-y-1">
+                <div className="font-medium">Arrivals from the WS Tracker → "Cleared" on this page</div>
+                <div>Every warehouse inbound in the WS Tracker is written as a clearance on the same date as in the tracker.</div>
+                <div>
+                  SSOF holds <b>{mc(plan.clearance.replacingQty)} MC</b> in {plan.clearance.replacing} clearances now.
+                  {" "}<b>Apply</b> replaces them with <b>{mc(plan.clearance.newQty)} MC</b> in {plan.clearance.events.length} clearances.
+                </div>
+                <div className="max-h-64 overflow-auto rounded border bg-background">
+                  <table className="w-full">
+                    <thead className="sticky top-0 bg-muted">
+                      <tr>
+                        <th className="px-2 py-1 text-left font-medium">Cleared date</th>
+                        <th className="px-2 py-1 text-left font-medium">SKU</th>
+                        <th className="px-2 py-1 text-right font-medium">MC</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {byDate.map(g => [
+                        ...g.lines.map((l, i) => (
+                          <tr key={`${g.date}-${l.sku}`} className={i === 0 ? "border-t" : ""}>
+                            <td className="px-2 py-0.5">{i === 0 ? g.date : ""}</td>
+                            <td className="px-2 py-0.5">{l.sku}</td>
+                            <td className="px-2 py-0.5 text-right">{mc(l.qty)}</td>
+                          </tr>
+                        )),
+                        <tr key={`${g.date}-total`} className="text-muted-foreground">
+                          <td />
+                          <td className="px-2 py-0.5 text-right">Total {g.date}</td>
+                          <td className="px-2 py-0.5 text-right font-medium">{mc(g.total)}</td>
+                        </tr>,
+                      ])}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
             {mine.length === 0 ? (
