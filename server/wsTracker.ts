@@ -42,12 +42,12 @@ export const SKU_MAP: { flavour: string; format: string; name: string; weight: s
   { flavour: "Red", format: "50g", name: "Double Apple", weight: "50g", packagingType: "Old" },
   { flavour: "Two Apples", format: "250g", name: "Double Apple", weight: "250g", packagingType: "New" },
   { flavour: "Two Apples", format: "Kg", name: "Double Apple", weight: "1kg", packagingType: "New" },
-  { flavour: "Two Apples Iced", format: "50g", name: "Double Apple Ice", weight: "50g" },
+  { flavour: "Two Apples Iced", format: "50g", name: "Double Apple Frosty", weight: "50g" },
   { flavour: "Grape", format: "50g", name: "Grape", weight: "50g" },
   { flavour: "Grape", format: "250g", name: "Grape", weight: "250g" },
   { flavour: "Grape", format: "Kg", name: "Grape", weight: "1kg" },
-  { flavour: "Grape & Mint", format: "50g", name: "Grape Mint", weight: "50g" },
-  { flavour: "Love", format: "50g", name: "Love 66", weight: "50g" },
+  { flavour: "Grape & Mint", format: "50g", name: "Grape and Mint", weight: "50g" },
+  { flavour: "Love", format: "50g", name: "Magic Love", weight: "50g" },
   { flavour: "Blueberry", format: "50g", name: "Blueberry", weight: "50g" },
 ];
 
@@ -110,6 +110,12 @@ export async function buildPlan(feed?: Feed): Promise<SyncPlan> {
     return { sku, expected: `${m.name} ${m.weight}${m.packagingType ? ` (${m.packagingType})` : ""}` };
   };
   const periodBy = new Map(periods.map(p => [`${p.year}-${String(p.month).padStart(2, "0")}`, p]));
+  const inFeedRange = (month: string) => month >= f.period.from && month <= f.period.to;
+  const mapped = new Map<number, { flavour: string; format: string }>();
+  for (const m of SKU_MAP) {
+    const { sku } = findSku(m.flavour, m.format);
+    if (sku) mapped.set(sku.id, { flavour: m.flavour, format: m.format });
+  }
 
   const imsNow = new Map(ims.map(r => [`${r.skuId}-${r.periodId}`, Number(r.value ?? 0)]));
   const arrNow = new Map(
@@ -179,6 +185,26 @@ export async function buildPlan(feed?: Feed): Promise<SyncPlan> {
         periodId: period.id, periodLabel: period.label,
         current: now[w], next: cell.weeks[w],
       });
+    }
+  }
+
+  // Cells inside the feed's months that the tracker no longer has: set them to 0, so the two
+  // systems agree. Products SSOF has but the tracker does not (Mint, Grape and Mint 1kg …) are
+  // never touched — they simply are not in the mapping.
+  const seen = new Set(rows.map(r => `${r.section}|${r.skuId}|${r.periodId}|${r.week ?? 0}`));
+  for (const [skuId, who] of mapped) {
+    const sku = skus.find(x => x.id === skuId)!;
+    const label = `${sku.name} ${sku.weight}${sku.packagingType ? ` (${sku.packagingType})` : ""}`;
+    for (const period of periods) {
+      const month = `${period.year}-${String(period.month).padStart(2, "0")}`;
+      if (!inFeedRange(month)) continue;
+      const base = { flavour: who.flavour, format: who.format, month, skuId, skuLabel: label, periodId: period.id, periodLabel: period.label, next: 0 };
+      const imsCurrent = imsNow.get(`${skuId}-${period.id}`) ?? 0;
+      if (imsCurrent !== 0 && !seen.has(`IMS|${skuId}|${period.id}|0`)) rows.push({ section: "IMS", ...base, current: imsCurrent });
+      const weeks = arrNow.get(`${skuId}-${period.id}`) ?? [0, 0, 0, 0];
+      for (let w = 0; w < 4; w += 1) {
+        if (weeks[w] !== 0 && !seen.has(`Arrival|${skuId}|${period.id}|${w + 1}`)) rows.push({ section: "Arrival", ...base, week: w + 1, current: weeks[w] });
+      }
     }
   }
 
