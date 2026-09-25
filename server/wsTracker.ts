@@ -98,6 +98,52 @@ export async function fetchFeed(): Promise<Feed> {
   return feed;
 }
 
+/**
+ * Which production month each delivery of one SKU belongs to. The deliveries (in date order, each
+ * kept whole) are split into consecutive groups, each under a later production month than the one
+ * before and never under a month after its first delivery, so that they best add up to each month's
+ * production: a month the deliveries have moved past should be fully cleared, the last month used
+ * may be partly cleared (only over-delivery counts), and a month skipped before it never arrived.
+ * Returns the month index for each delivery, or null when no month can take them.
+ */
+export function matchDeliveriesToProduction(deliveries: { date: string; qty: number }[], months: { month: string; size: number }[]): number[] | null {
+  const n = deliveries.length, k = months.length;
+  const pre = [0];
+  for (const d of deliveries) pre.push(pre[pre.length - 1] + d.qty);
+  const skipped = (a: number, b: number) => { let c = 0; for (let x = a; x < b; x += 1) c += months[x].size; return c; };
+  // closed[i][j]: least cost with the first i deliveries placed, the last group closed on month j
+  const closed = Array.from({ length: n + 1 }, () => new Array<number>(k).fill(Infinity));
+  const from = Array.from({ length: n + 1 }, () => new Array<[number, number] | null>(k).fill(null));
+  const best = { cost: Infinity, s: -1, j: -1, jp: -1 };
+  for (let i = 1; i <= n; i += 1) for (let j = 0; j < k; j += 1) for (let s = 0; s < i; s += 1) {
+    if (months[j].month > deliveries[s].date.slice(0, 7)) continue;
+    const got = pre[i] - pre[s];
+    const prevs: [number, number][] = s === 0
+      ? [[-1, skipped(0, j)]]
+      : months.map((_, jp): [number, number] => [jp, jp < j ? closed[s][jp] + skipped(jp + 1, j) : Infinity]);
+    for (const [jp, base] of prevs) {
+      if (!Number.isFinite(base)) continue;
+      const c = base + Math.abs(months[j].size - got);
+      if (c < closed[i][j]) { closed[i][j] = c; from[i][j] = [s, jp]; }
+      if (i === n) {
+        const open = base + Math.max(0, got - months[j].size);
+        if (open < best.cost) Object.assign(best, { cost: open, s, j, jp });
+      }
+    }
+  }
+  if (!Number.isFinite(best.cost)) return null;
+  const out = new Array<number>(n).fill(-1);
+  let i = n, j = best.j, s = best.s, jp = best.jp;
+  for (;;) {
+    for (let x = s; x < i; x += 1) out[x] = j;
+    if (jp === -1) break;
+    const prev = from[s][jp];
+    if (!prev) return null;
+    i = s; j = jp; [s, jp] = prev;
+  }
+  return out;
+}
+
 /** Work out what the feed would change, without writing anything. */
 export async function buildPlan(feed?: Feed): Promise<SyncPlan> {
   const f = feed ?? (await fetchFeed());
@@ -220,23 +266,37 @@ export async function buildPlan(feed?: Feed): Promise<SyncPlan> {
 
   rows.sort((a, b) => a.section.localeCompare(b.section) || a.month.localeCompare(b.month) || a.skuLabel.localeCompare(b.skuLabel) || (a.week ?? 0) - (b.week ?? 0));
 
-  // ----- clearance: attach each dated inbound to its production batch (oldest first) -----
-  // SSOF logs clearance under the PRODUCTION period, with the arrival date as the
-  // cleared date. The tracker knows the arrival (date + qty); SSOF knows production
-  // per period, so we fill the oldest open production batch first (FIFO). Anything the
-  // tracker cleared beyond SSOF's production for that SKU is reported, not forced.
+  // ----- clearance: each tracker delivery becomes one clearance under a production month -----
+  // The Arrival page lists production months (Forecast Production, or actual when entered); a
+  // month is cleared later, by deliveries. Each tracker delivery keeps its full quantity and date
+  // and goes under the production month it belongs to (matchDeliveriesToProduction). The tracker is
+  // the source of truth, so nothing is capped or dropped.
   const shipment = await db.getShipmentDataForCountry(WS_TRACKER_COUNTRY);
   const existingClearance = await db.getClearanceEventsForCountry(WS_TRACKER_COUNTRY);
   const label = (sku: (typeof skus)[number]) => `${sku.name} ${sku.weight}${sku.packagingType ? ` (${sku.packagingType})` : ""}`;
   const periodById = new Map(periods.map(pp => [pp.id, pp]));
-  const batchesBySku = new Map<number, { periodId: number; sortOrder: number; label: string; remaining: number }[]>();
+  // Production per SKU and month, sized exactly as the Arrival page sizes its batches: the actual
+  // production when one was entered (weekly production, or a manual Actual Production value),
+  // otherwise the Forecast Production for that month.
+  const forecast = await db.getForecastDataForCountry(WS_TRACKER_COUNTRY);
+  const actualOverride = await db.getActualProductionDataForCountry(WS_TRACKER_COUNTRY);
+  const actual = new Map<string, number>();
   for (const sh of shipment) {
-    const produced = (Number(sh.week1) || 0) + (Number(sh.week2) || 0) + (Number(sh.week3) || 0) + (Number(sh.week4) || 0);
-    if (produced <= 0) continue;
-    const per = periodById.get(sh.periodId); if (!per) continue;
-    const list = batchesBySku.get(sh.skuId) ?? [];
-    list.push({ periodId: sh.periodId, sortOrder: per.sortOrder, label: per.label, remaining: produced });
-    batchesBySku.set(sh.skuId, list);
+    const q = (Number(sh.week1) || 0) + (Number(sh.week2) || 0) + (Number(sh.week3) || 0) + (Number(sh.week4) || 0);
+    if (q > 0) actual.set(`${sh.skuId}-${sh.periodId}`, q);
+  }
+  for (const ap of actualOverride) { const v = Number(ap.value) || 0; if (v > 0) actual.set(`${ap.skuId}-${ap.periodId}`, v); }
+  const planned = new Map<string, number>();
+  for (const fc of forecast) planned.set(`${fc.skuId}-${fc.periodId}`, Number(fc.value) || 0);
+  const batchesBySku = new Map<number, { periodId: number; sortOrder: number; label: string; month: string; size: number }[]>();
+  for (const key of new Set([...actual.keys(), ...planned.keys()])) {
+    const size = (actual.get(key) ?? 0) > 0 ? actual.get(key)! : planned.get(key) ?? 0;
+    if (size <= 0) continue;
+    const [skuId, periodId] = key.split("-").map(Number);
+    const per = periodById.get(periodId); if (!per) continue;
+    const list = batchesBySku.get(skuId) ?? [];
+    list.push({ periodId, sortOrder: per.sortOrder, label: per.label, month: `${per.year}-${String(per.month).padStart(2, "0")}`, size });
+    batchesBySku.set(skuId, list);
   }
   for (const list of batchesBySku.values()) list.sort((a, b) => a.sortOrder - b.sortOrder);
   const movesBySku = new Map<number, { date: string; qty: number }[]>();
@@ -256,22 +316,23 @@ export async function buildPlan(feed?: Feed): Promise<SyncPlan> {
   const overflow: SyncPlan["clearance"]["overflow"] = [];
   for (const [skuId, moves] of movesBySku) {
     const sku = skus.find(x => x.id === skuId)!;
-    const batches = (batchesBySku.get(skuId) ?? []).map(b => ({ ...b }));
+    const batches = batchesBySku.get(skuId) ?? [];
     moves.sort((a, b) => a.date.localeCompare(b.date));
-    for (const mv of moves) {
-      // One clearance per tracker delivery, with its full quantity and the tracker's date —
-      // never split, so each SSOF row reads exactly like the tracker. It is logged on the
-      // oldest production batch not yet fully cleared (the newest when all are), or on the
-      // arrival month when the SKU has no production at all.
-      const b = batches.find(x => x.remaining > 0) ?? batches[batches.length - 1];
-      if (b) {
-        clearanceEvents.push({ skuId, skuLabel: label(sku), periodId: b.periodId, periodLabel: b.label, date: mv.date, qty: mv.qty });
-        b.remaining -= mv.qty;
-      } else {
-        const per = periodBy.get(mv.date.slice(0, 7));
-        if (per) clearanceEvents.push({ skuId, skuLabel: label(sku), periodId: per.id, periodLabel: per.label, date: mv.date, qty: mv.qty });
-        else overflow.push({ skuLabel: label(sku), date: mv.date, qty: mv.qty });
-      }
+    // One clearance per delivery, full quantity and tracker date, under the production month it
+    // belongs to. A delivery before any production month is logged on its own arrival month.
+    const first = batches[0]?.month;
+    const matched = first ? moves.filter(mv => mv.date.slice(0, 7) >= first) : [];
+    const pick = matched.length ? matchDeliveriesToProduction(matched, batches.map(x => ({ month: x.month, size: x.size }))) : null;
+    const onArrivalMonth = pick ? moves.filter(mv => !matched.includes(mv)) : moves;
+    matched.forEach((mv, x) => {
+      if (!pick) return;
+      const bt = batches[pick[x]];
+      clearanceEvents.push({ skuId, skuLabel: label(sku), periodId: bt.periodId, periodLabel: bt.label, date: mv.date, qty: mv.qty });
+    });
+    for (const mv of onArrivalMonth) {
+      const per = periodBy.get(mv.date.slice(0, 7));
+      if (per) clearanceEvents.push({ skuId, skuLabel: label(sku), periodId: per.id, periodLabel: per.label, date: mv.date, qty: mv.qty });
+      else overflow.push({ skuLabel: label(sku), date: mv.date, qty: mv.qty });
     }
   }
   const replacingQty = existingClearance.reduce((a, e) => a + (Number(e.clearedQty) || 0), 0);
