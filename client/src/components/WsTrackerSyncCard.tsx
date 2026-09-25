@@ -67,14 +67,16 @@ export default function WsTrackerSyncCard({ section }: { section: "IMS" | "Arriv
   const mine = plan?.changed.filter(r => r.section === section) ?? [];
   const busy = preview.isPending || sync.isPending;
   const byDate = (() => {
-    const m = new Map<string, Map<string, number>>();
+    const m = new Map<string, Map<string, { sku: string; month: string; qty: number }>>();
     for (const e of plan?.clearance?.events ?? []) {
-      const d = m.get(e.date) ?? new Map<string, number>();
-      d.set(e.skuLabel, (d.get(e.skuLabel) ?? 0) + e.qty);
+      const d = m.get(e.date) ?? new Map<string, { sku: string; month: string; qty: number }>();
+      const k = `${e.skuLabel}|${e.periodLabel}`;
+      const cur = d.get(k) ?? { sku: e.skuLabel, month: e.periodLabel, qty: 0 };
+      cur.qty += e.qty; d.set(k, cur);
       m.set(e.date, d);
     }
     return [...m.entries()].sort(([a], [b]) => a.localeCompare(b))
-      .map(([date, d]) => ({ date, total: [...d.values()].reduce((a, v) => a + v, 0), lines: [...d.entries()].map(([sku, qty]) => ({ sku, qty })) }));
+      .map(([date, d]) => ({ date, total: [...d.values()].reduce((a, v) => a + v.qty, 0), lines: [...d.values()] }));
   })();
 
   return (
@@ -121,7 +123,7 @@ export default function WsTrackerSyncCard({ section }: { section: "IMS" | "Arriv
             {section === "Arrival" && plan.clearance && (
               <div className="rounded border bg-muted/40 p-2 space-y-1">
                 <div className="font-medium">Arrivals from the WS Tracker → "Cleared" on this page</div>
-                <div>Every warehouse inbound in the WS Tracker is written as a clearance on the same date as in the tracker.</div>
+                <div>Every warehouse inbound in the WS Tracker is written as a clearance on the same date as in the tracker, under the production month it belongs to: each SKU's deliveries, in date order, are matched to Forecast Production months so that they add up to each month's production.</div>
                 <div>
                   SSOF holds <b>{mc(plan.clearance.replacingQty)} MC</b> in {plan.clearance.replacing} clearances now.
                   {" "}<b>Apply</b> replaces them with <b>{mc(plan.clearance.newQty)} MC</b> in {plan.clearance.events.length} clearances.
@@ -132,19 +134,22 @@ export default function WsTrackerSyncCard({ section }: { section: "IMS" | "Arriv
                       <tr>
                         <th className="px-2 py-1 text-left font-medium">Cleared date</th>
                         <th className="px-2 py-1 text-left font-medium">SKU</th>
+                        <th className="px-2 py-1 text-left font-medium">Under production month</th>
                         <th className="px-2 py-1 text-right font-medium">MC</th>
                       </tr>
                     </thead>
                     <tbody>
                       {byDate.map(g => [
                         ...g.lines.map((l, i) => (
-                          <tr key={`${g.date}-${l.sku}`} className={i === 0 ? "border-t" : ""}>
+                          <tr key={`${g.date}-${l.sku}-${l.month}`} className={i === 0 ? "border-t" : ""}>
                             <td className="px-2 py-0.5">{i === 0 ? g.date : ""}</td>
                             <td className="px-2 py-0.5">{l.sku}</td>
+                            <td className="px-2 py-0.5">{l.month}</td>
                             <td className="px-2 py-0.5 text-right">{mc(l.qty)}</td>
                           </tr>
                         )),
                         <tr key={`${g.date}-total`} className="text-muted-foreground">
+                          <td />
                           <td />
                           <td className="px-2 py-0.5 text-right">Total {g.date}</td>
                           <td className="px-2 py-0.5 text-right font-medium">{mc(g.total)}</td>
