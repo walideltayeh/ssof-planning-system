@@ -537,6 +537,10 @@ export interface PerformanceMeta {
 
 export interface PerformancePack {
   meta: PerformanceMeta;
+  stockSituation: {
+    rows: { skuId: number; sku: string; weight: string; packaging: string; production: number; arrival: number; remainingStock: number }[];
+    totals: { production: number; arrival: number; remainingStock: number };
+  };
   runningRate: RunningRateSection;
   outlook: OutlookSection;
   executive: { tiles: KpiTile[]; keyMessages: KeyMessage[]; risks: RiskItem[] };

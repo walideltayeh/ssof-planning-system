@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import ExcelJS from "exceljs";
+import { buildPerformanceWorkbook } from "./countryPerformanceExcel";
 import { compareHeadlines } from "../../shared/performance/boardCompare";
 import { buildPack } from "./countryPerformance";
 import {
@@ -71,6 +73,55 @@ function dataset(overrides: Partial<PerformanceDataset> = {}): PerformanceDatase
     ...overrides,
   };
 }
+
+describe("stock situation by SKU", () => {
+  it("includes the SKU stock table and totals in Excel export", async () => {
+    const pack = buildPack(dataset(), { country: "Syria", preset: "month", anchor: "2026-08", compare: "plan", filters: { weights: ["250g"] } }, null);
+    const buffer = await buildPerformanceWorkbook(pack);
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer as unknown as Parameters<typeof workbook.xlsx.load>[0]);
+    const sheet = workbook.worksheets.find((s) => s.name.includes("Stock Situation"));
+    expect(sheet).toBeDefined();
+    const values: unknown[] = [];
+    sheet!.eachRow((r) => values.push(r.values));
+    expect(values).toContainEqual(expect.arrayContaining(["Al Fakher Grape 250g", "250g", "Old", 200, 200, 600]));
+    expect(values).toContainEqual(expect.arrayContaining(["Total", 200, 200, 600]));
+  });
+
+  it.each(["Lebanon", "Syria", "Libya", "KSA"] as const)("uses %s's stock series, period totals and ending balance", (country) => {
+    const ds = dataset({ country });
+    const pack = buildPack(ds, { country, preset: "ytd", anchor: "2026-08", compare: "plan" }, null);
+    const series = buildSkuSeries(ds, ds.skus);
+    const start = periods.findIndex((p) => p.year === 2026 && p.month === 1);
+    const end = periods.findIndex((p) => p.year === 2026 && p.month === 8);
+    expect(pack.stockSituation.rows).toHaveLength(3);
+    for (const s of series) {
+      expect(pack.stockSituation.rows.find((r) => r.skuId === s.sku.id)).toEqual({
+        skuId: s.sku.id, sku: s.sku.name, weight: s.sku.weight, packaging: s.sku.packagingType,
+        production: Math.round(sum(s.months.slice(start, end + 1).map((c) => c.actualProduction)) * 100) / 100,
+        arrival: Math.round(sum(s.months.slice(start, end + 1).map((c) => c.arrivals)) * 100) / 100,
+        remainingStock: Math.round(s.months[end].closing * 100) / 100,
+      });
+    }
+    expect(pack.stockSituation.totals.remainingStock).toBe(pack.headline.closingStock);
+  });
+
+  it("respects SKU filters and excludes inactive SKUs", () => {
+    const pack = buildPack(dataset(), { country: "Syria", preset: "month", anchor: "2026-08", compare: "plan", filters: { weights: ["250g"] } }, null);
+    expect(pack.stockSituation.rows).toHaveLength(1);
+    expect(pack.stockSituation.rows[0]).toMatchObject({ skuId: 2, production: 200, arrival: 200, remainingStock: 600 });
+    expect(pack.stockSituation.totals).toEqual({ production: 200, arrival: 200, remainingStock: 600 });
+  });
+
+  it("uses actual production overrides rather than forecast and keeps negative stock visible", () => {
+    const ds = dataset({ actualProduction: [{ skuId: 2, periodId: pid(2026, 8), value: "99" }], clearanceEvents: [] });
+    const pack = buildPack(ds, { country: "Syria", preset: "month", anchor: "2026-08", compare: "plan" }, null);
+    const row = pack.stockSituation.rows.find((r) => r.skuId === 2)!;
+    expect(row.production).toBe(99);
+    expect(row.arrival).toBe(0);
+    expect(row.remainingStock).toBeLessThan(0);
+  });
+});
 
 describe("running rate (tab method)", () => {
   it("averages only the months with sales and anchors on the SKU's last selling month", () => {

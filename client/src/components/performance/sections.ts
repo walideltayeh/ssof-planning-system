@@ -13,6 +13,7 @@ import {
   OutlookSection,
   PortfolioSection,
   RunningRateSection,
+  StockSituationSection,
   SupplySection,
 } from "./index";
 import type { ComponentType } from "react";
@@ -43,6 +44,7 @@ export const performanceSections: PerformanceSectionDefinition[] = [
   { id: "runningRate", title: "Running Rate", Component: RunningRateSection },
   { id: "outlook", title: "Full-Year Outlook and Required Run Rate", Component: OutlookSection },
   { id: "executive", title: "Executive Summary", Component: ExecutiveSummarySection },
+  { id: "stockSituation", title: "Stock Situation by SKU", Component: StockSituationSection },
   { id: "changes", title: "What Changed Since the Last Board", Component: BoardChangesSection },
   { id: "flow", title: "Supply Chain Flow", Component: FlowSection },
   { id: "demand", title: "Demand — sell-out (IMS)", Component: DemandSection },

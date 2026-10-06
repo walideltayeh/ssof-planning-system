@@ -151,11 +151,12 @@ export async function buildPerformanceWorkbook(pack: PerformancePack, extras: Wo
         [2, "Supply Chain Flow", "Where did volume go between plan and shelf?"],
         [3, "Demand", "Are we selling what we planned, and more than last year?"],
         [4, "Supply", "Did we produce, ship and clear what we planned?"],
-        [5, "Inventory Health", "Which SKUs are thin, healthy or heavy?"],
-        [6, "Forecast Quality", "How accurate and how biased is the forecast?"],
-        [7, "Forward Look", "Where will stock land over the next six months?"],
-        [8, "Commercial Value", "What is sell-out and stock worth at wholesale price?"],
-        [9, "Data Confidence", "How much can we trust these numbers?"],
+        [5, "Stock Situation by SKU", "What was produced, what arrived, and what stock remains per SKU?"],
+        [6, "Inventory Health", "Which SKUs are thin, healthy or heavy?"],
+        [7, "Forecast Quality", "How accurate and how biased is the forecast?"],
+        [8, "Forward Look", "Where will stock land over the next six months?"],
+        [9, "Commercial Value", "What is sell-out and stock worth at wholesale price?"],
+        [10, "Data Confidence", "How much can we trust these numbers?"],
       ],
     );
   }
@@ -375,6 +376,17 @@ export async function buildPerformanceWorkbook(pack: PerformancePack, extras: Wo
       s.table(["Status", "Batches", "MC"], c.batchStatus.map((b) => [b.status, b.batches, Math.round(b.mc)]));
     }
     pack.supply.notes.forEach((n) => s.note(n));
+  }
+
+  {
+    const s = addSheet(wb, num("Stock Situation by SKU"));
+    s.title("Stock Situation by SKU", `${pack.meta.country} · ${pack.meta.window.label} · MC`);
+    s.note("Production and Arrival are totals for the selected period. Remaining Stock is Planning FG closing stock at the ending month, including opening stock, demand and adjustments. International arrivals are quantities cleared into the market.");
+    s.table(
+      ["SKU", "Weight", "Packaging", "Production (MC)", "Arrival (MC)", "Remaining Stock (MC)"],
+      [...pack.stockSituation.rows.map((r) => [r.sku, r.weight, r.packaging, r.production, r.arrival, r.remainingStock]),
+        ["Total", "", "", pack.stockSituation.totals.production, pack.stockSituation.totals.arrival, pack.stockSituation.totals.remainingStock]],
+    );
   }
 
   // ── 5 Inventory Health ────────────────────────────────────────────────────

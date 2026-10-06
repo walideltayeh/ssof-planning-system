@@ -718,7 +718,24 @@ export function buildPack(
     periods,
   });
 
-  return { meta, runningRate, outlook, executive: { tiles, keyMessages, risks }, flow, demand, supply, inventory, forecastQuality, forward, commercial, portfolio, market, anomalies, confidence, headline };
+  const stockRows = series.map((s) => ({
+    skuId: s.sku.id,
+    sku: s.sku.name,
+    weight: s.sku.weight,
+    packaging: s.sku.packagingType ?? "",
+    production: round(sum(s.months.slice(w.fromIdx, w.toIdx + 1).map((c) => c.actualProduction))),
+    arrival: round(sum(s.months.slice(w.fromIdx, w.toIdx + 1).map((c) => c.arrivals))),
+    remainingStock: round(s.months[w.toIdx].closing),
+  }));
+  const stockSituation = {
+    rows: stockRows,
+    totals: {
+      production: round(sum(stockRows.map((r) => r.production))),
+      arrival: round(sum(stockRows.map((r) => r.arrival))),
+      remainingStock: round(sum(stockRows.map((r) => r.remainingStock))),
+    },
+  };
+  return { meta, stockSituation, runningRate, outlook, executive: { tiles, keyMessages, risks }, flow, demand, supply, inventory, forecastQuality, forward, commercial, portfolio, market, anomalies, confidence, headline };
 }
 
 function latestUpdatedAt(ds: PerformanceDataset): string | null {

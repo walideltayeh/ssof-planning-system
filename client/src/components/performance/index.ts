@@ -13,3 +13,4 @@ export { default as BoardChangesSection } from "./BoardChangesSection";
 export { default as PortfolioSection } from "./PortfolioSection";
 export { default as MarketSection } from "./MarketSection";
 export { default as AnomaliesSection } from "./AnomaliesSection";
+export { default as StockSituationSection } from "./StockSituationSection";
