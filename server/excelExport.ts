@@ -1,5 +1,6 @@
 import ExcelJS from "exceljs";
 import * as db from "./db";
+import { buildInternationalArrivalSheets } from "./arrivalExcelExport";
 
 // ==================== TYPES ====================
 interface Sku {
@@ -1130,6 +1131,8 @@ export async function generateSingleSheetBufferForCountry(country: "Syria" | "Li
     buildIntlForecastSheet(wb, "Forecast Production", allSkus, sortedPeriods, forecast);
   } else if (sheet === "forecast-vs-actual") {
     buildIntlForecastVsActualSheet(wb, allSkus, sortedPeriods, forecast, actualProduction);
+  } else if (sheet === "arrival") {
+    buildInternationalArrivalSheets(wb, { ...data, country, actualProduction });
   } else if (sheet.startsWith("planning-fg-")) {
     const weight = sheet.replace("planning-fg-", "");
     if (allSkus.some(s => s.weight === weight)) {
@@ -1137,6 +1140,9 @@ export async function generateSingleSheetBufferForCountry(country: "Syria" | "Li
     }
   }
 
+  if (wb.worksheets.length === 0) {
+    throw new Error(`No worksheet available for '${sheet}' in ${country}`);
+  }
   const buffer = await wb.xlsx.writeBuffer();
   return Buffer.from(buffer);
 }
