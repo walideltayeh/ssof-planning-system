@@ -53,6 +53,7 @@ export default function ShipmentPage() {
   const updateCellLb = trpc.update.shipmentCell.useMutation({
     onSuccess: () => {
       utils.data.shipment.invalidate();
+      utils.data.arrival.invalidate();
       utils.data.planningFg.invalidate();
       utils.data.imsVsForecast.invalidate();
     },

@@ -21,7 +21,7 @@ const intlData = {
     // Apr: real production
     { skuId: SKU.id, periodId: P_APR.id, week1: "3600", week2: "0", week3: "0", week4: "0", arrivalStatus: "Cleared", clearedQty: "3600", arrivalOffsetValue: 0, arrivalOffsetUnit: "days" },
   ],
-  actualProduction: [],
+  actualProduction: [] as { skuId: number; periodId: number; value: string }[],
   // April plan is 5,000 but only 3,600 has cleared → 1,400 still to clear.
   forecast: [{ skuId: SKU.id, periodId: P_APR.id, value: "5000" }],
 };
@@ -34,6 +34,11 @@ const clearanceEvents = [
   { id: 51, skuId: SKU.id, periodId: P_APR.id, country: "Syria", clearedQty: "3600.00", clearedDate: "2026-05-04", pendingClearDate: null, notes: null, invoiceRef: null, containerRef: null },
 ];
 
+let selectedCountry = "Syria";
+let selectedData = intlData;
+let selectedEvents = clearanceEvents;
+const queryCountry = vi.fn();
+
 const deleteMutateAsync = vi.fn().mockResolvedValue(undefined);
 
 const mutationStub = () => ({
@@ -45,19 +50,23 @@ const mutationStub = () => ({
   reset: vi.fn(),
 });
 
-const utilsLeaf = new Proxy({}, { get: () => ({ invalidate: vi.fn(), refetch: vi.fn(), cancel: vi.fn() }) });
+const invalidateArrival = vi.fn();
+let productionSaved: (() => void) | undefined;
+const utilsLeaf = new Proxy({}, { get: (_t, key) => ({ invalidate: key === "arrival" ? invalidateArrival : vi.fn(), refetch: vi.fn(), cancel: vi.fn() }) });
 const utils = new Proxy({}, { get: () => utilsLeaf });
 
 const idleQuery = () => ({ data: undefined, isLoading: false, isFetching: false, refetch: vi.fn() });
 
 const countryProcs: Record<string, any> = {
-  data: { useQuery: () => ({ data: intlData, isLoading: false, isFetching: false, refetch: vi.fn() }) },
-  clearanceEvents: { useQuery: () => ({ data: clearanceEvents }) },
+  data: { useQuery: (input: unknown) => { queryCountry(input); return { data: selectedData, isLoading: false, isFetching: false, refetch: vi.fn() }; } },
+  clearanceEvents: { useQuery: () => ({ data: selectedEvents }) },
   deleteClearanceEvent: { useMutation: () => ({ ...mutationStub(), mutateAsync: deleteMutateAsync }) },
 };
 const genericProc = { useQuery: idleQuery, useMutation: () => mutationStub() };
 const countryRouter = new Proxy({}, { get: (_t, key) => countryProcs[key as string] ?? genericProc });
-const otherRouter = new Proxy({}, { get: () => genericProc });
+const otherRouter = new Proxy({}, { get: (_t, key) => key === "shipmentCell" ? {
+  useMutation: (options: { onSuccess: () => void }) => { productionSaved = options.onSuccess; return mutationStub(); },
+} : genericProc });
 
 vi.mock("@/lib/trpc", () => ({
   trpc: new Proxy(
@@ -73,7 +82,7 @@ vi.mock("@/lib/trpc", () => ({
 }));
 
 vi.mock("@/contexts/CountryContext", () => ({
-  useCountry: () => ({ country: "Syria", setCountry: vi.fn(), clearCountry: vi.fn(), config: { label: "Syria", terms: { arrival: "Arrival" } } }),
+  useCountry: () => ({ country: selectedCountry, setCountry: vi.fn(), clearCountry: vi.fn(), config: { label: selectedCountry, terms: { arrival: "Arrival" } } }),
 }));
 
 vi.mock("@/contexts/UnitContext", () => ({
@@ -94,6 +103,7 @@ vi.mock("@/components/ImportSheetButton", () => ({ default: () => null }));
 vi.mock("@/components/ExportSheetButton", () => ({ default: () => null }));
 
 import ArrivalPage from "./ArrivalPage";
+import ShipmentPage from "./ShipmentPage";
 
 describe("ArrivalPage — orphaned clearance events (no production)", () => {
   beforeEach(() => {
@@ -102,6 +112,9 @@ describe("ArrivalPage — orphaned clearance events (no production)", () => {
     deleteMutateAsync.mockReset().mockResolvedValue(undefined);
     toastSuccess.mockClear();
     toastError.mockClear();
+    selectedCountry = "Syria";
+    selectedData = intlData;
+    selectedEvents = clearanceEvents;
   });
 
   it("surfaces the Mar-26 batch even though it has no production, with a warning banner", () => {
@@ -197,5 +210,76 @@ describe("ArrivalPage — orphaned clearance events (no production)", () => {
     fireEvent.click(within(card).getByRole("button", { name: /delete all 2 events/i }));
 
     expect(deleteMutateAsync).not.toHaveBeenCalled();
+  });
+});
+
+describe("ArrivalPage — reads Production entries", () => {
+  beforeEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+    queryCountry.mockClear();
+    selectedCountry = "Libya";
+    selectedData = {
+      ...intlData,
+      shipment: [{ ...intlData.shipment[1], week1: "100", week2: "200", week3: "300", week4: "400" }],
+      actualProduction: [],
+    };
+    selectedEvents = [{ ...clearanceEvents[2], country: "Libya", clearedQty: "300.00" }];
+  });
+
+  const actualLabel = () => {
+    const batchHeader = screen.getByText("Apr-26", { selector: "strong" }).closest(".cursor-pointer") as HTMLElement;
+    return within(batchHeader).getByText(/^Actual:/, { selector: "span" });
+  };
+
+  it("refreshes Lebanon's Arrival query after a successful Production save", () => {
+    selectedCountry = "Lebanon";
+    invalidateArrival.mockClear();
+    productionSaved = undefined;
+    render(<ShipmentPage />);
+    expect(typeof productionSaved).toBe("function");
+    productionSaved!();
+    expect(invalidateArrival).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["Libya", "Syria", "KSA"])("reads all four Production weeks as actual in %s without a separate actual entry", (country) => {
+    selectedCountry = country;
+    render(<ArrivalPage />);
+    expect(queryCountry).toHaveBeenCalledWith({ country });
+    expect(actualLabel()).toHaveTextContent("1000");
+    expect(screen.queryByText("Awaiting Actual", { exact: true })).not.toBeInTheDocument();
+    const confirmed = screen.getByText("Actual Confirmed vs Planned").closest("div")!.parentElement!;
+    expect(confirmed).toHaveTextContent("1000");
+    // Preserve the existing planned-minus-cleared dashboard rule.
+    const still = screen.getByText("Still to Clear").closest("div")!.parentElement!;
+    expect(still).toHaveTextContent("4700");
+  });
+
+  it("refreshes the Actual figure when Production data is refreshed", () => {
+    const view = render(<ArrivalPage />);
+    expect(actualLabel()).toHaveTextContent("1000");
+    selectedData = { ...selectedData, shipment: [{ ...selectedData.shipment[0], week4: "900" }] };
+    view.rerender(<ArrivalPage />);
+    expect(actualLabel()).toHaveTextContent("1500");
+  });
+
+  it("uses a positive manual actual override and falls back to Production when removed or zero", () => {
+    selectedData = { ...selectedData, actualProduction: [{ skuId: SKU.id, periodId: P_APR.id, value: "1200" }] };
+    const view = render(<ArrivalPage />);
+    expect(actualLabel()).toHaveTextContent("1200");
+    selectedData = { ...selectedData, actualProduction: [{ skuId: SKU.id, periodId: P_APR.id, value: "0" }] };
+    view.rerender(<ArrivalPage />);
+    expect(actualLabel()).toHaveTextContent("1000");
+    selectedData = { ...selectedData, actualProduction: [] };
+    view.rerender(<ArrivalPage />);
+    expect(actualLabel()).toHaveTextContent("1000");
+  });
+
+  it("shows forecast-only batches as Awaiting Actual, without pretending production was entered", () => {
+    selectedData = { ...selectedData, shipment: [] };
+    selectedEvents = [];
+    render(<ArrivalPage />);
+    expect(actualLabel()).toHaveTextContent("—");
+    expect(screen.getAllByText("Awaiting Actual", { exact: true }).length).toBeGreaterThan(0);
   });
 });
