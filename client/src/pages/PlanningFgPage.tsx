@@ -4,6 +4,7 @@ import { TableSkeleton } from "@/components/TableSkeleton";
 import { useGridNav } from "@/hooks/useGridNav";
 import { useCountry } from "@/contexts/CountryContext";
 import { useUnit } from "@/contexts/UnitContext";
+import { buildStockLedger } from "@shared/performance/stock";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -399,19 +400,6 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
   }, []);
 
   // ── Data maps ─────────────────────────────────────────────────────────────
-  const planningMap = useMemo(() => {
-    const map = new Map<string, { openingStock: string; adjustments: string; invoiced: string; arrivals: string }>();
-    for (const d of data?.planningFg ?? []) {
-      map.set(`${d.skuId}-${d.periodId}`, {
-        openingStock: d.openingStock ?? "0",
-        adjustments: d.adjustments ?? "0",
-        invoiced: (d as any).invoiced ?? "0",
-        arrivals: (d as any).arrivals ?? "0",
-      });
-    }
-    return map;
-  }, [data]);
-
   const shipmentMap = useMemo(() => {
     const map = new Map<string, { week1: number; week2: number; week3: number; week4: number }>();
     for (const d of data?.shipment ?? []) {
@@ -457,17 +445,7 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
     return m;
   }, [data]);
 
-  const arrivalMap = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const d of data?.arrival ?? []) {
-      const total = (parseFloat(d.week1 ?? "0") || 0) + (parseFloat(d.week2 ?? "0") || 0)
-        + (parseFloat(d.week3 ?? "0") || 0) + (parseFloat(d.week4 ?? "0") || 0);
-      map.set(`${d.skuId}-${d.periodId}`, total);
-    }
-    return map;
-  }, [data]);
-
-  const allSkus = data?.skus ?? [];
+  const allSkus = useMemo(() => (data?.skus ?? []).filter(s => s.isActive !== false), [data]);
   const skus = allSkus;
 
   // Group SKUs by category for collapse/expand
@@ -516,28 +494,24 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
     return 0;
   }, [imsMap, forecastMap, periods, currentYear, currentMonth]);
 
+  const stockLedger = useMemo(() => data ? buildStockLedger({
+    ...data, country: "Lebanon", now: new Date(), clearanceEvents: [],
+  }) : null, [data]);
+
   const calculateSkuData = useCallback((skuId: number) => {
     const result = new Map<RowLabel, Map<string, number>>();
     for (const label of ROW_LABELS) result.set(label, new Map());
 
-    let prevClosingStock = 0;
-
     for (let i = 0; i < periods.length; i++) {
       const p = periods[i];
-      const planData = planningMap.get(`${skuId}-${p.id}`);
-      const ims = getEffectiveIms(skuId, p.id);
       const forecastProd = parseFloat(forecastMap.get(`${skuId}-${p.id}`) ?? "0") || 0;
       const revisedProd = revisedMap.get(`${skuId}-${p.id}`);
       const invoiced = revisedProd !== undefined ? revisedProd : forecastProd;
-      const planningArrivals = parseFloat(planData?.arrivals ?? "0") || 0;
-      const arrival = planningArrivals !== 0 ? planningArrivals : (arrivalMap.get(`${skuId}-${p.id}`) ?? 0);
-
-      const openingStock = i === 0
-        ? parseFloat(planData?.openingStock ?? "0") || 0
-        : prevClosingStock;
-
-      const adjustments = parseFloat(planData?.adjustments ?? "0") || 0;
-      const closingStock = openingStock + adjustments + arrival - ims;
+      const balance = stockLedger?.bySku.get(skuId)?.get(p.id);
+      const arrival = balance?.arrivals ?? 0;
+      const openingStock = balance?.opening ?? 0;
+      const adjustments = balance?.adjustments ?? 0;
+      const closingStock = balance?.closing ?? 0;
 
       let weeksOfStock = 0;
       if (closingStock !== 0) {
@@ -558,10 +532,9 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
       result.get("Closing Stock")!.set(p.id.toString(), closingStock);
       result.get("Closing Stock - Weeks")!.set(p.id.toString(), weeksOfStock);
 
-      prevClosingStock = closingStock;
     }
     return result;
-  }, [periods, planningMap, forecastMap, revisedMap, arrivalMap, getEffectiveIms, getRawIms]);
+  }, [periods, stockLedger, forecastMap, revisedMap, getEffectiveIms, getRawIms]);
 
   const isCellEditable = useCallback((label: RowLabel, p: { year: number; month: number }, periodIndex: number): boolean => {
     if (label === "Closing Stock" || label === "Closing Stock - Weeks") return false;
@@ -1128,14 +1101,14 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
                           </td>
 
                           {periodsByYear.map(({ year, periods: yPeriods }) => {
-                            let yearTotal = 0;
+                            let yearTotal = isClosingStock ? (rowData.get(yPeriods[yPeriods.length - 1]?.id.toString()) ?? 0) : 0;
                             const isYrCollapsed = collapsedYears.has(year);
                             return (
                               <Fragment key={`${label}-y-${year}`}>
                                 {!isYrCollapsed && yPeriods.map(p => {
                                   const idx = globalPeriodIdx++;
                                   const val = rowData.get(p.id.toString()) ?? 0;
-                                  if (!isWeeks && !isOpeningStock) yearTotal += val;
+                                  if (!isWeeks && !isOpeningStock && !isClosingStock) yearTotal += val;
 
                                   const cellKey = `${sku.id}-${p.id}-${label}`;
                                   const isEditing = editingCell === cellKey;

@@ -19,7 +19,7 @@ export default function InventorySection({ pack, presentation }: SectionProps) {
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [showLostRows, setShowLostRows] = useState(false);
   const zoneCounts = ZONE_ORDER.map((zone) => ({ zone, count: inv.zoneCounts.find((z) => z.zone === zone)?.count ?? 0 }));
-  const totalClosing = inv.cover.reduce((a, c) => a + c.closingStock, 0);
+  const totalClosing = pack.headline.closingStock;
   const healthy = inv.zoneCounts.find((z) => z.zone === "Healthy")?.count ?? 0;
   const coverSorted = [...inv.cover].sort((a, b) => (a.weeks ?? Infinity) - (b.weeks ?? Infinity));
   const ef = inv.efficiency;

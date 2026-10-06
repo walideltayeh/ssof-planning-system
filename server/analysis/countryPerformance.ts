@@ -250,10 +250,14 @@ export function buildPack(
   const now = ds.now;
 
   const allSeriesUnfiltered = buildSkuSeries(ds, ds.skus);
-  const filteredSkus = applyFilters(ds.skus, req.filters);
+  const filteredSkus = applyFilters(ds.skus.filter(s => s.isActive !== false && !s.isExcludedFromTotal), req.filters);
   const batchesAll = intl ? buildBatches(ds, ds.skus) : [];
   const planned = plannedArrivalsMap(ds, filteredSkus, batchesAll);
-  const series = buildSkuSeries(ds, filteredSkus, planned);
+  const selectedIds = new Set(filteredSkus.map(s => s.id));
+  const series = allSeriesUnfiltered.filter(s => selectedIds.has(s.sku.id)).map(s => ({
+    ...s,
+    months: s.months.map(c => ({ ...c, plannedArrivals: planned.get(`${s.sku.id}-${c.period.id}`) ?? 0 })),
+  }));
   const batches = batchesAll.filter((b) => filteredSkus.some((s) => s.id === b.sku.id));
 
   if (periods.length === 0) throw new Error(`No planning periods exist for ${country}`);
@@ -283,7 +287,7 @@ export function buildPack(
   const mProd = monthlyTotals(series, periods, (c) => c.actualProduction);
   const mArr = monthlyTotals(series, periods, (c) => c.arrivals);
   const mPlannedArr = monthlyTotals(series, periods, (c) => c.plannedArrivals);
-  const mClosing = monthlyTotals(series, periods, (c) => c.closing);
+  const mClosing = monthlyTotals(series, periods, (c) => c.closing).map(v => round(v, 2));
   const mWeeks = periods.map((_, i) => totalWeeksAt(series, i, country));
   const mCritical = periods.map((_, i) => series.filter((s) => ["Critical", "Out of Stock", "Negative"].includes(s.months[i].zone) && s.months[i].demand > 0).length);
   const mOver = periods.map((_, i) => series.filter((s) => s.months[i].zone === "Overstock").length);
@@ -345,7 +349,7 @@ export function buildPack(
       sku: s.sku.name,
       weight: s.sku.weight,
       category: s.sku.category ?? "Core",
-      closingStock: round(c.closing),
+      closingStock: c.closing,
       weeks: c.weeks === null ? null : round(c.weeks, 1),
       zone: c.zone,
       monthlyDemand: round(coverDemandReferenceAt(demands, w.toIdx, rule)),
@@ -362,7 +366,7 @@ export function buildPack(
       return {
         sku: row.sku.name,
         weight: row.sku.weight,
-        closingStock: round(row.openingStock),
+        closingStock: row.openingStock,
         weeks: cell.weeks === null ? null : round(cell.weeks, 1),
         projectedStockoutMonth: stockoutMonth ? shortLabel(stockoutMonth) : null,
         projectedStockoutDate: stockoutMonth && risk ? isoDate(new Date(stockoutMonth.year, stockoutMonth.month - 1, risk.dayOfMonth)) : null,
@@ -384,7 +388,7 @@ export function buildPack(
       return {
         sku: s.sku.name,
         weight: s.sku.weight,
-        closingStock: round(c.closing),
+        closingStock: c.closing,
         weeks: c.weeks === null ? null : round(c.weeks, 1),
         excessMc: round(Math.max(0, c.closing - ceiling)),
         monthsToSell: avgFwd > 0 ? round(c.closing / avgFwd, 1) : null,
@@ -489,7 +493,7 @@ export function buildPack(
       key: "closing",
       label: "Closing stock",
       question: "How much stock do we hold at the end of the period?",
-      value: round(closing),
+      value: closing,
       unit: "MC",
       vsPlan: null,
       vsLastYear: makeDelta(closing, closingLy, lyNote),
@@ -663,7 +667,7 @@ export function buildPack(
   const confidence = buildConfidence({ ds, series: allSeriesUnfiltered, filteredSeries: series, periods, w, currentIdx, latestActualIdx, reconciliationSource, horizon });
 
   // ── Board additions ────────────────────────────────────────────────────
-  const runningRate = buildRunningRate({ country, series, periods, w, latestActualIdx, mPlan, mIms, mImsActual, rule });
+  const runningRate = buildRunningRate({ country, series, periods, w, latestActualIdx, mPlan, mIms, mImsActual, rule, closingStock: closing });
   const outlook = buildOutlook({ series, periods, w, latestActualIdx, mImsActual, baseline, currentRate: runningRate.headline.value, rule });
   const inactive = applyFilters(ds.inactiveSkus ?? [], req.filters).map((sku) => ({
     sku,
@@ -725,14 +729,14 @@ export function buildPack(
     packaging: s.sku.packagingType ?? "",
     production: round(sum(s.months.slice(w.fromIdx, w.toIdx + 1).map((c) => c.actualProduction))),
     arrival: round(sum(s.months.slice(w.fromIdx, w.toIdx + 1).map((c) => c.arrivals))),
-    remainingStock: round(s.months[w.toIdx].closing),
+    remainingStock: s.months[w.toIdx].closing,
   }));
   const stockSituation = {
     rows: stockRows,
     totals: {
       production: round(sum(stockRows.map((r) => r.production))),
       arrival: round(sum(stockRows.map((r) => r.arrival))),
-      remainingStock: round(sum(stockRows.map((r) => r.remainingStock))),
+      remainingStock: closing,
     },
   };
   return { meta, stockSituation, runningRate, outlook, executive: { tiles, keyMessages, risks }, flow, demand, supply, inventory, forecastQuality, forward, commercial, portfolio, market, anomalies, confidence, headline };
@@ -792,7 +796,7 @@ function buildFlow(a: {
     { key: "sold", label: "Sold (IMS)", value: round(-a.ims), kind: "delta", gapMc: round(-a.ims), gapPct: opening > 0 ? round((-a.ims / opening) * 100, 1) : null },
   ];
   if (Math.abs(adjustments) >= 0.5) stock.push({ key: "adjustments", label: "Adjustments", value: round(adjustments), kind: "delta", gapMc: round(adjustments), gapPct: null });
-  stock.push({ key: "closing", label: "Closing stock", value: round(a.closing), kind: "total", gapMc: round(a.closing - opening), gapPct: pct(a.closing, opening) });
+  stock.push({ key: "closing", label: "Closing stock", value: a.closing, kind: "total", gapMc: round(a.closing - opening, 2), gapPct: pct(a.closing, opening) });
 
   const weeksAt = (mc: number | null) => (mc === null ? null : a.monthlyDemand > 0 ? round((mc / a.monthlyDemand) * 4.33, 1) : null);
   const pipeline: PipelineStage[] = [];
@@ -804,7 +808,7 @@ function buildFlow(a: {
     pipeline.push({ key: "production", label: "Produced, awaiting shipment", mc: round(inProduction), weeksOfCover: weeksAt(inProduction) });
     pipeline.push({ key: "transit", label: "In transit", mc: round(inTransit), weeksOfCover: weeksAt(inTransit) });
     pipeline.push({ key: "port", label: "At port, awaiting clearance", mc: round(atPort), weeksOfCover: weeksAt(atPort) });
-    pipeline.push({ key: "stock", label: "In market (closing stock)", mc: round(a.closing), weeksOfCover: weeksAt(a.closing) });
+    pipeline.push({ key: "stock", label: "In market (closing stock)", mc: a.closing, weeksOfCover: weeksAt(a.closing) });
     notes.push("Pipeline stages follow the batch status set on the Arrival page; quantities are produced minus cleared.");
   } else {
     const next3 = periods.slice(w.toIdx + 1, w.toIdx + 4);
@@ -1125,7 +1129,7 @@ function buildForecastQuality(a: { series: SkuSeries[]; chartW: Window; w: Windo
 function buildForward(a: { intl: boolean; series: SkuSeries[]; periods: DatasetPeriod[]; w: Window; projRows: ReturnType<typeof projectionInputs>; horizonLabels: string[]; batches: Batch[]; ds: PerformanceDataset; rule: ReturnType<typeof coverRuleFor>; currentIdx: number }): ForwardSection {
   const { intl, projRows, horizonLabels, batches, ds, rule, periods, w } = a;
   const notes: string[] = [];
-  const inputs = projRows.map((r) => ({ skuId: r.sku.id, sku: r.sku.name, weight: r.sku.weight, openingStock: round(r.openingStock), demand: r.demand.map((v) => round(v)), arrivals: r.arrivals.map((v) => round(v)), production: r.production.map((v) => round(v)) }));
+  const inputs = projRows.map((r) => ({ skuId: r.sku.id, sku: r.sku.name, weight: r.sku.weight, openingStock: r.openingStock, demand: r.demand.map((v) => round(v, 2)), arrivals: r.arrivals.map((v) => round(v, 2)), production: r.production.map((v) => round(v, 2)) }));
   const toMonths = (rows: typeof inputs): ForwardMonth[] => aggregateProjection(rows, 1, rule).map((m, i) => ({ label: horizonLabels[i], demand: round(m.demand), arrivals: round(m.arrivals), closing: round(m.closing), weeks: m.weeks === null ? null : round(m.weeks, 1), targetLowMc: round(m.targetLowMc), targetHighMc: round(m.targetHighMc) }));
   const total = toMonths(inputs);
   const weights = Array.from(new Set(inputs.map((i) => i.weight)));
@@ -1247,6 +1251,13 @@ function buildConfidence(a: {
 }): DataConfidenceSection {
   const { ds, series, filteredSeries, periods, w, currentIdx, latestActualIdx, reconciliationSource, horizon } = a;
   const issues: ConfidenceIssue[] = [];
+  const negativeStock = series.filter(s => s.months[w.toIdx].closing < 0);
+  if (negativeStock.length) issues.push({
+    severity: "red",
+    title: "Negative closing stock",
+    detail: `${periods[w.toIdx].label}: ${negativeStock.map(s => `${s.sku.name} ${s.sku.weight} (${s.sku.packagingType ?? "New"}): ${s.months[w.toIdx].closing} MC${s.sku.isExcludedFromTotal ? " (excluded from totals)" : ""}`).join("; ")}. IMS exceeds opening stock plus adjustments and arrivals. Negative balances are not clamped to zero; explicitly excluded SKUs remain excluded from totals. Check missing arrivals or incorrect IMS.`,
+    count: negativeStock.length,
+  });
 
   // Missing IMS months: after a SKU's first actual sale, up to the latest actual month.
   const missingImsMonths = filteredSeries

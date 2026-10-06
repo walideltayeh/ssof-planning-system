@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useUnit } from "@/contexts/UnitContext";
+import { stockTextInUnit } from "@shared/performance/units";
 import type { SectionProps } from "./types";
 import { EmptyState, QuestionCard, RagDot, usePerfFormat } from "./shared";
 import { Progress } from "@/components/ui/progress";
@@ -8,6 +10,7 @@ import { ChevronDown } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 export default function DataConfidenceSection({ pack, presentation }: SectionProps) {
+  const { unit } = useUnit();
   const [missingOpen, setMissingOpen] = useState(false);
   const { fmtMc, fmtMcSigned, unitLabel } = usePerfFormat();
   const confidence = pack.confidence;
@@ -27,7 +30,7 @@ export default function DataConfidenceSection({ pack, presentation }: SectionPro
               {confidence.issues.map((issue) => (
                 <li key={`${issue.title}-${issue.count}`} className="flex items-start gap-2">
                   <RagDot status={issue.severity} className="mt-1" />
-                  <div><p className="font-medium">{issue.title} <span className="text-muted-foreground">({issue.count})</span></p><p className="text-sm text-muted-foreground">{issue.detail}</p></div>
+                  <div><p className="font-medium">{issue.title} <span className="text-muted-foreground">({issue.count})</span></p><p className="text-sm text-muted-foreground">{stockTextInUnit(issue.detail, unit)}</p></div>
                 </li>
               ))}
             </ul>

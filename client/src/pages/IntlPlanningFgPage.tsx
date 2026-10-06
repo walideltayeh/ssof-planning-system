@@ -15,6 +15,7 @@ import ExportSheetButton from "@/components/ExportSheetButton";
 import ImportSheetButton from "@/components/ImportSheetButton";
 import { computeArrivalDate } from "./ShipmentPage";
 import { collectOrphanClearances } from "./arrival.helpers";
+import { buildStockLedger } from "@shared/performance/stock";
 import { Link } from "wouter";
 import {
   pushEntry as pushUndoStackEntry,
@@ -283,33 +284,6 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
   }, [data]);
 
   /**
-   * Build arrivals map from clearance events.
-   * Each clearance event's clearedQty is placed in the period matching its clearedDate (year + month).
-   * This ensures cleared qty shows in the month it was actually cleared, not the production month.
-   */
-  const arrivalFromProductionMap = useMemo(() => {
-    const m = new Map<string, number>();
-    const allPeriods = (data?.periods ?? []) as Period[];
-    const events = (data as any)?.clearanceEvents ?? [];
-    for (const ev of events) {
-      if (!ev.clearedDate || !ev.clearedQty) continue;
-      const qty = parseFloat(ev.clearedQty);
-      if (!qty || qty <= 0) continue;
-      // Parse the cleared date to get year + month
-      const dateStr = typeof ev.clearedDate === "string" ? ev.clearedDate : (ev.clearedDate as Date).toISOString();
-      const cleared = new Date(dateStr);
-      const clearedYear = cleared.getFullYear();
-      const clearedMonth = cleared.getMonth() + 1; // 1-based
-      // Find the planning period matching this year + month
-      const matchPeriod = allPeriods.find(p => p.year === clearedYear && p.month === clearedMonth);
-      if (!matchPeriod) continue;
-      const key = `${ev.skuId}-${matchPeriod.id}`;
-      m.set(key, (m.get(key) ?? 0) + qty);
-    }
-    return m;
-  }, [data]);
-
-  /**
    * Clearance events attached to a production batch that no longer has any
    * production (plan or actual) — e.g. after production was moved to another
    * month by a re-import. They still land in the arrivals row above (by
@@ -335,6 +309,10 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
   /**
    * Formula: Closing Stock = Opening Stock + Adjustments + Arrivals(Cleared) - IMS
    */
+  const stockLedger = useMemo(() => data && country ? buildStockLedger({
+    ...data, country, now: new Date(), clearanceEvents: data.clearanceEvents ?? [],
+  }) : null, [data, country]);
+
   const getRowValues = useCallback(
     (skuId: number, periods: Period[]) => {
       const result = new Map<RowLabel, Map<string, number>>();
@@ -347,30 +325,11 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
         const forecastProd = forecastMap.get(key) ?? 0;
         const revisedProd = revisedMap.get(key);
         const production = revisedProd !== undefined ? revisedProd : forecastProd;
-        const ims = imsMap.get(key) ?? 0;
-
-        // Arrivals: only Cleared batches (from production offset)
-        const arrivals = arrivalFromProductionMap.get(key) ?? 0;
-
-        // Opening Stock: first period uses stored value; subsequent = previous closing stock
-        let openingStock = pg.openingStock;
-        if (i > 0) {
-          const prevP = periods[i - 1];
-          const prevKey = `${skuId}-${prevP.id}`;
-          const prevPg = planningMap.get(prevKey) ?? { openingStock: 0, adjustments: 0, invoiced: 0, arrivals: 0 };
-          const prevIms = imsMap.get(prevKey) ?? 0;
-          const prevArrivals = arrivalFromProductionMap.get(prevKey) ?? 0;
-          const prevOpening =
-            i === 1
-              ? prevPg.openingStock
-              : (result.get("Opening Stock")!.get(prevP.id.toString()) ?? prevPg.openingStock);
-          // Previous closing: Opening + Adj + Arrivals(Cleared) - IMS
-          const prevClosing = prevOpening + prevPg.adjustments + prevArrivals - prevIms;
-          openingStock = prevClosing;
-        }
-
-        // Closing Stock = Opening + Adjustments + Arrivals(Cleared) - IMS
-        const closingStock = openingStock + pg.adjustments + arrivals - ims;
+        const balance = stockLedger?.bySku.get(skuId)?.get(p.id);
+        const ims = balance?.ims ?? 0;
+        const arrivals = balance?.arrivals ?? 0;
+        const openingStock = balance?.opening ?? 0;
+        const closingStock = balance?.closing ?? 0;
 
         // Weeks of stock = (Closing / IMS) * 4
         const weeksOfStock =
@@ -390,7 +349,7 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
       }
       return result;
     },
-    [planningMap, forecastMap, revisedMap, imsMap, arrivalFromProductionMap]
+    [planningMap, forecastMap, revisedMap, stockLedger]
   );
 
   // ── Cell editing ──────────────────────────────────────────────────────────
@@ -647,7 +606,7 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
   // handleKeyDown is defined after periodsByYear (below)
 
   // ── Filter SKUs by weight + search + packaging ────────────────────────────
-  const allSkus = data?.skus ?? [];
+  const allSkus = useMemo(() => (data?.skus ?? []).filter(s => s.isActive !== false), [data]);
   const allPeriods = (data?.periods ?? []) as Period[];
 
   const filteredSkus = useMemo(() => {
@@ -1159,7 +1118,7 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
                           const isCollapsed = collapsedYears.has(year);
 
                           if (isCollapsed) {
-                            const yearTotal = yearPeriods.reduce(
+                            const yearTotal = isClosingStock ? (rowValues.get(label)?.get(yearPeriods[yearPeriods.length - 1]?.id.toString()) ?? 0) : yearPeriods.reduce(
                               (sum, p) => sum + (rowValues.get(label)?.get(p.id.toString()) ?? 0),
                               0
                             );
@@ -1183,7 +1142,7 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
                           let yearTotal = 0;
                           const cells: React.ReactNode[] = yearPeriods.map((p) => {
                             const val = rowValues.get(label)?.get(p.id.toString()) ?? 0;
-                            if (showTotal) yearTotal += val;
+                            if (showTotal) yearTotal = isClosingStock ? val : yearTotal + val;
 
                             const isActive =
                               editingCell?.skuId === sku.id &&

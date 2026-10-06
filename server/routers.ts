@@ -1665,6 +1665,8 @@ export const appRouter = router({
         "Save",
       );
       const res = await wsTracker.applyPlan(plan);
+      const { invalidateCountryPerformanceCache } = await import("./analysis/countryPerformance");
+      invalidateCountryPerformanceCache(wsTracker.WS_TRACKER_COUNTRY);
       await db.logAudit({
         country: wsTracker.WS_TRACKER_COUNTRY,
         username: getAuditActor(ctx),

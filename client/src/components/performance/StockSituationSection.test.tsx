@@ -2,6 +2,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import StockSituationSection from "./StockSituationSection";
 import type { PerformancePack } from "./types";
+import { UnitProvider } from "@/contexts/UnitContext";
 
 const pack = {
   meta: { country: "Syria", window: { label: "Aug 2026" } },
@@ -11,7 +12,7 @@ const pack = {
   },
 } as unknown as PerformancePack;
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); localStorage.removeItem("ssof-unit"); });
 
 describe("StockSituationSection", () => {
   it("shows SKU identity, the three MC columns, totals and negative stock", () => {
@@ -33,5 +34,12 @@ describe("StockSituationSection", () => {
     render(<StockSituationSection pack={{ ...pack, stockSituation: { rows: [], totals: { production: 0, arrival: 0, remainingStock: 0 } } }} presentation />);
     expect(screen.getByText("No stock situation data for the selected country and period.")).toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
+  it.each([["KG", "-300"], ["Tons", "-0.30"]] as const)("respects the %s toggle, including negatives and totals", (unit, expected) => {
+    localStorage.setItem("ssof-unit", unit);
+    render(<UnitProvider><StockSituationSection pack={pack} /></UnitProvider>);
+    expect(screen.getByRole("columnheader", { name: `Remaining stock (${unit})` })).toBeInTheDocument();
+    expect(screen.getAllByText(expected)).toHaveLength(2);
   });
 });

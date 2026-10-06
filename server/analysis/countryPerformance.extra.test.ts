@@ -149,7 +149,7 @@ describe("running rate (tab method)", () => {
     const mPlan = monthlyTotals(series, ps, (c) => c.forecast);
     const mIms = monthlyTotals(series, ps, (c) => c.ims);
     const mImsActual = ps.map((_, i) => (series.some((s) => s.months[i].imsIsActual) ? sum(series.map((s) => (s.months[i].imsIsActual ? s.months[i].ims : 0))) : null));
-    const rr = buildRunningRate({ country: "Syria", series, periods: ps, w, latestActualIdx: w.toIdx, mPlan, mIms, mImsActual, rule: { mode: "sameMonth", factor: 4 } });
+    const rr = buildRunningRate({ country: "Syria", series, periods: ps, w, latestActualIdx: w.toIdx, mPlan, mIms, mImsActual, rule: { mode: "sameMonth", factor: 4 }, closingStock: sum(series.map(s => s.months[w.toIdx].closing)) });
     expect(rr.asOf).toBe("Aug 2026");
     expect(rr.headline.value).toBe(360); // 110 + 200 + 50
     expect(rr.avg3.value).toBe(360);

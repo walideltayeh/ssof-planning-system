@@ -13,12 +13,17 @@ describe("parsePerformanceExportQuery", () => {
 
   it("defaults preset and compare and drops empty filters", () => {
     const r = parsePerformanceExportQuery({ country: "Lebanon" });
-    expect(r).toEqual({ ok: true, request: { country: "Lebanon", preset: "ytd", compare: "plan", anchor: undefined, from: undefined, to: undefined, filters: undefined } });
+    expect(r).toEqual({ ok: true, unit: "MC", request: { country: "Lebanon", preset: "ytd", compare: "plan", anchor: undefined, from: undefined, to: undefined, filters: undefined } });
   });
 
   it("rejects unknown countries, presets and malformed months", () => {
     expect(parsePerformanceExportQuery({ country: "France" }).ok).toBe(false);
     expect(parsePerformanceExportQuery({ country: "KSA", preset: "weekly" }).ok).toBe(false);
     expect(parsePerformanceExportQuery({ country: "KSA", anchor: "2026/05" }).ok).toBe(false);
+    expect(parsePerformanceExportQuery({ country: "Syria", unit: "invalid" }).ok).toBe(false);
+  });
+
+  it.each(["MC", "KG", "Tons"])("keeps the selected %s unit", unit => {
+    expect(parsePerformanceExportQuery({ country: "Syria", unit })).toMatchObject({ ok: true, unit });
   });
 });

@@ -14,6 +14,7 @@ import { SectionFrame } from "@/components/performance/shared";
 import type { CompareMode, PerformanceCountry, PerformanceFilters, PerformanceRequest, PeriodPreset } from "@/components/performance/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCountry } from "@/contexts/CountryContext";
+import { useUnit } from "@/contexts/UnitContext";
 import { formatUpdateTime, lastUpdateSentence, useLastUpdates } from "@/hooks/useLastUpdates";
 import { trpc } from "@/lib/trpc";
 import { ChevronDown } from "lucide-react";
@@ -99,8 +100,9 @@ export default function CountryPerformancePage() {
     window.print();
   }, []);
 
+  const { unit } = useUnit();
   const exportExcel = useCallback(() => {
-    const params = new URLSearchParams({ country, preset, compare });
+    const params = new URLSearchParams({ country, preset, compare, unit });
     if (anchor) params.set("anchor", anchor);
     if (preset === "custom" && from) params.set("from", from);
     if (preset === "custom" && to) params.set("to", to);
@@ -108,7 +110,7 @@ export default function CountryPerformancePage() {
       if (filters[key]?.length) params.set(key, filters[key]!.join(","));
     });
     window.open(`/api/export-performance?${params.toString()}`, "_blank", "noopener,noreferrer");
-  }, [anchor, compare, country, filters, from, preset, to]);
+  }, [anchor, compare, country, filters, from, preset, to, unit]);
 
   const isForbidden = packQuery.error?.data?.code === "FORBIDDEN";
   const DeepDive = country === "Lebanon" ? LebanonDeepDive : IntlDeepDive;

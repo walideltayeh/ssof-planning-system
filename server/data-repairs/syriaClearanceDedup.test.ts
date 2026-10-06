@@ -55,6 +55,14 @@ class Rollback extends Error {}
 const quiet = () => {};
 
 async function seed(tx: RepairDb, events = PROD_EVENTS) {
+  // Live development tracker syncs can add different event ids on these same
+  // rehearsal batches. Isolate the historical fixture inside this rolled-back
+  // transaction; otherwise those unrelated receipts change the expected totals.
+  await tx.delete(clearanceEvents).where(and(
+    eq(clearanceEvents.country, "Syria"),
+    inArray(clearanceEvents.skuId, SKUS),
+    inArray(clearanceEvents.periodId, PERIODS),
+  ));
   await tx.delete(clearanceEvents).where(inArray(clearanceEvents.id, ALL_IDS));
   await tx.insert(clearanceEvents).values(events.map(([id, skuId, periodId, clearedQty, clearedDate]) => ({
     id, skuId, periodId, country: "Syria" as const, clearedQty, clearedDate,

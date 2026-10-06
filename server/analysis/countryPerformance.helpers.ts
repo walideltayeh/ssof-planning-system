@@ -18,6 +18,7 @@
  * the pack reconciles with the Planning FG numbers.
  */
 
+import { buildStockLedger } from "../../shared/performance/stock";
 import {
   classifyZone,
   coverRuleFor,
@@ -58,6 +59,7 @@ export interface DatasetSku {
   priceToWs?: string | null;
   sortOrder?: number;
   isActive?: boolean;
+  isExcludedFromTotal?: boolean | null;
 }
 
 export interface DatasetPeriod {
@@ -468,6 +470,7 @@ export function plannedArrivalsMap(ds: PerformanceDataset, skus: DatasetSku[], b
 
 /** The Planning FG replica. One entry per active SKU with a full month chain. */
 export function buildSkuSeries(ds: PerformanceDataset, skus: DatasetSku[] = ds.skus, plannedArrivals?: Map<string, number>): SkuSeries[] {
+  const stock = buildStockLedger({ ...ds, skus });
   const periods = sortedPeriods(ds);
   const rule = coverRuleFor(ds.country);
   const intl = isIntlCountry(ds.country);
@@ -489,7 +492,7 @@ export function buildSkuSeries(ds: PerformanceDataset, skus: DatasetSku[] = ds.s
   const cleared = intl ? clearanceByClearedMonth(ds.clearanceEvents, periods) : new Map<string, number>();
 
   const out: SkuSeries[] = [];
-  for (const sku of skus) {
+  for (const sku of skus.filter(s => stock.bySku.has(s.id))) {
     const months: MonthCell[] = [];
     // First pass: raw values.
     for (const p of periods) {
@@ -527,14 +530,14 @@ export function buildSkuSeries(ds: PerformanceDataset, skus: DatasetSku[] = ds.s
       });
     }
     // Second pass: chain closing stock exactly like Planning FG.
-    let prevClosing = 0;
     for (let i = 0; i < months.length; i++) {
       const c = months[i];
-      const pg = planning.get(key(sku.id, c.period.id));
-      c.opening = i === 0 ? num(pg?.openingStock) : prevClosing;
-      const imsUsed = intl ? c.ims : c.effectiveIms;
-      c.closing = c.opening + c.adjustments + c.arrivals - imsUsed;
-      prevClosing = c.closing;
+      const balance = stock.bySku.get(sku.id)!.get(c.period.id)!;
+      c.opening = balance.opening;
+      c.adjustments = balance.adjustments;
+      c.arrivals = balance.arrivals;
+      c.effectiveIms = balance.ims;
+      c.closing = balance.closing;
     }
     // Third pass: weeks of cover with the country's rule.
     const demandForCover = months.map((c) => (intl ? c.ims : c.effectiveIms));

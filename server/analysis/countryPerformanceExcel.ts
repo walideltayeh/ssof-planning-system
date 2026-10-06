@@ -4,10 +4,13 @@
  * All quantities are exported in MC (master cases).
  */
 import ExcelJS from "exceljs";
+import { stockUnitFactor, stockTextInUnit, type StockUnit } from "../../shared/performance/units";
+import { stockPrecision } from "../../shared/performance/stock";
 import type { BoardComparison } from "../../shared/performance/boardCompare";
 import type { PerformancePack, Rag } from "./countryPerformance.types";
 
 type Cell = string | number | null | undefined;
+const workbookUnits = new WeakMap<ExcelJS.Workbook, StockUnit>();
 
 const ACCENT = "FF7F1D1D";
 const HEADER_FILL: ExcelJS.Fill = { type: "pattern", pattern: "solid", fgColor: { argb: ACCENT } };
@@ -20,17 +23,17 @@ const fmtWeeks = (v: number | null | undefined) => (v === null || v === undefine
 
 class SheetWriter {
   private row = 1;
-  constructor(private ws: ExcelJS.Worksheet) {
+  constructor(private ws: ExcelJS.Worksheet, private unit: StockUnit) {
     ws.properties.defaultColWidth = 16;
   }
 
   title(text: string, subtitle?: string) {
     const c = this.ws.getCell(this.row, 1);
-    c.value = text;
+    c.value = stockTextInUnit(text, this.unit);
     c.font = { bold: true, size: 14, color: { argb: ACCENT } };
     this.row++;
     if (subtitle) {
-      this.ws.getCell(this.row, 1).value = subtitle;
+      this.ws.getCell(this.row, 1).value = stockTextInUnit(subtitle, this.unit);
       this.ws.getCell(this.row, 1).font = { italic: true, color: { argb: "FF6B7280" } };
       this.row++;
     }
@@ -39,13 +42,13 @@ class SheetWriter {
 
   question(text: string) {
     const c = this.ws.getCell(this.row, 1);
-    c.value = text;
+    c.value = stockTextInUnit(text, this.unit);
     c.font = { bold: true, size: 12 };
     this.row++;
   }
 
   note(text: string) {
-    this.ws.getCell(this.row, 1).value = text;
+    this.ws.getCell(this.row, 1).value = stockTextInUnit(text, this.unit);
     this.ws.getCell(this.row, 1).font = { italic: true, color: { argb: "FF6B7280" } };
     this.row++;
   }
@@ -56,9 +59,9 @@ class SheetWriter {
 
   keyValues(rows: [string, Cell][]) {
     for (const [k, v] of rows) {
-      this.ws.getCell(this.row, 1).value = k;
+      this.ws.getCell(this.row, 1).value = stockTextInUnit(k, this.unit);
       this.ws.getCell(this.row, 1).font = { bold: true };
-      this.ws.getCell(this.row, 2).value = v ?? "–";
+      this.ws.getCell(this.row, 2).value = typeof v === "number" && /\bMC\b/.test(k) ? stockPrecision(v * stockUnitFactor(this.unit)) : v ?? "–";
       this.row++;
     }
     this.row++;
@@ -72,7 +75,7 @@ class SheetWriter {
     }
     headers.forEach((h, i) => {
       const c = this.ws.getCell(this.row, i + 1);
-      c.value = h;
+      c.value = stockTextInUnit(h, this.unit);
       c.font = { bold: true, color: { argb: "FFFFFFFF" } };
       c.fill = HEADER_FILL;
       c.alignment = { wrapText: true, vertical: "middle" };
@@ -81,8 +84,10 @@ class SheetWriter {
     rows.forEach((r, ri) => {
       r.forEach((v, i) => {
         const c = this.ws.getCell(this.row, i + 1);
-        c.value = v === null || v === undefined ? "–" : v;
-        if (typeof v === "number") c.numFmt = Number.isInteger(v) ? "#,##0" : "#,##0.0";
+        const quantity = /\bMC\b/.test(headers[i]) || (r[headers.indexOf("Unit")] === "MC" && !/%/.test(headers[i]));
+        const value = typeof v === "number" && quantity ? stockPrecision(v * stockUnitFactor(this.unit)) : v;
+        c.value = value === null || value === undefined ? "–" : typeof value === "string" ? stockTextInUnit(value, this.unit) : value;
+        if (typeof value === "number") c.numFmt = Number.isInteger(value) ? "#,##0" : "#,##0.00";
       });
       const rag = opts?.rags?.[ri];
       if (rag && opts?.ragColumn !== undefined) {
@@ -97,12 +102,13 @@ class SheetWriter {
 
 function addSheet(wb: ExcelJS.Workbook, name: string): SheetWriter {
   const ws = wb.addWorksheet(name.slice(0, 31), { views: [{ state: "frozen", ySplit: 0 }] });
-  return new SheetWriter(ws);
+  return new SheetWriter(ws, workbookUnits.get(wb) ?? "MC");
 }
 
 const fmtWhen = (iso: string) => new Date(iso).toLocaleString("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Beirut" });
 
 export interface WorkbookExtras {
+  unit?: StockUnit;
   /** Comparison with the previous frozen board pack, when one exists. */
   comparison?: { previousName: string; previousDate: string; result: BoardComparison } | null;
   /** Presenter notes for this country + period. */
@@ -113,13 +119,14 @@ export interface WorkbookExtras {
 
 export async function buildPerformanceWorkbook(pack: PerformancePack, extras: WorkbookExtras = {}): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
+  workbookUnits.set(wb, extras.unit ?? "MC");
   wb.creator = "SSOF Planning";
   wb.created = new Date();
   const m = pack.meta;
   const isIntl = m.isIntl;
   let sheetNo = 0;
   const num = (title: string) => `${++sheetNo} ${title}`;
-  const mc = (v: number | null | undefined) => (v === null || v === undefined ? null : Math.round(v));
+  const mc = (v: number | null | undefined) => (v === null || v === undefined ? null : stockPrecision(v));
   const noteFor = (sectionId: string) => extras.notes?.find((n) => n.sectionId === sectionId);
   const presenterNote = (s: SheetWriter, sectionId: string) => {
     const n = noteFor(sectionId);
@@ -232,7 +239,7 @@ export async function buildPerformanceWorkbook(pack: PerformancePack, extras: Wo
       tiles.map((t) => [
         t.label,
         t.question,
-        t.value === null ? null : t.unit === "pct" || t.unit === "weeks" ? Number(t.value.toFixed(1)) : Math.round(t.value),
+        t.value === null ? null : t.unit === "pct" || t.unit === "weeks" ? Number(t.value.toFixed(1)) : t.unit === "MC" ? mc(t.value) : Math.round(t.value),
         t.unit === "MC" ? "MC" : t.unit === "pct" ? "%" : t.unit,
         t.vsPlan?.reference ?? null,
         t.vsPlan?.delta ?? null,
@@ -294,9 +301,9 @@ export async function buildPerformanceWorkbook(pack: PerformancePack, extras: Wo
     s.question("Where did the volume go between plan and shelf?");
     s.table(["Step", "Type", "Value (MC)", "Gap vs previous total (MC)", "Gap %", "Note"], pack.flow.waterfall.supply.map((w) => [w.label, w.kind, Math.round(w.value), w.gapMc === null ? null : Math.round(w.gapMc), w.gapPct, w.note ?? null]));
     s.question("How did stock move from opening to closing?");
-    s.table(["Step", "Type", "Value (MC)", "Gap vs previous total (MC)", "Gap %", "Note"], pack.flow.waterfall.stock.map((w) => [w.label, w.kind, Math.round(w.value), w.gapMc === null ? null : Math.round(w.gapMc), w.gapPct, w.note ?? null]));
+    s.table(["Step", "Type", "Value (MC)", "Gap vs previous total (MC)", "Gap %", "Note"], pack.flow.waterfall.stock.map((w) => [w.label, w.kind, mc(w.value), mc(w.gapMc), w.gapPct, w.note ?? null]));
     s.question("What is in the pipeline today?");
-    s.table(["Stage", "MC", "Weeks of cover", "Note"], pack.flow.pipeline.map((p) => [p.label, fmtNum(p.mc), p.weeksOfCover === null ? "–" : fmtWeeks(p.weeksOfCover), p.note ?? null]));
+    s.table(["Stage", "MC", "Weeks of cover", "Note"], pack.flow.pipeline.map((p) => [p.label, mc(p.mc), p.weeksOfCover === null ? "–" : fmtWeeks(p.weeksOfCover), p.note ?? null]));
     s.question("How long does it take to reach the market?");
     s.table(["Measure", "Average days", "Fastest", "Slowest", "Batches measured", "Note"], pack.flow.leadTimes.map((l) => [l.label, fmtNum(l.avgDays), fmtNum(l.minDays), fmtNum(l.maxDays), l.sampleSize, l.note ?? null]));
     s.question("Which batches are late?");
@@ -394,9 +401,10 @@ export async function buildPerformanceWorkbook(pack: PerformancePack, extras: Wo
     const s = addSheet(wb, num("Inventory Health"));
     const inv = pack.inventory;
     s.title("Inventory Health", `Target ${inv.targetWeeks.low}–${inv.targetWeeks.high} weeks of cover · ${inv.coverFormula}`);
+    s.keyValues([["Closing stock (MC)", pack.headline.closingStock]]);
     s.question("Which SKUs are inside the target?");
     s.table(["Zone", "SKUs"], inv.zoneCounts.map((z) => [z.zone, z.count]));
-    s.table(["SKU", "Weight", "Category", "Closing stock (MC)", "Weeks of cover", "Zone", "Monthly demand (MC)"], inv.cover.map((c) => [c.sku, c.weight, c.category, Math.round(c.closingStock), c.weeks === null ? "∞" : fmtWeeks(c.weeks), c.zone, Math.round(c.monthlyDemand)]));
+    s.table(["SKU", "Weight", "Category", "Closing stock (MC)", "Weeks of cover", "Zone", "Monthly demand (MC)"], inv.cover.map((c) => [c.sku, c.weight, c.category, mc(c.closingStock), c.weeks === null ? "∞" : fmtWeeks(c.weeks), c.zone, c.monthlyDemand]));
     s.question("Where will stock be thin or heavy over the next 6 months? (weeks of cover)");
     s.table(["SKU", "Weight", ...inv.heatmap.months], inv.heatmap.rows.map((r) => [r.sku, r.weight, ...r.cells.map((c) => (c.weeks === null ? (c.closing > 0 ? "∞" : 0) : fmtWeeks(c.weeks)))]), { emptyMessage: "No future months in the planning horizon" });
     s.question("Which SKUs could run out, and when?");

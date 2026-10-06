@@ -119,6 +119,7 @@ export function buildRunningRate(a: {
   mPlan: number[];
   mIms: number[];
   mImsActual: (number | null)[];
+  closingStock: number;
   rule: CoverRule;
 }): RunningRateSection {
   const { series, periods, w, mPlan, mIms, mImsActual, rule } = a;
@@ -130,7 +131,7 @@ export function buildRunningRate(a: {
     avg3: rateFigure("3-month average", null, null, null),
     avg6: rateFigure("6-month average", null, null, null),
     annualised: null,
-    closingStock: 0,
+    closingStock: a.closingStock,
     coverWeeks: null,
     coverStatus: "grey",
     coverReason: "No actual IMS in this period",
@@ -180,7 +181,7 @@ export function buildRunningRate(a: {
   const avg6 = rateFigure("6-month average", avg6Total, plan6 === null ? null : round(plan6), ly6 === null ? null : round(ly6));
 
   // Cover at the current rate.
-  const closingStock = sum(series.map((s) => s.months[idx].closing));
+  const closingStock = a.closingStock;
   const coverWeeks = headlineValue > 0 ? round((closingStock / headlineValue) * weeksPerMonth(rule), 1) : null;
   const cover = ragCover(coverWeeks, closingStock);
 
@@ -246,7 +247,7 @@ export function buildRunningRate(a: {
     avg3,
     avg6,
     annualised,
-    closingStock: round(closingStock),
+    closingStock,
     coverWeeks,
     coverStatus: cover.status,
     coverReason: cover.reason,
@@ -835,7 +836,7 @@ export function buildHeadline(a: {
     annualPlan: outlook.total.annualPlan,
     remainingForecast: outlook.total.remainingForecast,
     runningRate: a.runningRate.headline.value,
-    closingStock: round(a.closingStock),
+    closingStock: a.closingStock,
     weeksOfCover: a.weeksOfCover,
     forecastAccuracyPct: a.forecastAccuracyPct,
     stockoutRiskSkus: a.stockoutRiskSkus,

@@ -9,3 +9,4 @@
 - [Headless screenshots behind login](headless-screenshot-login.md) — Screenshot tool stops at login; use /repl/tools/bin/chromium on the https dev domain via a temporary auto-login html (delete it after).
 - [GitHub history from shallow clones](github-shallow-history.md) — before pushing long local history, check `.git/shallow`; an unavailable boundary parent requires rebuilding the available lineage.
 - [Excel workbook validity](excel-workbook-validity.md) — ExcelJS serializes zero-sheet workbooks without error; valid ZIP/XML alone does not prove Excel can open the download.
+- [Syria warehouse truth](syria-warehouse-truth.md) — tracker warehouse stock is Syria's reference; compare first, admin applies deliberately; never derive absent feed balances.

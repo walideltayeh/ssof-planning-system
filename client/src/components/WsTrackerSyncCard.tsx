@@ -59,6 +59,7 @@ export default function WsTrackerSyncCard({ section }: { section: "IMS" | "Arriv
       setPlan(null);
       utils.country.data.invalidate();
       utils.country.planningFg.invalidate();
+      utils.country.performance.invalidate({ country: "Syria" });
     },
     onError: e => toast.error(e.message),
   });

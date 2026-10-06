@@ -3,6 +3,7 @@
  * Kept separate from the Express file so it can be unit tested.
  */
 import * as db from "../db";
+import type { StockUnit } from "../../shared/performance/units";
 import type { CompareMode, PerformanceCountry, PerformanceRequest, PeriodPreset } from "./countryPerformance.types";
 
 const COUNTRIES: PerformanceCountry[] = ["Lebanon", "Syria", "Libya", "KSA"];
@@ -23,9 +24,11 @@ function list(v: unknown): string[] | undefined {
   return xs.length ? xs : undefined;
 }
 
-export type ParsedExportQuery = { ok: true; request: PerformanceRequest } | { ok: false; error: string };
+export type ParsedExportQuery = { ok: true; request: PerformanceRequest; unit: StockUnit } | { ok: false; error: string };
 
 export function parsePerformanceExportQuery(q: Record<string, unknown>): ParsedExportQuery {
+  const unit = str(q.unit) ?? "MC";
+  if (unit !== "MC" && unit !== "KG" && unit !== "Tons") return { ok: false, error: "Invalid unit" };
   const country = str(q.country) as PerformanceCountry | undefined;
   if (!country || !COUNTRIES.includes(country)) return { ok: false, error: "Country must be Lebanon, Syria, Libya or KSA" };
   const preset = (str(q.preset) ?? "ytd") as PeriodPreset;
@@ -45,7 +48,7 @@ export function parsePerformanceExportQuery(q: Record<string, unknown>): ParsedE
     flavours: list(q.flavours),
   };
   const hasFilters = Object.values(filters).some((x) => x && x.length);
-  return { ok: true, request: { country, preset, compare, anchor, from, to, filters: hasFilters ? filters : undefined } };
+  return { ok: true, unit, request: { country, preset, compare, anchor, from, to, filters: hasFilters ? filters : undefined } };
 }
 
 /** Mirrors requireCountryAccess in routers.ts: owners see every country, others only their assigned list. */

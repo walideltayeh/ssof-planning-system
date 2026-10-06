@@ -150,7 +150,7 @@ async function startServer() {
       const { getCountryPerformance, loadWorkbookExtras } = await import("../analysis/countryPerformance");
       const { buildPerformanceWorkbook } = await import("../analysis/countryPerformanceExcel");
       const pack = await getCountryPerformance(parsed.request);
-      const buffer = await buildPerformanceWorkbook(pack, await loadWorkbookExtras(pack));
+      const buffer = await buildPerformanceWorkbook(pack, { ...await loadWorkbookExtras(pack), unit: parsed.unit });
       const now = new Date();
       const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");

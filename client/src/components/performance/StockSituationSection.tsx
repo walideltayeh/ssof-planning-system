@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 import type { SectionProps } from "./types";
-import { EmptyState, QuestionCard } from "./shared";
+import { EmptyState, QuestionCard, usePerfFormat } from "./shared";
 
 const th = "px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground";
 const numericTh = "px-3 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground";
@@ -8,8 +8,7 @@ const td = "px-3 py-3 text-sm";
 const numericTd = "px-3 py-3 text-right text-sm tabular-nums";
 
 export default function StockSituationSection({ pack, presentation }: SectionProps) {
-  const fmtMc = (value: number) => value.toLocaleString("en-US", { maximumFractionDigits: 2 });
-  const unitLabel = "MC";
+  const { fmtMc, unitLabel } = usePerfFormat();
   const situation = pack.stockSituation;
 
   return (
