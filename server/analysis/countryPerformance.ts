@@ -8,6 +8,7 @@
  */
 
 import * as db from "../db";
+import { loadSyriaReconciliation } from "./syriaReconciliation";
 import { compareHeadlines } from "../../shared/performance/boardCompare";
 import type { WorkbookExtras } from "./countryPerformanceExcel";
 import { describeUpdate } from "@shared/audit/lastUpdate";
@@ -197,6 +198,16 @@ export async function getCountryPerformance(req: PerformanceRequest & { refresh?
   const reconciliationSource = await db.getCurrentMonthClosingStock(req.country);
   const baseline = await loadBudgetBaseline(ds, req);
   const pack = buildPack(ds, req, reconciliationSource?.skuData ?? null, baseline);
+  if (req.country === "Syria") {
+    pack.syriaReconciliation = await loadSyriaReconciliation(ds, pack.meta.window);
+    const comparison = pack.syriaReconciliation;
+    if (comparison.warning) pack.confidence.issues.push({
+      severity: comparison.status === "unavailable" ? "amber" : "red",
+      title: "Syria — WS Tracker reconciliation",
+      detail: comparison.conclusion,
+      count: comparison.lines.filter(l => l.ties !== true).length || 1,
+    });
+  }
   packCache.set(cacheKey, { at: Date.now(), pack });
   return pack;
 }

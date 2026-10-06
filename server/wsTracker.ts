@@ -87,10 +87,10 @@ export type SyncPlan = {
   };
 };
 
-export async function fetchFeed(): Promise<Feed> {
+export async function fetchFeed(signal?: AbortSignal): Promise<Feed> {
   const url = process.env.WS_TRACKER_FEED_URL;
   if (!url) throw new Error("WS_TRACKER_FEED_URL is not set");
-  const res = await fetch(url, { headers: { "x-ssof-key": process.env.WS_TRACKER_FEED_KEY ?? "" } });
+  const res = await fetch(url, { headers: { "x-ssof-key": process.env.WS_TRACKER_FEED_KEY ?? "" }, signal });
   if (!res.ok) throw new Error(`WS Tracker feed returned ${res.status}`);
   const feed = (await res.json()) as Feed;
   if (feed.unit !== "MC") throw new Error(`WS Tracker feed is in ${feed.unit}; SSOF expects MC`);

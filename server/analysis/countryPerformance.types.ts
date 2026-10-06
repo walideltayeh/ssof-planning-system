@@ -536,6 +536,8 @@ export interface PerformanceMeta {
 }
 
 export interface PerformancePack {
+  /** Read-only live tracker comparison. Never present for other countries. */
+  syriaReconciliation?: import("../../shared/performance/syriaReconciliation").SyriaReconciliation;
   meta: PerformanceMeta;
   stockSituation: {
     rows: { skuId: number; sku: string; weight: string; packaging: string; production: number; arrival: number; remainingStock: number }[];

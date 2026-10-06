@@ -15,6 +15,7 @@ import {
   RunningRateSection,
   StockSituationSection,
   SupplySection,
+  SyriaReconciliationSection,
 } from "./index";
 import type { ComponentType } from "react";
 import type { PerformancePack, SectionProps } from "./types";
@@ -46,6 +47,7 @@ export const performanceSections: PerformanceSectionDefinition[] = [
   { id: "executive", title: "Executive Summary", Component: ExecutiveSummarySection },
   { id: "stockSituation", title: "Stock Situation by SKU", Component: StockSituationSection },
   { id: "changes", title: "What Changed Since the Last Board", Component: BoardChangesSection },
+  { id: "syriaReconciliation", title: "Syria Reconciliation", Component: SyriaReconciliationSection, available: (pack) => pack.meta.country === "Syria" },
   { id: "flow", title: "Supply Chain Flow", Component: FlowSection },
   { id: "demand", title: "Demand — sell-out (IMS)", Component: DemandSection },
   { id: "supply", title: "Supply — production, arrivals and clearance", Component: SupplySection },
