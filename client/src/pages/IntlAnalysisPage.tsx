@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { useCountry } from "@/contexts/CountryContext";
 import { useUnit } from "@/contexts/UnitContext";
+import { useIncludeFoc } from "@/hooks/useIncludeFoc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -174,6 +175,7 @@ function StackedBarChart({ data, keys, colors, labels, formatter }: {
 export default function IntlAnalysisPage() {
   const { country } = useCountry();
   const { formatVal, unitLabel } = useUnit();
+  const { includeFoc } = useIncludeFoc(country === "Syria" ? "Syria" : "Libya");
   const fmt = (n: number) => formatVal(n);
   const [activeTab, setActiveTab] = useState("production");
   const [isExporting, setIsExporting] = useState(false);
@@ -181,7 +183,7 @@ export default function IntlAnalysisPage() {
   const handleExport = async () => {
     setIsExporting(true);
     try {
-      const response = await fetch(`/api/export-intl-analysis?country=${country}`);
+      const response = await fetch(`/api/export-intl-analysis?country=${country}&includeFoc=${includeFoc}`);
       if (!response.ok) {
         const err = await response.json().catch(() => ({ error: "Export failed" }));
         throw new Error(err.error || "Export failed");
@@ -206,7 +208,7 @@ export default function IntlAnalysisPage() {
   };
 
   const { data, isLoading } = trpc.country.intlAnalysis.useQuery(
-    { country: country as "Syria" | "Libya" | "KSA" },
+    { country: country as "Syria" | "Libya" | "KSA", includeFoc },
     { enabled: country === "Syria" || country === "Libya" || country === "KSA" }
   );
   const { data: runningRateData, isLoading: loadingRunRate } = trpc.country.runningRate.useQuery(
@@ -214,7 +216,7 @@ export default function IntlAnalysisPage() {
     { enabled: country === "Syria" || country === "Libya" || country === "KSA" }
   );
   const { data: stockLevelsData, isLoading: loadingStockLvl } = trpc.country.stockLevels.useQuery(
-    { country: country as "Lebanon" | "Syria" | "Libya" | "KSA" },
+    { country: country as "Lebanon" | "Syria" | "Libya" | "KSA", includeFoc },
     { enabled: country === "Syria" || country === "Libya" || country === "KSA" }
   );
 

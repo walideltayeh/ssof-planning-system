@@ -30,6 +30,8 @@ export interface PerformanceRequest {
   to?: string;
   compare: CompareMode;
   filters?: PerformanceFilters;
+  /** Only Libya/Syria: include entered planned FOC; defaults to true. */
+  includeFoc?: boolean;
 }
 
 export interface PeriodRef {
@@ -536,6 +538,7 @@ export interface PerformanceMeta {
 }
 
 export interface PerformancePack {
+  foc?: import("../../shared/performance/foc").FocSummary;
   /** Read-only live tracker comparison. Never present for other countries. */
   syriaReconciliation?: import("../../shared/performance/syriaReconciliation").SyriaReconciliation;
   meta: PerformanceMeta;

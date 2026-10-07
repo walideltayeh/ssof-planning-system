@@ -12,11 +12,15 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Settings } from "lucide-react";
 import { toast } from "sonner";
 import ExportSheetButton from "@/components/ExportSheetButton";
+import IncludeFocExportButton from "@/components/IncludeFocExportButton";
 import ImportSheetButton from "@/components/ImportSheetButton";
 import { computeArrivalDate } from "./ShipmentPage";
 import { collectOrphanClearances } from "./arrival.helpers";
 import { buildStockLedger } from "@shared/performance/stock";
 import { Link } from "wouter";
+import { useIncludeFoc } from "@/hooks/useIncludeFoc";
+import { evaluateFocReceipts } from "@shared/performance/focReceipts";
+import { supportsFoc } from "@shared/performance/foc";
 import {
   pushEntry as pushUndoStackEntry,
   clearStackForSku,
@@ -31,6 +35,7 @@ const ROW_LABELS = [
   "Adjustments",
   "Production",
   "Actual arrivals / Planned Orders",
+  "FOC awaiting receipt",
   "IMS",
   "Closing Stock",
   "Closing Stock - Weeks",
@@ -100,6 +105,9 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
   const { user: appUser } = useAppAuth();
   const { country } = useCountry();
   const { formatVal, unitLabel } = useUnit();
+  const supportedFocCountry = supportsFoc(country ?? "");
+  const focCountry = (supportedFocCountry ? country : "Libya") as "Libya" | "Syria";
+  const { includeFoc, setIncludeFoc } = useIncludeFoc(focCountry);
   const utils = trpc.useUtils();
 
   const { data, isLoading, isFetching, refetch } = trpc.country.planningFg.useQuery(
@@ -310,8 +318,20 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
    * Formula: Closing Stock = Opening Stock + Adjustments + Arrivals(Cleared) - IMS
    */
   const stockLedger = useMemo(() => data && country ? buildStockLedger({
-    ...data, country, now: new Date(), clearanceEvents: data.clearanceEvents ?? [],
-  }) : null, [data, country]);
+    ...data, country, now: new Date(), clearanceEvents: data.clearanceEvents ?? [], includeFoc,
+  }) : null, [data, country, includeFoc]);
+  const focReceiptEntries = useMemo(() => data && supportedFocCountry
+    ? evaluateFocReceipts({ ...data, country: focCountry } as any, includeFoc)
+    : [], [data, supportedFocCountry, focCountry, includeFoc]);
+  const focAwaitingMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const entry of focReceiptEntries) if (entry.awaiting > 0) {
+      const key = `${entry.skuId}-${entry.periodId}`;
+      map.set(key, (map.get(key) ?? 0) + entry.awaiting);
+    }
+    return map;
+  }, [focReceiptEntries]);
+  const focWarnings = useMemo(() => focReceiptEntries.filter((entry) => entry.received && (entry.needsReview || entry.matches.length > 0)), [focReceiptEntries]);
 
   const getRowValues = useCallback(
     (skuId: number, periods: Period[]) => {
@@ -343,13 +363,14 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
         result.get("Adjustments")!.set(p.id.toString(), pg.adjustments);
         result.get("Production")!.set(p.id.toString(), production);
         result.get("Actual arrivals / Planned Orders")!.set(p.id.toString(), arrivals);
+        result.get("FOC awaiting receipt")!.set(p.id.toString(), focAwaitingMap.get(key) ?? 0);
         result.get("IMS")!.set(p.id.toString(), ims);
         result.get("Closing Stock")!.set(p.id.toString(), closingStock);
         result.get("Closing Stock - Weeks")!.set(p.id.toString(), weeksOfStock);
       }
       return result;
     },
-    [planningMap, forecastMap, revisedMap, stockLedger]
+    [planningMap, forecastMap, revisedMap, stockLedger, focAwaitingMap]
   );
 
   // ── Cell editing ──────────────────────────────────────────────────────────
@@ -749,6 +770,7 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
     "Adjustments": "hover:bg-blue-50/50",
     "Production": "bg-blue-50/20",
     "Actual arrivals / Planned Orders": "bg-emerald-50/30",
+    "FOC awaiting receipt": "bg-amber-50/30",
     "IMS": "bg-orange-50/30",
     "Closing Stock": "",
     "Closing Stock - Weeks": "bg-amber-50/30",
@@ -759,6 +781,7 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
     "Adjustments": "text-blue-700 bg-blue-50",
     "Production": "text-blue-600 bg-blue-50",
     "Actual arrivals / Planned Orders": "text-emerald-700 bg-emerald-50",
+    "FOC awaiting receipt": "text-amber-800 bg-amber-50",
     "IMS": "text-orange-700 bg-orange-50",
     "Closing Stock": "text-foreground bg-white",
     "Closing Stock - Weeks": "text-amber-700 bg-amber-50",
@@ -771,10 +794,14 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
         <div>
           <h1 className="text-2xl font-bold text-foreground">{pageTitle}</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            {filteredSkus.length} of {baseSkuCount} SKU{baseSkuCount !== 1 ? "s" : ""} · Formula: Opening + Adj + Arrivals (Cleared) − IMS
+            {filteredSkus.length} of {baseSkuCount} SKU{baseSkuCount !== 1 ? "s" : ""} · Stock: Opening + Adj + cleared arrivals + confirmed FOC − IMS
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
+          {supportedFocCountry && <label className="inline-flex items-center gap-2 rounded-md border bg-card px-3 text-xs font-medium">
+            <input type="checkbox" role="switch" aria-label="Include FOC in stock" checked={includeFoc} onChange={(event) => setIncludeFoc(event.target.checked)} className="accent-[#7f1d1d]" />
+            Include confirmed FOC
+          </label>}
           <Button variant="outline" size="sm" onClick={() => setCollapsedYears(new Set(years))}>
             Collapse All Years
           </Button>
@@ -796,11 +823,21 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
           {weight && (
             <>
               <ImportSheetButton sheet={`planning-fg-${weight}`} country={country} label={`Import`} />
-              <ExportSheetButton sheet={`planning-fg-${weight}`} country={country} label={`Export Planning FG ${weight}`} />
+              {supportedFocCountry
+                ? <IncludeFocExportButton sheet={`planning-fg-${weight}`} country={country!} includeFoc={includeFoc} label={`Export Planning FG ${weight}`} />
+                : <ExportSheetButton sheet={`planning-fg-${weight}`} country={country} label={`Export Planning FG ${weight}`} />}
             </>
           )}
         </div>
       </div>
+
+      {supportedFocCountry && <div className="rounded-lg border border-[#7f1d1d]/15 bg-[#f8f2ed] px-3 py-2 text-xs text-muted-foreground">
+        Received, duplicate-cleared FOC enters arrivals only when the shared Include FOC switch is on. Awaiting quantities below are informational only and never affect closing stock or IMS-based cover.
+      </div>}
+      {focWarnings.length > 0 && <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+        <strong>{focWarnings.length} possible duplicate FOC receipt{focWarnings.length === 1 ? "" : "s"}.</strong>
+        <ul className="mt-1 list-inside list-disc">{focWarnings.slice(0, 8).map((entry) => <li key={`${entry.skuId}-${entry.periodId}`}>{entry.sku} · planned {entry.planMonth} · destination {entry.receiptMonth}: {entry.matches.map((match) => `${match.source} ${formatVal(match.quantity)} ${unitLabel}`).join("; ") || "receipt destination not matched to an available month"}. {entry.needsReview ? "Pending review stays out of stock." : entry.decision === "included" ? "Already counted: no additional stock is added." : "Separate-shipment decision retained for audit."}</li>)}</ul>
+      </div>}
 
       {/* ── Orphaned clearance events warning (possible double count) ──────── */}
       {orphanClearances.eventCount > 0 && (
@@ -1107,8 +1144,9 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
                               <span className="text-[9px] text-gray-400">(auto)</span>
                             )}
                             {isArrivals && (
-                              <span className="text-[9px] text-emerald-500">(Cleared only)</span>
+                              <span className="text-[9px] text-emerald-500">(Cleared + confirmed FOC)</span>
                             )}
+                            {label === "FOC awaiting receipt" && <span className="text-[9px] text-amber-700">(informational only · not stock)</span>}
                           </span>
                         </td>
 

@@ -1,4 +1,4 @@
-import { integer, pgEnum, pgTable, text, timestamp, varchar, numeric, json, boolean, date, serial } from "drizzle-orm/pg-core";
+import { integer, pgEnum, pgTable, text, timestamp, varchar, numeric, json, boolean, date, serial, unique } from "drizzle-orm/pg-core";
 
 // Country enum used across all tables
 export const COUNTRIES = ["Lebanon", "Syria", "Libya", "KSA"] as const;
@@ -70,6 +70,20 @@ export const forecastData = pgTable("forecast_data", {
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 });
 export type ForecastData = typeof forecastData.$inferSelect;
+
+// Free product plan and separately confirmed receipts; never clearance events.
+export const focData = pgTable("foc_data", {
+  id: serial("id").primaryKey(),
+  country: countryEnum("country").notNull(),
+  skuId: integer("skuId").notNull(),
+  periodId: integer("periodId").notNull(),
+  value: numeric("value", { precision: 12, scale: 2 }),
+  received: boolean("received").default(false).notNull(),
+  receivedDate: date("receivedDate"),
+  receiptDecision: varchar("receiptDecision", { length: 16 }).default("pending").notNull(),
+  receiptReviewKey: text("receiptReviewKey"),
+  updatedAt: timestamp("updatedAt").defaultNow().notNull(),
+}, t => [unique("foc_data_cell_unique").on(t.country, t.skuId, t.periodId)]);
 
 // Actual production data for Syria/Libya/KSA (Forecast vs Actual comparison)
 // Records what was actually produced/shipped per SKU per period, to compare

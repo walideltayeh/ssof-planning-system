@@ -7,9 +7,11 @@ interface ExportSheetButtonProps {
   sheet: string;
   country?: string | null;
   label?: string;
+  includeFoc?: boolean;
+  unit?: "MC" | "KG" | "Tons";
 }
 
-export default function ExportSheetButton({ sheet, country, label }: ExportSheetButtonProps) {
+export default function ExportSheetButton({ sheet, country, label, includeFoc, unit }: ExportSheetButtonProps) {
   const [isExporting, setIsExporting] = useState(false);
 
   const handleExport = async () => {
@@ -17,6 +19,8 @@ export default function ExportSheetButton({ sheet, country, label }: ExportSheet
     try {
       const params = new URLSearchParams({ sheet });
       if (country && country !== "Lebanon") params.set("country", country);
+      if (includeFoc !== undefined) params.set("includeFoc", String(includeFoc));
+      if (unit !== undefined) params.set("unit", unit);
       const response = await fetch(`/api/export-sheet?${params}`);
       if (!response.ok) {
         const err = await response.json().catch(() => ({ error: "Export failed" }));

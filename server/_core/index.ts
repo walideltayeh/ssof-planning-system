@@ -4,10 +4,11 @@ import { createServer } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
-import { appRouter } from "../routers";
+import { appRouter, requireCountryAccess } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { runStartupMigration } from "../startup-migration";
+import { applyApprovedLibyaPoOnBoot } from "../focPlanning";
 import { authenticateHttpRequest } from "./httpAuth";
 import { registerSpreadsheetUploadRoutes } from "./spreadsheetUploadRoutes";
 
@@ -19,6 +20,22 @@ function isPortAvailable(port: number): Promise<boolean> {
     });
     server.on("error", () => resolve(false));
   });
+}
+
+async function authenticateFocExport(req: express.Request, res: express.Response) {
+  const auth = await authenticateHttpRequest(req, res);
+  if (!auth) return false;
+  if (req.query.includeFoc !== undefined && req.query.includeFoc !== "true" && req.query.includeFoc !== "false") {
+    res.status(400).json({ error: "Include FOC must be true or false" }); return false;
+  }
+  if (req.query.unit !== undefined && !["MC", "KG", "Tons"].includes(String(req.query.unit))) {
+    res.status(400).json({ error: "Unit must be MC, KG or Tons" }); return false;
+  }
+  if (req.query.country === "Libya" || req.query.country === "Syria") {
+    try { await requireCountryAccess({ user: auth.user }, req.query.country); }
+    catch { res.status(403).json({ error: "You do not have access to this country" }); return false; }
+  }
+  return true;
 }
 
 async function findAvailablePort(startPort: number = 3000): Promise<number> {
@@ -42,13 +59,13 @@ async function startServer() {
   // Excel export endpoint (server-side with ExcelJS for live formulas)
   app.get("/api/export-excel", async (req, res) => {
     try {
-      if (!(await authenticateHttpRequest(req, res))) return;
+      if (!(await authenticateFocExport(req, res))) return;
       const country = req.query.country as string | undefined;
       let buffer: Buffer;
       let countryLabel = "Lebanon";
       if (country === "Syria" || country === "Libya" || country === "KSA" || country === "KSA") {
         const { generateExcelBufferForCountry } = await import("../excelExport");
-        buffer = await generateExcelBufferForCountry(country);
+        buffer = await generateExcelBufferForCountry(country, req.query.includeFoc !== "false");
         countryLabel = country;
       } else {
         const { generateExcelBuffer } = await import("../excelExport");
@@ -66,7 +83,7 @@ async function startServer() {
   });
   app.get("/api/export-sheet", async (req, res) => {
     try {
-      if (!(await authenticateHttpRequest(req, res))) return;
+      if (!(await authenticateFocExport(req, res))) return;
       const sheet = req.query.sheet as string;
       const country = req.query.country as string | undefined;
       if (!sheet) {
@@ -77,7 +94,8 @@ async function startServer() {
       let countryLabel = "Lebanon";
       if (country === "Syria" || country === "Libya" || country === "KSA" || country === "KSA") {
         const { generateSingleSheetBufferForCountry } = await import("../excelExport");
-        buffer = await generateSingleSheetBufferForCountry(country, sheet);
+        buffer = await generateSingleSheetBufferForCountry(country, sheet, req.query.includeFoc !== "false",
+          req.query.unit === "KG" ? "KG" : req.query.unit === "Tons" ? "Tons" : "MC");
         countryLabel = country;
       } else {
         const { generateSingleSheetBuffer } = await import("../excelExport");
@@ -113,13 +131,13 @@ async function startServer() {
 
   app.get("/api/export-intl-analysis", async (req, res) => {
     try {
-      if (!(await authenticateHttpRequest(req, res))) return;
+      if (!(await authenticateFocExport(req, res))) return;
       const country = req.query.country as string;
       if (country !== "Syria" && country !== "Libya" && country !== "KSA" && country !== "KSA") {
         return res.status(400).json({ error: "Country must be Syria, Libya, or KSA" });
       }
       const { generateIntlAnalysisExcelBuffer } = await import("../excelExport");
-      const buffer = await generateIntlAnalysisExcelBuffer(country);
+      const buffer = await generateIntlAnalysisExcelBuffer(country, req.query.includeFoc !== "false");
       const now = new Date();
       const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
@@ -424,6 +442,7 @@ async function startServer() {
 
   // Run startup migration (seeds DB from seed-data.json if empty)
   await runStartupMigration();
+  await applyApprovedLibyaPoOnBoot();
   
   const { ensureDataIndexes, getOrCreateJwtSecret } = await import("../db");
   await ensureDataIndexes();

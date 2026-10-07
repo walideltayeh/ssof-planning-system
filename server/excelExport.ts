@@ -1,6 +1,9 @@
 import ExcelJS from "exceljs";
 import * as db from "./db";
 import { buildInternationalArrivalSheets } from "./arrivalExcelExport";
+import { buildStockLedger, type StockDataset } from "../shared/performance/stock";
+import { summarizeFocReceipts } from "../shared/performance/focReceipts";
+import { buildForecastFocSheet } from "./forecastFocWorkbook";
 
 // ==================== TYPES ====================
 interface Sku {
@@ -1115,7 +1118,7 @@ export async function generateSingleSheetBuffer(sheet: string): Promise<Buffer> 
   return Buffer.from(buffer);
 }
 
-export async function generateSingleSheetBufferForCountry(country: "Syria" | "Libya" | "KSA", sheet: string): Promise<Buffer> {
+export async function generateSingleSheetBufferForCountry(country: "Syria" | "Libya" | "KSA", sheet: string, includeFoc = true, unit: "MC" | "KG" | "Tons" = "MC"): Promise<Buffer> {
   const data = await db.getFullPlanningDataForCountry(country);
   const { skus: allSkus, periods: allPeriods, forecast, ims, arrival, planningFg } = data;
   const actualProduction = await db.getActualProductionDataForCountry(country);
@@ -1128,7 +1131,9 @@ export async function generateSingleSheetBufferForCountry(country: "Syria" | "Li
   if (sheet === "ims") {
     buildIntlImsSheet(wb, allSkus, sortedPeriods, ims);
   } else if (sheet === "forecast") {
-    buildIntlForecastSheet(wb, "Forecast Production", allSkus, sortedPeriods, forecast);
+    if (country === "Libya" || country === "Syria")
+      buildForecastFocSheet(wb, { ...data, country, periods: sortedPeriods }, includeFoc, unit);
+    else buildIntlForecastSheet(wb, "Forecast Production", allSkus, sortedPeriods, forecast);
   } else if (sheet === "forecast-vs-actual") {
     buildIntlForecastVsActualSheet(wb, allSkus, sortedPeriods, forecast, actualProduction);
   } else if (sheet === "arrival") {
@@ -1136,7 +1141,21 @@ export async function generateSingleSheetBufferForCountry(country: "Syria" | "Li
   } else if (sheet.startsWith("planning-fg-")) {
     const weight = sheet.replace("planning-fg-", "");
     if (allSkus.some(s => s.weight === weight)) {
-      buildIntlPlanningFgSheet(wb, weight, allSkus, sortedPeriods, ims, planningFg, arrival);
+      const ws = buildIntlPlanningFgSheet(wb, weight, allSkus, sortedPeriods, ims, planningFg, arrival, { ...data, country, now: new Date(), includeFoc });
+      if (ws) {
+        ws.headerFooter.oddHeader = (ws.headerFooter.oddHeader ?? "").replace("MC ·", `${unit} ·`);
+        ws.headerFooter.evenHeader = ws.headerFooter.oddHeader;
+        ws.eachRow(row => {
+          if (!["Opening Stock", "IMS (Consumption)", "Adjustments", "Arrivals / Orders", "FOC awaiting receipt", "Closing Stock"].includes(String(row.getCell(3).value))) return;
+          row.eachCell((cell, col) => {
+            if (col < 4 || typeof cell.value !== "number") return;
+            cell.value = Math.round(cell.value * (unit === "KG" ? 6 : unit === "Tons" ? 0.006 : 1) * 1e8) / 1e8;
+            cell.numFmt = unit === "Tons" ? "0.00000" : "0.00";
+          });
+        });
+        if (country === "Libya" || country === "Syria")
+          ws.getRow(1).getCell(1).value = `${ws.getRow(1).getCell(1).value} · ${unit}`;
+      }
     }
   }
 
@@ -1291,10 +1310,21 @@ function buildIntlPlanningFgSheet(
   wb: ExcelJS.Workbook, weight: string, allSkus: Sku[], sortedPeriods: Period[],
   ims: { skuId: number; periodId: number; value: string | null }[],
   planningFg: { skuId: number; periodId: number; openingStock: string | null; adjustments: string | null; invoiced: string | null; arrivals: string | null }[],
-  arrivalData: { skuId: number; periodId: number; week1: string | null; week2: string | null; week3: string | null; week4: string | null }[]
+  arrivalData: { skuId: number; periodId: number; week1: string | null; week2: string | null; week3: string | null; week4: string | null }[],
+  dataset?: StockDataset,
 ) {
   const ws = wb.addWorksheet(`Planning FG ${weight}`);
-  ws.views = [{ state: "frozen", xSplit: 2, ySplit: 1 }];
+  const ledger = dataset && (dataset.country === "Libya" || dataset.country === "Syria") ? buildStockLedger(dataset) : null;
+  const receipts = dataset && (dataset.country === "Libya" || dataset.country === "Syria")
+    ? summarizeFocReceipts(dataset, dataset.includeFoc !== false) : null;
+  const awaiting = new Map(receipts?.entries.map(e => [`${e.skuId}-${e.periodId}`, e.awaiting]) ?? []);
+  if (dataset && (dataset.country === "Libya" || dataset.country === "Syria")) {
+    const basis = dataset.includeFoc !== false ? "Including confirmed, duplicate-checked FOC receipts" : "Excluding FOC receipts";
+    ws.headerFooter = { oddHeader: `&L${basis}&RMC · page &P of &N`, evenHeader: `&L${basis}&RMC · page &P of &N` };
+    ws.addRow([basis]); ws.addRow(["Awaiting FOC is not stock. Receipt dates determine arrival month."]);
+    ws.pageSetup.printTitlesRow = "1:3";
+  }
+  ws.views = [{ state: "frozen", xSplit: 2, ySplit: receipts ? 3 : 1 }];
   const weightSkus = allSkus.filter(s => s.weight === weight);
   if (weightSkus.length === 0) return ws;
   const imsMap = new Map<string, number>();
@@ -1311,7 +1341,8 @@ function buildIntlPlanningFgSheet(
     const total = (parseFloat(d.week1 ?? "0") || 0) + (parseFloat(d.week2 ?? "0") || 0) + (parseFloat(d.week3 ?? "0") || 0) + (parseFloat(d.week4 ?? "0") || 0);
     arrMap.set(`${d.skuId}-${d.periodId}`, total);
   }
-  const ROWS = ["Opening Stock", "IMS (Consumption)", "Adjustments", "Arrivals / Orders", "Closing Stock", "Stock Weeks"];
+  const ROWS = ["Opening Stock", "IMS (Consumption)", "Adjustments", "Arrivals / Orders",
+    ...(receipts ? ["FOC awaiting receipt"] : []), "Closing Stock", "Stock Weeks"];
   const headerRow = ws.addRow(["SKU Name", "Packaging", "Row", ...sortedPeriods.map(p => p.label)]);
   applyHeaderStyle(headerRow, 3 + sortedPeriods.length);
   ws.getRow(1).height = 20;
@@ -1321,9 +1352,9 @@ function buildIntlPlanningFgSheet(
       const p = sortedPeriods[pi];
       const pg = pgMap.get(`${sku.id}-${p.id}`) ?? { openingStock: 0, adjustments: 0, invoiced: 0, arrivals: 0 };
       const imsVal = imsMap.get(`${sku.id}-${p.id}`) ?? 0;
-      const arrVal = arrMap.get(`${sku.id}-${p.id}`) ?? pg.arrivals;
+      const arrVal = ledger?.bySku.get(sku.id)?.get(p.id)?.arrivals ?? arrMap.get(`${sku.id}-${p.id}`) ?? pg.arrivals;
       const opening = pi === 0 ? pg.openingStock : closingStocks[pi - 1];
-      closingStocks.push(opening + pg.adjustments + arrVal - imsVal);
+      closingStocks.push(ledger?.bySku.get(sku.id)?.get(p.id)?.closing ?? opening + pg.adjustments + arrVal - imsVal);
     }
     const openingStocks = sortedPeriods.map((p, pi) => {
       if (pi === 0) return pgMap.get(`${sku.id}-${p.id}`)?.openingStock ?? 0;
@@ -1331,14 +1362,15 @@ function buildIntlPlanningFgSheet(
     });
     for (let ri = 0; ri < ROWS.length; ri++) {
       const rowLabel = ROWS[ri];
-      const vals: (number | null)[] = sortedPeriods.map((p, pi) => {
+      const vals: (number | string | null)[] = sortedPeriods.map((p, pi) => {
         const pg = pgMap.get(`${sku.id}-${p.id}`) ?? { openingStock: 0, adjustments: 0, invoiced: 0, arrivals: 0 };
         const imsVal = imsMap.get(`${sku.id}-${p.id}`) ?? 0;
-        const arrVal = arrMap.get(`${sku.id}-${p.id}`) ?? pg.arrivals;
+        const arrVal = ledger?.bySku.get(sku.id)?.get(p.id)?.arrivals ?? arrMap.get(`${sku.id}-${p.id}`) ?? pg.arrivals;
         if (rowLabel === "Opening Stock") return openingStocks[pi] || null;
         if (rowLabel === "IMS (Consumption)") return imsVal || null;
         if (rowLabel === "Adjustments") return pg.adjustments || null;
         if (rowLabel === "Arrivals / Orders") return arrVal || null;
+        if (rowLabel === "FOC awaiting receipt") return awaiting.get(`${sku.id}-${p.id}`) ?? "Not set";
         if (rowLabel === "Closing Stock") return closingStocks[pi] || null;
         if (rowLabel === "Stock Weeks") {
           const closing = closingStocks[pi];
@@ -1355,12 +1387,15 @@ function buildIntlPlanningFgSheet(
     }
     ws.addRow([]);
   }
+  if (receipts) for (const e of receipts.warnings) ws.addRow([
+    `${e.sku} · ${e.receiptMonth} · ${e.quantity} MC: ${e.needsReview ? "Duplicate review required; not added" : e.decision}. ${e.matches.map(m => `${m.source} ${m.quantity} MC`).join("; ")}`,
+  ]);
   ws.getColumn(1).width = 30; ws.getColumn(2).width = 12; ws.getColumn(3).width = 22;
   for (let i = 4; i <= 3 + sortedPeriods.length; i++) ws.getColumn(i).width = 12;
   return ws;
 }
 
-export async function generateExcelBufferForCountry(country: "Syria" | "Libya" | "KSA"): Promise<Buffer> {
+export async function generateExcelBufferForCountry(country: "Syria" | "Libya" | "KSA", includeFoc = true): Promise<Buffer> {
   const data = await db.getFullPlanningDataForCountry(country);
   const { skus: allSkus, periods: allPeriods, forecast, ims, arrival, planningFg } = data;
   const actualProduction = await db.getActualProductionDataForCountry(country);
@@ -1370,12 +1405,25 @@ export async function generateExcelBufferForCountry(country: "Syria" | "Libya" |
   wb.creator = "SSOF Planning System";
   wb.created = new Date();
   buildIntlImsSheet(wb, allSkus, sortedPeriods, ims);
-  buildIntlForecastSheet(wb, "Forecast Production", allSkus, sortedPeriods, forecast);
+  if (country === "Libya" || country === "Syria")
+    buildForecastFocSheet(wb, { ...data, country, periods: sortedPeriods }, includeFoc, "MC");
+  else buildIntlForecastSheet(wb, "Forecast Production", allSkus, sortedPeriods, forecast);
   buildIntlForecastVsActualSheet(wb, allSkus, sortedPeriods, forecast, actualProduction);
   for (const w of weights) {
     if (allSkus.some(s => s.weight === w)) {
-      buildIntlPlanningFgSheet(wb, w, allSkus, sortedPeriods, ims, planningFg, arrival);
+      buildIntlPlanningFgSheet(wb, w, allSkus, sortedPeriods, ims, planningFg, arrival, { ...data, country, now: new Date(), includeFoc });
     }
+  }
+  if (country === "Libya" || country === "Syria") {
+    const summary = summarizeFocReceipts({ ...data, country }, includeFoc);
+    const ws = wb.addWorksheet("FOC receipts");
+    ws.addRow([includeFoc ? "Including confirmed, duplicate-checked FOC receipts" : "Excluding FOC receipts"]);
+    ws.addRow(["SKU", "Plan month", "FOC planned (MC)", "Received?", "Received date", "Receipt month", "Added to arrivals (MC)", "Awaiting / review (MC)", "Duplicate warning / decision"]);
+    for (const e of summary.entries) ws.addRow([e.sku, e.planMonth, e.quantity, e.received ? "Yes" : "No", e.receivedDate ?? "", e.receiptMonth,
+      e.added, e.awaiting, e.needsReview ? "Not added; review required" : e.decision]);
+    ws.pageSetup.printTitlesRow = "1:2";
+    ws.headerFooter.oddHeader = `&L${includeFoc ? "Including confirmed FOC" : "Excluding FOC"}&RMC · page &P of &N`;
+    ws.headerFooter.evenHeader = ws.headerFooter.oddHeader;
   }
   const buffer = await wb.xlsx.writeBuffer();
   return Buffer.from(buffer);
@@ -1889,12 +1937,12 @@ export async function generateAnalysisExcelBuffer(): Promise<Buffer> {
   return Buffer.from(buf);
 }
 
-export async function generateIntlAnalysisExcelBuffer(country: "Syria" | "Libya" | "KSA"): Promise<Buffer> {
-  const data = await db.getIntlAnalysis(country);
+export async function generateIntlAnalysisExcelBuffer(country: "Syria" | "Libya" | "KSA", includeFoc = true): Promise<Buffer> {
+  const data = await db.getIntlAnalysis(country, includeFoc);
   if (!data) throw new Error(`No analysis data available for ${country}`);
 
   const runningRate = await db.getRunningRateAnalysis(country);
-  const stockLevels = await db.getStockLevelAnalysis(country);
+  const stockLevels = await db.getStockLevelAnalysis(country, includeFoc);
 
   const wb = new ExcelJS.Workbook();
   wb.creator = "SSOF Planning System";

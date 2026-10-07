@@ -48,7 +48,10 @@ export function parsePerformanceExportQuery(q: Record<string, unknown>): ParsedE
     flavours: list(q.flavours),
   };
   const hasFilters = Object.values(filters).some((x) => x && x.length);
-  return { ok: true, unit, request: { country, preset, compare, anchor, from, to, filters: hasFilters ? filters : undefined } };
+  const foc = str(q.includeFoc);
+  if (foc !== undefined && foc !== "true" && foc !== "false") return { ok: false, error: "Include FOC must be true or false" };
+  return { ok: true, unit, request: { country, preset, compare, anchor, from, to, filters: hasFilters ? filters : undefined,
+    ...((country === "Syria" || country === "Libya") ? { includeFoc: foc !== "false" } : {}) } };
 }
 
 /** Mirrors requireCountryAccess in routers.ts: owners see every country, others only their assigned list. */

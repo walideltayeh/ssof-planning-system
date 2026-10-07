@@ -19,6 +19,7 @@
  */
 
 import { buildStockLedger } from "../../shared/performance/stock";
+import { focReceiptAdditions } from "../../shared/performance/focReceipts";
 import {
   classifyZone,
   coverRuleFor,
@@ -115,6 +116,7 @@ export interface PlanningRow {
 }
 
 export interface ClearanceRow {
+  country?: PerformanceCountry;
   id?: number;
   skuId: number;
   periodId: number;
@@ -139,6 +141,8 @@ export interface ExpiryRowLike {
 }
 
 export interface PerformanceDataset {
+  foc?: import("../../shared/performance/foc").FocCell[];
+  includeFoc?: boolean;
   country: PerformanceCountry;
   skus: DatasetSku[];
   periods: DatasetPeriod[];
@@ -279,6 +283,8 @@ export function filterOptions(skus: DatasetSku[]) {
 // ── Monthly series per SKU (Planning FG replica) ─────────────────────────────
 
 export interface MonthCell {
+  /** Planned giveaway requirement, not an actual IMS deduction or receipt. */
+  plannedFoc?: number;
   period: DatasetPeriod;
   forecast: number;
   /** actual_production_data value when > 0, else Production sheet weekly total. */
@@ -471,6 +477,7 @@ export function plannedArrivalsMap(ds: PerformanceDataset, skus: DatasetSku[], b
 /** The Planning FG replica. One entry per active SKU with a full month chain. */
 export function buildSkuSeries(ds: PerformanceDataset, skus: DatasetSku[] = ds.skus, plannedArrivals?: Map<string, number>): SkuSeries[] {
   const stock = buildStockLedger({ ...ds, skus });
+  const focArrivals = focReceiptAdditions({ ...ds, skus }, ds.includeFoc !== false);
   const periods = sortedPeriods(ds);
   const rule = coverRuleFor(ds.country);
   const intl = isIntlCountry(ds.country);
@@ -500,6 +507,8 @@ export function buildSkuSeries(ds: PerformanceDataset, skus: DatasetSku[] = ds.s
       const fc = forecast.get(k) ?? 0;
       const imsRow = ims.get(k);
       const rawIms = imsRow?.value ?? 0;
+      const free = ds.includeFoc && (ds.country === "Libya" || ds.country === "Syria")
+        ? num(ds.foc?.find(r => r.skuId === sku.id && r.periodId === p.id)?.value) : 0;
       const source = imsRow?.source ?? "manual";
       const future = isStrictlyFuture(p, ds.now);
       const effectiveIms = rawIms !== 0 ? rawIms : future ? fc : 0;
@@ -510,6 +519,7 @@ export function buildSkuSeries(ds: PerformanceDataset, skus: DatasetSku[] = ds.s
       const arrivals = intl ? cleared.get(k) ?? 0 : planningArr !== 0 ? planningArr : lebArrivals.get(k) ?? 0;
       months.push({
         period: p,
+        plannedFoc: free,
         forecast: fc,
         actualProduction: actualProd,
         production: revised !== undefined ? revised : fc,
@@ -520,7 +530,7 @@ export function buildSkuSeries(ds: PerformanceDataset, skus: DatasetSku[] = ds.s
         effectiveIms,
         demand: rawIms !== 0 ? rawIms : fc,
         arrivals,
-        plannedArrivals: plannedArrivals?.get(k) ?? 0,
+        plannedArrivals: (plannedArrivals?.get(k) ?? 0) + (focArrivals.get(k) ?? 0),
         opening: 0,
         adjustments: num(pg?.adjustments),
         closing: 0,
@@ -540,7 +550,7 @@ export function buildSkuSeries(ds: PerformanceDataset, skus: DatasetSku[] = ds.s
       c.closing = balance.closing;
     }
     // Third pass: weeks of cover with the country's rule.
-    const demandForCover = months.map((c) => (intl ? c.ims : c.effectiveIms));
+    const demandForCover = months.map((c) => intl ? c.ims : c.effectiveIms);
     for (let i = 0; i < months.length; i++) {
       const c = months[i];
       c.weeks = weeksOfCoverAt(c.closing, demandForCover, i, rule);
@@ -677,7 +687,7 @@ export function totalWeeksAt(series: SkuSeries[], idx: number, country: Performa
   const closing = sumAt(series, idx, (c) => c.closing) ?? 0;
   const n = series[0]?.months.length ?? 0;
   const demand: number[] = [];
-  for (let i = 0; i < n; i++) demand.push(sumAt(series, i, (c) => (intl ? c.ims : c.effectiveIms)) ?? 0);
+  for (let i = 0; i < n; i++) demand.push(sumAt(series, i, (c) => intl ? c.ims : c.effectiveIms) ?? 0);
   return weeksOfCoverAt(closing, demand, idx, rule);
 }
 
@@ -686,7 +696,7 @@ export function targetBandMcAt(series: SkuSeries[], idx: number, country: Perfor
   const intl = isIntlCountry(country);
   const n = series[0]?.months.length ?? 0;
   const demand: number[] = [];
-  for (let i = 0; i < n; i++) demand.push(sumAt(series, i, (c) => (intl ? c.ims : c.effectiveIms)) ?? 0);
+  for (let i = 0; i < n; i++) demand.push(sumAt(series, i, (c) => intl ? c.ims : c.effectiveIms) ?? 0);
   return { low: mcForWeeks(4, demand, idx, rule), high: mcForWeeks(6, demand, idx, rule) };
 }
 

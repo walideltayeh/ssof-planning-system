@@ -1,10 +1,10 @@
 ---
 name: Schema migration path
-description: How to add columns safely — drizzle-kit migrate is broken in this repo
+description: Managed schema publishing and the repo's broken migration journal
 ---
 
-**Rule:** Do not use `pnpm db:push` (drizzle-kit generate && migrate) to apply schema changes. Add an idempotent `ALTER TABLE ... IF NOT EXISTS` to `ensureSchemaColumns` in `server/startup-migration.ts` (runs on every boot, dev and prod) and mirror it in a hand-written SQL file in `drizzle/migrations/` for the record.
+**Rule:** For Replit-managed PostgreSQL, do not add startup/deploy-time DDL. Update the schema source and development schema through supported development SQL; keep a hand-written SQL record. Publish applies the managed production schema diff. Do not use `pnpm db:push` in this repo.
 
-**Why:** The drizzle migration journal is inconsistent — it references a `0005_*.sql` file that no longer exists, and `0008_*.sql` was hand-added outside the journal — so `drizzle-kit migrate` always fails, and `drizzle-kit generate` stalls on an interactive create-vs-rename prompt for `actual_production_data`.
+**Why:** The database skill prohibits new production startup DDL because it bypasses the managed publishing schema workflow. The repository's migration journal is also inconsistent (a missing SQL file and unjournaled additions), so its generate/migrate command is not a reliable application path.
 
-**How to apply:** Any schema change → edit both `drizzle/schema.ts` (Drizzle types) and `startup-migration.ts` (actual DDL), then restart the workflow to apply to the dev DB. Prod picks it up on next deploy boot.
+**How to apply:** Apply new DDL only to development, not to production or new startup helpers. Existing legacy startup DDL is not a precedent for new changes. Guarded, user-approved business-data imports on boot are separate from schema changes.

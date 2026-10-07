@@ -14,15 +14,20 @@ import { TableSkeleton } from "@/components/TableSkeleton";
 import ExportSheetButton from "@/components/ExportSheetButton";
 import ImportSheetButton from "@/components/ImportSheetButton";
 import { useGridNav } from "@/hooks/useGridNav";
+import LibyaPoImport from "@/components/LibyaPoImport";
+import { ForecastFocRow, ForecastFocBanner, ForecastFocTotals, useForecastFoc } from "@/components/forecast/ForecastFoc";
+import { displayValue, fromMastercases, toMastercases } from "./FocPage";
 
 const WEIGHT_ORDER: Record<string, number> = { "1kg": 0, "250g": 1, "50g": 2 };
 
 export default function ForecastPage() {
-  const { user: appUser } = useAppAuth();
+  const { user: appUser, isAdminFor } = useAppAuth();
   const { country, config } = useCountry();
-  const { formatVal, unitLabel } = useUnit();
+  const { formatVal, unitLabel, unit } = useUnit();
   const isLebanon = country === "Lebanon";
   const utils = trpc.useUtils();
+  const foc = useForecastFoc(country);
+  const canEditForecast = !foc.supported || isAdminFor(foc.country);
 
   // Lebanon uses the existing data.forecast endpoint
   const { data: lbData, isLoading: lbLoading, isFetching: lbFetching, refetch: lbRefetch } = trpc.data.forecast.useQuery(undefined, { enabled: isLebanon, staleTime: 0, refetchOnWindowFocus: true });
@@ -55,7 +60,8 @@ export default function ForecastPage() {
     onError: (err: any) => toast.error("Failed to save: " + err.message),
   });
   const updateProductionIntl = trpc.country.updateProduction.useMutation({
-    onSuccess: () => utils.country.data.invalidate(),
+    onSuccess: (_, input) => input.country === "Libya" || input.country === "Syria"
+      ? foc.invalidate(input.country) : utils.country.data.invalidate(),
     onError: (err: any) => toast.error("Failed to sync production: " + err.message),
   });
   const updateForecastWeek = trpc.country.updateForecastWeek.useMutation({
@@ -90,6 +96,13 @@ export default function ForecastPage() {
   const [filterSearch, setFilterSearch] = useState("");
   const [filterSize, setFilterSize] = useState<string>("All");
   const [filterPackaging, setFilterPackaging] = useState<string>("All");
+  useEffect(() => {
+    setEditingCell(null); setEditValue(""); setOldValue("");
+  }, [country, unit]);
+  useEffect(() => {
+    setWeekPickerOpen(null); setProdLinkWeek(new Map()); weekMapInitialized.current = false;
+    setExcludedSkuIds(new Set()); setExcludeCore(false); setExcludeNPI(false);
+  }, [country]);
 
   const toggleYear = useCallback((year: number) => {
     setCollapsedYears(prev => {
@@ -150,7 +163,7 @@ export default function ForecastPage() {
     }
   }, [dbWeekMap]);
 
-  const allSkus = data?.skus ?? [];
+  const allSkus = useMemo(() => (data?.skus ?? []).filter(s => !foc.supported || s.isActive !== false), [data?.skus, foc.supported]);
   const periods = data?.periods ?? [];
 
   // Sort SKUs: group by category (Core first, NPI second), then by weight (1kg, 250g, 50g), then by name
@@ -198,16 +211,19 @@ export default function ForecastPage() {
     return groups;
   }, [filteredSkus]);
 
-  const formatNumber = (val: number) => val === 0 ? "-" : formatVal(val);
+  const formatNumber = (val: number) => val === 0 ? "-" : foc.supported ? displayValue(val, unit) : formatVal(val);
 
   const handleCellClick = useCallback((cellKey: string, currentValue: string) => {
+    if (!canEditForecast) return;
     setEditingCell(cellKey);
     setOldValue(currentValue);
-    setEditValue(currentValue === "0" ? "" : currentValue);
-  }, []);
+    setEditValue(currentValue === "0" ? "" : foc.supported ? String(fromMastercases(Number(currentValue), unit)) : currentValue);
+  }, [canEditForecast, foc.supported, unit]);
 
   const handleCellSave = useCallback((skuId: number, periodId: number) => {
-    const numVal = parseFloat(editValue) || 0;
+    if (!canEditForecast) return;
+    if (foc.supported && (!Number.isFinite(Number(editValue)) || Number(editValue) < 0)) { toast.error("Enter a valid non-negative ordered quantity."); return; }
+    const numVal = foc.supported ? toMastercases(Number(editValue), unit) : parseFloat(editValue) || 0;
     const sku = data?.skus.find(s => s.id === skuId);
     const period = data?.periods.find(p => p.id === periodId);
     updateCell.mutate({ skuId, periodId, value: numVal.toString(), skuName: sku?.name, periodLabel: period?.label, oldValue });
@@ -224,7 +240,7 @@ export default function ForecastPage() {
       });
     }
     setEditingCell(null);
-  }, [editValue, updateCell, isLebanon, country, prodLinkWeek, updateProductionIntl, appUser, data]);
+  }, [editValue, updateCell, isLebanon, country, prodLinkWeek, updateProductionIntl, appUser, data, canEditForecast, foc.supported, unit]);
 
   // handleCellKeyDown is defined after periodsByYear (see below)
 
@@ -308,7 +324,8 @@ export default function ForecastPage() {
       const rawVal = dataMap.get(id) ?? "0";
       setEditingCell(id);
       setOldValue(rawVal);
-      setEditValue(rawVal === "0" ? "" : rawVal);
+      if (!canEditForecast) { setEditingCell(null); return; }
+      setEditValue(rawVal === "0" ? "" : foc.supported ? String(fromMastercases(Number(rawVal), unit)) : rawVal);
     },
     onSave: (cellId) => {
       const parts = cellId.split("-");
@@ -385,8 +402,8 @@ export default function ForecastPage() {
           <p className="text-sm text-muted-foreground mt-1">Monthly {isLebanon ? "forecast" : "forecast production"} by SKU. Grouped by Core/NPI, sorted by weight. Click any cell to edit.</p>
         </div>
         <div className="flex items-center gap-2">
-          <ImportSheetButton sheet="forecast" country={country} label="Import Forecast" />
-          <ExportSheetButton sheet="forecast" country={country} label="Export Forecast" />
+           {canEditForecast && <ImportSheetButton sheet="forecast" country={country} label="Import Forecast" />}
+           <ExportSheetButton sheet="forecast" country={country} label="Export Forecast" includeFoc={foc.supported ? foc.includeFoc : undefined} unit={foc.supported ? unit : undefined} />
           <div className="flex items-center gap-1">
             <button
               onClick={() => setCollapsedYears(new Set(years))}
@@ -403,7 +420,7 @@ export default function ForecastPage() {
               Expand All
             </button>
             <button
-              onClick={() => refetchAll()}
+              onClick={() => { refetchAll(); if (foc.supported) foc.query.refetch(); }}
               disabled={isFetching}
               className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded border border-primary/40 bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               title="Sync all data from server"
@@ -496,6 +513,9 @@ export default function ForecastPage() {
         </Dialog>
         </div>
       </div>
+
+      {country === "Libya" && <LibyaPoImport />}
+      {foc.supported && <ForecastFocBanner model={foc} canEdit={canEditForecast} />}
 
       {/* Filter bar — Syria/Libya only */}
       {!isLebanon && (
@@ -651,7 +671,7 @@ export default function ForecastPage() {
                           </td>
                         </tr>
                         {!collapsedWeights.has(`${group.category}-${weight}`) && weightSkus.map((sku, idx) => (
-                      <tr key={sku.id} className={`border-b hover:bg-muted ${idx % 2 === 1 ? 'bg-slate-50' : ''} ${isSkuExcluded(sku.id) ? 'opacity-40' : ''}`}>
+                      <Fragment key={sku.id}><tr className={`border-b hover:bg-muted ${idx % 2 === 1 ? 'bg-slate-50' : ''} ${isSkuExcluded(sku.id) ? 'opacity-40' : ''}`}>
                         <td className={`sticky left-0 ${idx % 2 === 1 ? 'bg-slate-50' : 'bg-background'} z-10 px-2 py-1.5`}>
                           <div className="flex flex-col items-start gap-0.5">
                             <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold ${
@@ -668,6 +688,7 @@ export default function ForecastPage() {
                         </td>
                         <td className={`sticky left-[50px] ${idx % 2 === 1 ? 'bg-slate-50' : 'bg-background'} z-10 px-2 py-1.5 font-medium whitespace-nowrap`}>
                           <span>{sku.name}</span>
+                          {foc.supported && <span className="ml-2 text-[10px] font-normal text-muted-foreground">Ordered</span>}
                         </td>
                         {periodsByYear.map(({ year, periods: yPeriods }) => {
                           const isYearCollapsed = collapsedYears.has(year);
@@ -709,7 +730,7 @@ export default function ForecastPage() {
                                     <span
                                       className="absolute bottom-0 right-0 text-[9px] font-semibold px-0.5 bg-teal-100 text-teal-700 rounded-tl cursor-pointer hover:bg-teal-200"
                                       title={`Synced to Production ${weekLabel}. Click to change week.`}
-                                      onClick={e => { e.stopPropagation(); setWeekPickerOpen(isPickerOpen ? null : cellKey); }}
+                                      onClick={e => { e.stopPropagation(); if (canEditForecast) setWeekPickerOpen(isPickerOpen ? null : cellKey); }}
                                     >
                                       →{weekLabel}
                                     </span>
@@ -726,7 +747,8 @@ export default function ForecastPage() {
                                             linkedWeek === w ? "bg-teal-600 text-white border-teal-600" : "bg-white text-gray-700 border-gray-200 hover:bg-teal-50"
                                           }`}
                                           onClick={() => {
-                                            // Optimistically update local state
+                                             if (!canEditForecast) return;
+                                             // Optimistically update local state
                                             setProdLinkWeek(prev => { const next = new Map(prev); next.set(cellKey, w); return next; });
                                             setWeekPickerOpen(null);
                                             // Persist to DB and sync Production
@@ -756,6 +778,8 @@ export default function ForecastPage() {
                           );
                         })}
                       </tr>
+                      {foc.supported && <ForecastFocRow sku={sku} years={periodsByYear} collapsedYears={collapsedYears} model={foc} canEdit={canEditForecast} ordered={data?.data ?? []} />}
+                      </Fragment>
                         ))}
                       </Fragment>
                     ))}
@@ -772,11 +796,11 @@ export default function ForecastPage() {
                         <Fragment key={`subtot-${group.category}-${year}`}>
                           {!isYearCollapsed && yPeriods.map(p => (
                             <td key={`subtot-${group.category}-${p.id}`} className="px-1 py-1.5 text-right tabular-nums" style={{ color: group.category === "Core" ? "#047857" : "#6d28d9" }}>
-                              {formatNumber(computeCategoryTotal(group.category, p.id))}
+                              {foc.supported ? <ForecastFocTotals skus={allSkus.filter(s => s.category === group.category && !isSkuExcluded(s.id))} periods={[p]} ordered={data?.data ?? []} model={foc} /> : formatNumber(computeCategoryTotal(group.category, p.id))}
                             </td>
                           ))}
                           <td className="px-1 py-1.5 text-right tabular-nums font-bold border-l-2 border-amber-400 bg-amber-50" style={{ color: group.category === "Core" ? "#047857" : "#6d28d9" }}>
-                            {formatNumber(computeCategoryYearTotal(group.category, year))}
+                            {foc.supported ? <ForecastFocTotals skus={allSkus.filter(s => s.category === group.category && !isSkuExcluded(s.id))} periods={yPeriods} ordered={data?.data ?? []} model={foc} /> : formatNumber(computeCategoryYearTotal(group.category, year))}
                           </td>
                         </Fragment>
                         );
@@ -798,11 +822,11 @@ export default function ForecastPage() {
                     <Fragment key={`gt-y-${year}`}>
                       {!isYearCollapsed && yPeriods.map(p => (
                         <td key={`gt-${p.id}`} className="px-1 py-2 text-right tabular-nums text-primary">
-                          {formatNumber(computeTotal(p.id))}
+                          {foc.supported ? <ForecastFocTotals skus={allSkus.filter(s => !isSkuExcluded(s.id))} periods={[p]} ordered={data?.data ?? []} model={foc} /> : formatNumber(computeTotal(p.id))}
                         </td>
                       ))}
                       <td className="px-1 py-2 text-right tabular-nums font-bold border-l-2 border-amber-400 bg-amber-100 text-amber-900">
-                        {formatNumber(computeColumnYearTotal(year))}
+                        {foc.supported ? <ForecastFocTotals skus={allSkus.filter(s => !isSkuExcluded(s.id))} periods={yPeriods} ordered={data?.data ?? []} model={foc} /> : formatNumber(computeColumnYearTotal(year))}
                       </td>
                     </Fragment>
                     );

@@ -67,6 +67,9 @@ export default function ImportSheetButton({ sheet, country, label, onSuccess }: 
       if (result.skipped?.length > 0) {
         toast.warning(`Skipped SKUs: ${result.skipped.join(", ")}`, { duration: 8000 });
       }
+      if (result.warnings?.length > 0) {
+        toast.warning(result.warnings.join("\n"), { duration: 12000 });
+      }
 
       utils.invalidate();
       onSuccess?.();

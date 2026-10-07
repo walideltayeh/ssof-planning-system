@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
+import { useIncludeFoc } from "@/hooks/useIncludeFoc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, AlertTriangle, Filter, Package, TrendingDown, TrendingUp, Minus } from "lucide-react";
 
@@ -35,7 +36,8 @@ function ClosingStockTab({ country }: { country: "Lebanon" | "Syria" | "Libya" |
   const [sortField, setSortField] = useState<string>("name");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
-  const { data, isLoading, isError, error } = trpc.country.currentMonthClosingStock.useQuery({ country });
+  const { includeFoc } = useIncludeFoc(country === "Syria" ? "Syria" : "Libya");
+  const { data, isLoading, isError, error } = trpc.country.currentMonthClosingStock.useQuery({ country, includeFoc });
 
   const filteredSkus = useMemo(() => {
     if (!data) return [];

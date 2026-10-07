@@ -7,6 +7,10 @@ import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, protectedProcedure, adminProcedure, router } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { getFocPlanning, setFocCell, previewLibyaPo, importLibyaPo } from "./focPlanning";
+import { updateFocReceipt, previewFocReceipts, commitFocReceipts, reviewFocReceipt } from "./focReceiptService";
+import { validReceiptDate } from "../shared/performance/focReceipts";
+import { invalidateCountryPerformanceCache } from "./analysis/countryPerformance";
 import * as db from "./db";
 import { assertRecordsScopedToCountry } from "./countryScope";
 import * as wsTracker from "./wsTracker";
@@ -97,6 +101,7 @@ const performanceRequestSchema = z.object({
     flavours: z.array(z.string()).optional(),
   }).optional(),
   refresh: z.boolean().optional(),
+  includeFoc: z.boolean().optional(),
 });
 
 /** Countries the caller may read (owners: all four). */
@@ -158,7 +163,7 @@ async function requireAppOwner(ctx: { user: User }) {
  * Compares country names case-insensitively to match how
  * `verifyAppUserLogin` already compares them.
  */
-async function requireCountryAccess(
+export async function requireCountryAccess(
   ctx: { user: User },
   country: string,
 ): Promise<void> {
@@ -204,7 +209,7 @@ async function requireCountryAccess(
  * MUST also call this helper to keep e.g. a "Lebanon-admin / KSA-viewer"
  * user from mutating KSA data.
  */
-async function requireCountryAdmin(
+export async function requireCountryAdmin(
   ctx: { user: User },
   country: string,
 ): Promise<void> {
@@ -300,7 +305,68 @@ async function requireSkuCountryAdmin(
   return country;
 }
 
+const focReceiptDate = z.string().refine(validReceiptDate, "Enter a valid received date").nullable().optional();
+const focReceiptScope = {
+  country: z.enum(["Libya", "Syria"]),
+  skuId: z.number().int().positive().optional(), periodId: z.number().int().positive().optional(),
+  received: z.boolean(), receivedDate: focReceiptDate,
+};
 export const appRouter = router({
+  focPlanning: router({
+    receiptUpdate: adminProcedure.input(z.object({
+      country: z.enum(["Libya", "Syria"]), skuId: z.number().int().positive(), periodId: z.number().int().positive(),
+      received: z.boolean().optional(), receivedDate: focReceiptDate,
+    }).refine(x => x.received !== undefined || x.receivedDate !== undefined, "Choose a receipt status or date")).mutation(async ({ctx, input}) => {
+      await requireCountryAdmin(ctx, input.country);
+      const result = await updateFocReceipt(input.country, getAuditActor(ctx), input);
+      invalidateCountryPerformanceCache(input.country);
+      return result;
+    }),
+    receiptPreview: adminProcedure.input(z.object(focReceiptScope).refine(x => !!x.skuId || !!x.periodId, "Choose a SKU or month")).mutation(async ({ctx, input}) => {
+      await requireCountryAdmin(ctx, input.country);
+      return previewFocReceipts(input.country, input);
+    }),
+    receiptCommit: adminProcedure.input(z.object({...focReceiptScope, token: z.string().length(64)})
+      .refine(x => !!x.skuId || !!x.periodId, "Choose a SKU or month")).mutation(async ({ctx, input}) => {
+      await requireCountryAdmin(ctx, input.country);
+      const {token, country, ...scope} = input;
+      const result = await commitFocReceipts(country, getAuditActor(ctx), scope, token);
+      invalidateCountryPerformanceCache(country);
+      return result;
+    }),
+    receiptReview: adminProcedure.input(z.object({
+      country: z.enum(["Libya", "Syria"]), skuId: z.number().int().positive(), periodId: z.number().int().positive(),
+      decision: z.enum(["separate", "included"]), reviewKey: z.string().max(50000),
+    })).mutation(async ({ctx, input}) => {
+      await requireCountryAdmin(ctx, input.country);
+      const result = await reviewFocReceipt(input.country, getAuditActor(ctx), input);
+      invalidateCountryPerformanceCache(input.country);
+      return result;
+    }),
+    list: protectedProcedure.input(z.object({ country: z.enum(["Libya", "Syria"]), includeFoc: z.boolean().optional() })).query(async ({ ctx, input }) => {
+      await requireCountryAccess(ctx, input.country);
+      return input.includeFoc === undefined ? getFocPlanning(input.country) : getFocPlanning(input.country, input.includeFoc);
+    }),
+    update: adminProcedure.input(z.object({
+      country: z.enum(["Libya", "Syria"]), skuId: z.number().int().positive(), periodId: z.number().int().positive(),
+      value: z.number().finite().nonnegative().max(9999999999.99).multipleOf(0.01).nullable(),
+    })).mutation(async ({ ctx, input }) => {
+      await requireCountryAdmin(ctx, input.country);
+      const result = await setFocCell(input.country, input.skuId, input.periodId, input.value, getAuditActor(ctx));
+      invalidateCountryPerformanceCache(input.country);
+      return result;
+    }),
+    poPreview: protectedProcedure.input(z.object({ country: z.literal("Libya") })).query(async ({ ctx, input }) => {
+      await requireCountryAccess(ctx, input.country);
+      return previewLibyaPo();
+    }),
+    poImport: adminProcedure.input(z.object({ country: z.literal("Libya"), token: z.string().length(64) })).mutation(async ({ ctx, input }) => {
+      await requireCountryAdmin(ctx, input.country);
+      const result = await importLibyaPo(getAuditActor(ctx), input.token);
+      invalidateCountryPerformanceCache(input.country);
+      return result;
+    }),
+  }),
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
@@ -2019,10 +2085,10 @@ export const appRouter = router({
 
     // Intl Analysis query for Syria/Libya
     intlAnalysis: protectedProcedure
-      .input(z.object({ country: z.enum(["Syria", "Libya", "KSA"]) }))
+      .input(z.object({ country: z.enum(["Syria", "Libya", "KSA"]), includeFoc: z.boolean().optional() }))
       .query(async ({ ctx, input }) => {
         await requireCountryAccess(ctx, input.country);
-        return db.getIntlAnalysis(input.country);
+        return input.includeFoc === undefined ? db.getIntlAnalysis(input.country) : db.getIntlAnalysis(input.country, input.includeFoc);
       }),
 
     runningRate: protectedProcedure
@@ -2033,10 +2099,10 @@ export const appRouter = router({
       }),
 
     stockLevels: protectedProcedure
-      .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]) }))
+      .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]), includeFoc: z.boolean().optional() }))
       .query(async ({ ctx, input }) => {
         await requireCountryAccess(ctx, input.country);
-        return db.getStockLevelAnalysis(input.country);
+        return input.includeFoc === undefined ? db.getStockLevelAnalysis(input.country) : db.getStockLevelAnalysis(input.country, input.includeFoc);
       }),
 
     forecastIntelligence: protectedProcedure
@@ -2047,10 +2113,10 @@ export const appRouter = router({
       }),
 
     currentMonthClosingStock: protectedProcedure
-      .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]) }))
+      .input(z.object({ country: z.enum(["Lebanon", "Syria", "Libya", "KSA"]), includeFoc: z.boolean().optional() }))
       .query(async ({ ctx, input }) => {
         await requireCountryAccess(ctx, input.country);
-        return db.getCurrentMonthClosingStock(input.country);
+        return input.includeFoc === undefined ? db.getCurrentMonthClosingStock(input.country) : db.getCurrentMonthClosingStock(input.country, input.includeFoc);
       }),
 
     // Country Performance pack — one cached aggregate per country + period.

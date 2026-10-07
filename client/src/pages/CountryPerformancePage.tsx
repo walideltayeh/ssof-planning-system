@@ -18,6 +18,7 @@ import { useUnit } from "@/contexts/UnitContext";
 import { formatUpdateTime, lastUpdateSentence, useLastUpdates } from "@/hooks/useLastUpdates";
 import { trpc } from "@/lib/trpc";
 import { ChevronDown } from "lucide-react";
+import { useIncludeFoc } from "@/hooks/useIncludeFoc";
 
 const LebanonDeepDive = lazy(() => import("@/pages/AnalysisPage"));
 const IntlDeepDive = lazy(() => import("@/pages/IntlAnalysisPage"));
@@ -42,6 +43,9 @@ export default function CountryPerformancePage() {
   const [to, setTo] = useState<string>();
   const [compare, setCompare] = useState<CompareMode>("plan");
   const [filters, setFilters] = useState<PerformanceFilters>({});
+  const supportsFoc = country === "Libya" || country === "Syria";
+  const focCountry = supportsFoc ? country as "Libya" | "Syria" : "Libya";
+  const { includeFoc, setIncludeFoc } = useIncludeFoc(focCountry);
   const [refresh, setRefresh] = useState<true | undefined>();
   const [presentationOpen, setPresentationOpen] = useState(false);
   const [layoutOpen, setLayoutOpen] = useState(false);
@@ -56,6 +60,7 @@ export default function CountryPerformancePage() {
     ...(preset === "custom" && from ? { from } : {}),
     ...(preset === "custom" && to ? { to } : {}),
     compare,
+    ...(supportsFoc ? { includeFoc } : {}),
     ...(cleanFilters(filters) ? { filters: cleanFilters(filters) } : {}),
     ...(refresh ? { refresh: true as const } : {}),
   };
@@ -80,17 +85,20 @@ export default function CountryPerformancePage() {
   const slideSections = useMemo(() => visibleSections.filter((section) => !section.hiddenFromSlides), [visibleSections]);
   const canEdit = isAdminFor(country);
   const lastUpdate = lastUpdates.data?.find((row) => row.country === country);
-  const request: PerformanceRequest = { country, preset, anchor, from: preset === "custom" ? from : undefined, to: preset === "custom" ? to : undefined, compare, filters: cleanFilters(filters) };
+  const request: PerformanceRequest = { country, preset, anchor, from: preset === "custom" ? from : undefined, to: preset === "custom" ? to : undefined, compare, filters: cleanFilters(filters), ...(supportsFoc ? { includeFoc } : {}) };
 
 
   const renderSection = useCallback((section: OrderedSection, presentation = false) => {
     if (!pack) return null;
-    if (section.id === "changes") return <BoardChangesSection pack={pack} request={request} presentation={presentation} />;
-    return <section.Component pack={pack} presentation={presentation} />;
+    const content = section.id === "changes"
+      ? <BoardChangesSection pack={pack} request={request} presentation={presentation} />
+      : <section.Component pack={pack} presentation={presentation} />;
+    return <>{pack.foc && <p className="mb-3 text-xs text-muted-foreground">Planning basis: {pack.foc.basisLabel}. IMS and commercial values exclude planned FOC; actual stock is recorded movements only.</p>}{content}</>;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pack, preset, compare, country, anchor, from, to, filters]);
+  }, [pack, preset, compare, country, anchor, from, to, filters, includeFoc]);
 
   const exportPdf = useCallback(() => {
+    if (packQuery.isFetching) return;
     document.body.classList.add("perf-printing");
     const cleanup = () => {
       document.body.classList.remove("perf-printing");
@@ -98,11 +106,13 @@ export default function CountryPerformancePage() {
     };
     window.addEventListener("afterprint", cleanup);
     window.print();
-  }, []);
+  }, [packQuery.isFetching]);
 
   const { unit } = useUnit();
   const exportExcel = useCallback(() => {
     const params = new URLSearchParams({ country, preset, compare, unit });
+    if (packQuery.isFetching) return;
+    if (supportsFoc) params.set("includeFoc", String(includeFoc));
     if (anchor) params.set("anchor", anchor);
     if (preset === "custom" && from) params.set("from", from);
     if (preset === "custom" && to) params.set("to", to);
@@ -110,7 +120,7 @@ export default function CountryPerformancePage() {
       if (filters[key]?.length) params.set(key, filters[key]!.join(","));
     });
     window.open(`/api/export-performance?${params.toString()}`, "_blank", "noopener,noreferrer");
-  }, [anchor, compare, country, filters, from, preset, to, unit]);
+  }, [anchor, compare, country, filters, from, preset, to, unit, supportsFoc, includeFoc, packQuery.isFetching]);
 
   const isForbidden = packQuery.error?.data?.code === "FORBIDDEN";
   const DeepDive = country === "Lebanon" ? LebanonDeepDive : IntlDeepDive;
@@ -119,6 +129,8 @@ export default function CountryPerformancePage() {
     <PerformanceProvider country={country} periodKey={pack?.meta.periodKey ?? null} canEdit={canEdit}>
     <div className="space-y-8">
       <PerformanceHeader
+        includeFoc={includeFoc}
+        onIncludeFocChange={supportsFoc ? setIncludeFoc : undefined}
         preset={preset}
         anchor={anchor}
         from={from}
@@ -175,6 +187,17 @@ export default function CountryPerformancePage() {
         </nav>
       )}
 
+      {pack?.foc && (
+        <>
+          <p className="rounded-md border p-3 text-sm">
+            <strong>Planning basis: {pack.foc.basisLabel}.</strong> {pack.foc.note}
+          </p>
+          <style>{`@media print { @page { margin-top: 22mm; } .foc-print-basis { display:block !important; position:fixed; top:-16mm; left:0; right:0; font-size:9pt; color:#000; } }`}</style>
+          <div className="foc-print-basis hidden" aria-hidden="true">
+            {country} · {unit} · {pack.foc.basisLabel}<br />{pack.foc.note}
+          </div>
+        </>
+      )}
       {packQuery.isLoading && !pack && (
         <div className="grid gap-4 md:grid-cols-2">
           {Array.from({ length: 6 }, (_, index) => <Skeleton key={index} className="h-64 rounded-xl" />)}

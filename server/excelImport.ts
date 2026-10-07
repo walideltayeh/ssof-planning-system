@@ -2,6 +2,8 @@ import ExcelJS from "exceljs";
 import * as db from "./db";
 import { loadXlsxBuffer } from "./excelLoad";
 import { assertRecordsScopedToCountry } from "./countryScope";
+import { isForecastFocSheet, parseForecastFocSheet } from "./forecastFocWorkbook";
+import { supportsFoc } from "../shared/performance/foc";
 
 interface ImportResult {
   updated: number;
@@ -10,6 +12,8 @@ interface ImportResult {
   detectedPeriods?: string[];
   matchedPeriods?: string[];
   unmatchedPeriods?: string[];
+  warnings?: string[];
+  versionId?: number | null;
 }
 
 function normalizeStr(s: any): string {
@@ -207,6 +211,23 @@ export async function importForecastSheet(buffer: Buffer, country: string, usern
   const periodMap = await resolvePeriodMap(country);
   const header = findHeaderRow(ws);
   if (!header) throw new Error("Could not find period headers in the file. Expected month columns like 'Jan 25', 'Feb 25', etc.");
+
+  const format = isForecastFocSheet(ws, header.row);
+  if (format.paired) {
+    if (!supportsFoc(country)) throw new Error("FOC rows are supported only for Libya and Syria");
+    const [ss, ps] = await Promise.all([db.getSkusForCountry(country, true), db.getPeriodsForCountry(country)]);
+    const cols = new Map<number, number>();
+    for (const [label, col] of header.periodCols) {
+      const id = periodMap.get(label);
+      if (!id) throw new Error(`Month '${label}' does not exist for ${country}; no rows imported`);
+      cols.set(id, col);
+    }
+    const parsed = parseForecastFocSheet(ws, country, { skus: ss, periods: ps }, header.row, format.typeCol, cols);
+    const { applyForecastFocImport } = await import("./forecastFocImport");
+    const result = await applyForecastFocImport(country, username, parsed.forecast, parsed.foc);
+    return { ...result, skipped: [], sheet: "Forecast Production", detectedPeriods: [...header.periodCols.keys()],
+      matchedPeriods: [...header.periodCols.keys()], unmatchedPeriods: [] };
+  }
 
   const skuNameCol = findSkuNameCol(ws, header.row);
   const records: { skuId: number; periodId: number; value: string }[] = [];

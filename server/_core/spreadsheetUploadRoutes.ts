@@ -19,6 +19,11 @@ export function registerSpreadsheetUploadRoutes(app: Express) {
       // browser-supplied `username` query string, which is ignored.
       const auth = await authenticateHttpRequest(req, res);
       if (!auth) return;
+      if (req.query.sheet === "forecast" && (req.query.country === "Libya" || req.query.country === "Syria")) {
+        const { requireCountryAdmin } = await import("../routers");
+        try { await requireCountryAdmin({ user: auth.user }, req.query.country); }
+        catch { res.status(403).json({ error: "You need administrator access to import this country's forecast and FOC" }); return; }
+      }
       const multer = (await import("multer")).default;
       const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
       await new Promise<void>((resolve, reject) => {

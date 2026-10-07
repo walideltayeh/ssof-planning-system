@@ -3,9 +3,13 @@
  * No persistence or tracker-derived balances: planner inputs remain untouched.
  * Clearance dates are business dates, not timezone-dependent instants.
  */
+import { focReceiptAdditions } from "./focReceipts";
+import type { FocCell } from "./foc";
 type Quantity = string | number | null | undefined;
 type Cell = { skuId: number; periodId: number };
 export interface StockDataset {
+  foc?: FocCell[];
+  includeFoc?: boolean;
   country: "Lebanon" | "Syria" | "Libya" | "KSA";
   now: Date;
   skus: { id: number; isActive?: boolean; isExcludedFromTotal?: boolean | null; country?: string }[];
@@ -48,6 +52,7 @@ export function buildStockLedger(ds: StockDataset) {
     }
   }
   const bySku = new Map<number, Map<number, StockBalance>>();
+  const focArrivals = focReceiptAdditions(ds, ds.includeFoc !== false);
   const totals = new Map(periods.map(p => [p.id, 0]));
   for (const sku of skus) {
     const balances = new Map<number, StockBalance>();
@@ -57,7 +62,7 @@ export function buildStockLedger(ds: StockDataset) {
       const future = p.year > ds.now.getFullYear() || (p.year === ds.now.getFullYear() && p.month > ds.now.getMonth() + 1);
       const rawIms = ims.get(k) ?? 0;
       const usedIms = ds.country === "Lebanon" && future && rawIms === 0 ? forecast.get(k) ?? 0 : rawIms;
-      const arrivals = ds.country === "Lebanon" && num(plan?.arrivals) !== 0 ? num(plan?.arrivals) : received.get(k) ?? 0;
+      const arrivals = (ds.country === "Lebanon" && num(plan?.arrivals) !== 0 ? num(plan?.arrivals) : received.get(k) ?? 0) + (focArrivals.get(k) ?? 0);
       const opening = i === 0 ? num(plan?.openingStock) : previous;
       const adjustments = num(plan?.adjustments);
       const closing = stockPrecision(opening + adjustments + arrivals - usedIms);

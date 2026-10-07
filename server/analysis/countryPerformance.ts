@@ -9,8 +9,11 @@
 
 import * as db from "../db";
 import { loadSyriaReconciliation } from "./syriaReconciliation";
+import { getFocPlanning } from "../focPlanning";
+import { summarizeFoc, supportsFoc } from "../../shared/performance/foc";
 import { compareHeadlines } from "../../shared/performance/boardCompare";
 import type { WorkbookExtras } from "./countryPerformanceExcel";
+import { summarizeFocReceipts, focReceiptAdditions } from "../../shared/performance/focReceipts";
 import { describeUpdate } from "@shared/audit/lastUpdate";
 import { BoardHeadlineSchema } from "./countryPerformance.schemas";
 import {
@@ -166,6 +169,7 @@ async function loadDataset(country: PerformanceCountry): Promise<PerformanceData
       : null,
     periods: full.periods,
     forecast: full.forecast,
+    foc: supportsFoc(country) ? (await getFocPlanning(country)).cells : undefined,
     ims: full.ims,
     shipment: full.shipment,
     arrival: full.arrival,
@@ -191,7 +195,7 @@ export async function getCountryDataset(country: PerformanceCountry, refresh = f
 // ── Public API ───────────────────────────────────────────────────────────────
 
 export async function getCountryPerformance(req: PerformanceRequest & { refresh?: boolean }): Promise<PerformancePack> {
-  const cacheKey = `${req.country}|${JSON.stringify({ p: req.preset, a: req.anchor ?? null, f: req.from ?? null, t: req.to ?? null, c: req.compare, fl: req.filters ?? {} })}`;
+  const cacheKey = `${req.country}|${JSON.stringify({ p: req.preset, a: req.anchor ?? null, f: req.from ?? null, t: req.to ?? null, c: req.compare, fl: req.filters ?? {}, foc: supportsFoc(req.country) ? req.includeFoc !== false : undefined })}`;
   const hit = packCache.get(cacheKey);
   if (!req.refresh && hit && Date.now() - hit.at < DATASET_TTL_MS) return hit.pack;
   const ds = await getCountryDataset(req.country, req.refresh);
@@ -248,7 +252,7 @@ export async function loadWorkbookExtras(pack: PerformancePack): Promise<Workboo
 
 // ── Pack builder (pure given a dataset) ──────────────────────────────────────
 
-export function buildPack(
+function buildBasePack(
   ds: PerformanceDataset,
   req: PerformanceRequest,
   reconciliationSource: { id: number; name: string; weight: string; closingStock: number }[] | null,
@@ -264,10 +268,12 @@ export function buildPack(
   const filteredSkus = applyFilters(ds.skus.filter(s => s.isActive !== false && !s.isExcludedFromTotal), req.filters);
   const batchesAll = intl ? buildBatches(ds, ds.skus) : [];
   const planned = plannedArrivalsMap(ds, filteredSkus, batchesAll);
+  const focArrivals = focReceiptAdditions(ds, ds.includeFoc !== false);
   const selectedIds = new Set(filteredSkus.map(s => s.id));
   const series = allSeriesUnfiltered.filter(s => selectedIds.has(s.sku.id)).map(s => ({
     ...s,
-    months: s.months.map(c => ({ ...c, plannedArrivals: planned.get(`${s.sku.id}-${c.period.id}`) ?? 0 })),
+    months: s.months.map(c => ({ ...c, plannedArrivals: (planned.get(`${s.sku.id}-${c.period.id}`) ?? 0) +
+      (focArrivals.get(`${s.sku.id}-${c.period.id}`) ?? 0) })),
   }));
   const batches = batchesAll.filter((b) => filteredSkus.some((s) => s.id === b.sku.id));
 
@@ -294,7 +300,8 @@ export function buildPack(
     const anyActual = series.some((s) => s.months[i].imsIsActual);
     return anyActual ? sum(series.map((s) => (s.months[i].imsIsActual ? s.months[i].ims : 0))) : null;
   });
-  const mPlan = monthlyTotals(series, periods, (c) => c.forecast);
+  const mPlan = monthlyTotals(series, periods, (c) => c.forecast + (c.plannedFoc ?? 0));
+  const mSalesPlan = monthlyTotals(series, periods, c => c.forecast);
   const mProd = monthlyTotals(series, periods, (c) => c.actualProduction);
   const mArr = monthlyTotals(series, periods, (c) => c.arrivals);
   const mPlannedArr = monthlyTotals(series, periods, (c) => c.plannedArrivals);
@@ -314,7 +321,7 @@ export function buildPack(
 
   // Core window figures
   const ims = pickWindow(mIms, w) ?? 0;
-  const imsPlan = pickWindow(mPlan, w);
+  const imsPlan = pickWindow(mSalesPlan, w);
   const imsLy = pickWindow(mIms, lyW);
   const imsPrev = pickWindow(mIms, prevW);
   const production = pickWindow(mProd, w) ?? 0;
@@ -669,7 +676,7 @@ export function buildPack(
 
   // ── Sections ───────────────────────────────────────────────────────────────
   const flow = buildFlow({ intl, w, series, batches, periods, now, ims, imsPlan, production, productionPlan, arrivals, closing, monthlyDemand, delayed, mIms, mArr });
-  const demandBase = buildDemand({ series, periods, w, lyW, prevW, chartW, mIms, mImsActual, mPlan });
+  const demandBase = buildDemand({ series, periods, w, lyW, prevW, chartW, mIms, mImsActual, mPlan: mSalesPlan });
   const supply = buildSupply({ intl, series, periods, chartW, w, batches, now, mPlan, mProd, mIms, mArr, mPlannedArr });
   const inventoryBase = buildInventory({ intl, series, periods, w, projRows, coverRows, atRisk, overstock, expiryRows, filteredSkus, rule });
   const forecastQuality = buildForecastQuality({ series, chartW, w, chronic, acc, accOverall });
@@ -678,7 +685,7 @@ export function buildPack(
   const confidence = buildConfidence({ ds, series: allSeriesUnfiltered, filteredSeries: series, periods, w, currentIdx, latestActualIdx, reconciliationSource, horizon });
 
   // ── Board additions ────────────────────────────────────────────────────
-  const runningRate = buildRunningRate({ country, series, periods, w, latestActualIdx, mPlan, mIms, mImsActual, rule, closingStock: closing });
+  const runningRate = buildRunningRate({ country, series, periods, w, latestActualIdx, mPlan: mSalesPlan, mIms, mImsActual, rule, closingStock: closing });
   const outlook = buildOutlook({ series, periods, w, latestActualIdx, mImsActual, baseline, currentRate: runningRate.headline.value, rule });
   const inactive = applyFilters(ds.inactiveSkus ?? [], req.filters).map((sku) => ({
     sku,
@@ -739,18 +746,74 @@ export function buildPack(
     weight: s.sku.weight,
     packaging: s.sku.packagingType ?? "",
     production: round(sum(s.months.slice(w.fromIdx, w.toIdx + 1).map((c) => c.actualProduction))),
-    arrival: round(sum(s.months.slice(w.fromIdx, w.toIdx + 1).map((c) => c.arrivals))),
+    arrival: round(sum(s.months.slice(w.fromIdx, w.toIdx + 1).map((c) => c.arrivals)), 2),
     remainingStock: s.months[w.toIdx].closing,
   }));
   const stockSituation = {
     rows: stockRows,
     totals: {
       production: round(sum(stockRows.map((r) => r.production))),
-      arrival: round(sum(stockRows.map((r) => r.arrival))),
+      arrival: round(sum(stockRows.map((r) => r.arrival)), 2),
       remainingStock: closing,
     },
   };
   return { meta, stockSituation, runningRate, outlook, executive: { tiles, keyMessages, risks }, flow, demand, supply, inventory, forecastQuality, forward, commercial, portfolio, market, anomalies, confidence, headline };
+}
+
+/** Keep production planning separate from stock: only eligible FOC receipts
+ * enter the shared stock ledger; paid forecasts supply sales and demand.
+ */
+export function buildPack(
+  ds: PerformanceDataset, req: PerformanceRequest,
+  reconciliationSource: { id: number; name: string; weight: string; closingStock: number }[] | null,
+  baseline: BudgetBaseline | null = null,
+): PerformancePack {
+  const includeFoc = supportsFoc(ds.country) && req.includeFoc !== false;
+  const pack = buildBasePack({ ...ds, includeFoc }, req, reconciliationSource, baseline);
+  if (!supportsFoc(ds.country)) return pack;
+  const selectedSkus = applyFilters(ds.skus, req.filters);
+  const selectedPeriods = ds.periods.filter(p => p.sortOrder >= ds.periods.find(x => x.id === pack.meta.window.from.id)!.sortOrder
+    && p.sortOrder <= ds.periods.find(x => x.id === pack.meta.window.to.id)!.sortOrder);
+  const summary = summarizeFoc(selectedSkus, selectedPeriods, ds.forecast, ds.foc ?? [], includeFoc);
+  summary.receipts = summarizeFocReceipts(ds, includeFoc, selectedSkus.map(s => s.id), selectedPeriods.map(p => p.id));
+  pack.foc = summary;
+  // Keep fractional mastercases from the approved PO; do not round the physical
+  // production plan to whole cases while the FOC section retains two decimals.
+  const allMonths = summarizeFoc(selectedSkus, ds.periods, ds.forecast, ds.foc ?? [], includeFoc);
+  const monthlyPlan = new Map(allMonths.months.map(m => [shortLabel(ds.periods.find(p => p.id === m.periodId)!), m.knownPhysical]));
+  let cumulativePlan = 0;
+  for (const row of pack.supply.attainment) {
+    row.plan = monthlyPlan.get(row.label) ?? row.plan;
+    cumulativePlan = round(cumulativePlan + row.plan, 2);
+    row.cumulativePlan = cumulativePlan;
+    row.attainmentPct = row.plan > 0 ? round(row.actual / row.plan * 100, 1) : null;
+  }
+  const planStep = pack.flow.waterfall.supply.find(s => s.key === "plan");
+  if (planStep) {
+    planStep.value = summary.total.knownPhysical;
+    planStep.label = includeFoc ? "Known production plan including FOC" : "Ordered production plan";
+    const next = pack.flow.waterfall.supply[pack.flow.waterfall.supply.indexOf(planStep) + 1];
+    if (next) {
+      const produced = pack.flow.waterfall.supply.find(s => s.key === "produced")!;
+      next.value = round(produced.value - planStep.value, 2);
+      next.gapMc = next.value;
+      next.gapPct = planStep.value > 0 ? round(next.value / planStep.value * 100, 1) : null;
+      produced.gapMc = next.value; produced.gapPct = next.gapPct;
+    }
+  }
+  pack.flow.notes.unshift(summary.basisLabel, summary.note);
+  pack.supply.notes.unshift(summary.basisLabel, summary.note);
+  pack.forward.notes.unshift(summary.basisLabel, summary.note);
+  if (summary.total.missing > 0) pack.confidence.issues.push({
+    severity: "amber", title: "FOC quantities not set", count: summary.total.missing,
+    detail: `${summary.total.missing} active SKU/month FOC quantities are not set. Physical plan totals include only entered FOC and are incomplete; missing FOC is not zero.`,
+  });
+  for (const e of summary.receipts.warnings) pack.confidence.issues.push({
+    severity: e.needsReview ? "red" : "amber", title: "Possible duplicate FOC receipt", count: 1,
+    detail: `${e.sku} · ${e.receiptMonth} · ${e.quantity.toFixed(2)} MC. Similar arrival (within 2% or 0.01 MC): ${e.matches.map(m => `${m.source} ${m.quantity.toFixed(2)} MC`).join("; ") || "Receipt month is missing"}.
+      ${e.needsReview ? "Not added to stock: admin review required." : e.decision === "included" ? "Admin confirmed already counted; no additional FOC stock." : "Admin confirmed a separate shipment."}`,
+  });
+  return pack;
 }
 
 function latestUpdatedAt(ds: PerformanceDataset): string | null {
@@ -761,6 +824,7 @@ function latestUpdatedAt(ds: PerformanceDataset): string | null {
     if (Number.isFinite(t) && (best === null || t > best)) best = t;
   };
   for (const r of ds.forecast) consider(r.updatedAt);
+  for (const r of ds.foc ?? []) consider(r.updatedAt);
   for (const r of ds.ims) consider(r.updatedAt);
   for (const r of ds.shipment) consider(r.updatedAt);
   for (const r of ds.arrival) consider(r.updatedAt);

@@ -99,7 +99,7 @@ function buildLebanonMenu(weights: string[]): MenuItem[] {
 }
 
 // Syria / Libya / KSA menu items
-function buildIntlMenu(weights: string[]): MenuItem[] {
+function buildIntlMenu(weights: string[], country: Country | null): MenuItem[] {
   return [
     { label: "Dashboard", path: "/", adminOnly: false },
     { label: "Forecast Production", path: "/forecast", adminOnly: false },
@@ -108,6 +108,7 @@ function buildIntlMenu(weights: string[]): MenuItem[] {
     { label: "Arrival", path: "/arrival", adminOnly: false },
     { label: "IMS", path: "/intl-ims", adminOnly: false },
     ...buildPlanningFgItems(weights, true),
+    ...((country === "Libya" || country === "Syria") ? [{ label: "Planned free product", path: "/foc", adminOnly: false }] : []),
     { label: "Analysis", path: "/intl-analysis", adminOnly: false },
     { label: "Competitor Analysis", path: "/competitor-analysis", adminOnly: false },
     { label: "Recommended Forecast Split", path: "/forecast-split", adminOnly: false },
@@ -181,7 +182,7 @@ export default function DashboardLayout({
   );
   const weights = weightsQuery.data ?? [];
 
-  const baseMenuItems = country === "Lebanon" ? buildLebanonMenu(weights) : buildIntlMenu(weights);
+  const baseMenuItems = country === "Lebanon" ? buildLebanonMenu(weights) : buildIntlMenu(weights, country);
   const menuItems = baseMenuItems.filter(item => {
     if (item.walidOnly && appUser?.username.toLowerCase() !== 'walid') return false;
     if (item.adminOnly && !isAdmin) return false;
@@ -303,6 +304,7 @@ function DashboardLayoutContent({
   const PAGE_LABELS: Record<string, string> = {
     "/": "Dashboard",
     "/forecast": "Forecast",
+    "/foc": "Planned free product",
     "/forecast-production-vs-actual": "Forecast Production vs Actual",
     "/forecast-vs-forecast": "Forecast Production vs Actual",
     "/shipment": "Production",

@@ -1,7 +1,8 @@
 import { eq, and, asc, inArray, sql, desc, gt } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import { InsertUser, users, skus, periods, forecastData, imsData, shipmentData, arrivalData, planningFgData, uploadHistory, auditTrail, ssofVersions, versionComments, actualProductionData, clearanceEvents, appUsers, competitorData, appSettings, posmItems, tradeFocRules, boardPackSnapshots, presenterNotes, userPreferences, boardPlanBaselines } from "../drizzle/schema";
+import { focReceiptAdditions } from "../shared/performance/focReceipts";
+import { InsertUser, users, skus, periods, forecastData, focData, imsData, shipmentData, arrivalData, planningFgData, uploadHistory, auditTrail, ssofVersions, versionComments, actualProductionData, clearanceEvents, appUsers, competitorData, appSettings, posmItems, tradeFocRules, boardPackSnapshots, presenterNotes, userPreferences, boardPlanBaselines } from "../drizzle/schema";
 import type { PosmItemRow, TradeFocRuleRow } from "../drizzle/schema";
 import { NON_DATA_ACTIONS, NON_DATA_SHEETS, type CountryLastUpdate } from "@shared/audit/lastUpdate";
 import type { AuditTrail, InsertAuditTrail, InsertSsofVersion, Country, ClearanceEvent, AppUserRow, InsertAppUser } from "../drizzle/schema";
@@ -1286,13 +1287,14 @@ export async function getFullSnapshot(country?: Country) {
   const allArrival = await db.select().from(arrivalData);
   const allPlanning = await db.select().from(planningFgData);
   
-  if (countrySkuIds && countryPeriodIds) {
+  if (country && countrySkuIds && countryPeriodIds) {
     const skuSet = new Set(countrySkuIds);
     const periodSet = new Set(countryPeriodIds);
     return {
       skus: allSkus.filter(s => skuSet.has(s.id)),
       periods: allPeriods.filter(p => periodSet.has(p.id)),
       forecast: allForecast.filter(f => skuSet.has(f.skuId) && periodSet.has(f.periodId)),
+      foc: await db.select().from(focData).where(eq(focData.country, country)),
       ims: allIms.filter(i => skuSet.has(i.skuId) && periodSet.has(i.periodId)),
       shipment: allShipment.filter(s => skuSet.has(s.skuId) && periodSet.has(s.periodId)),
       arrival: allArrival.filter(a => skuSet.has(a.skuId) && periodSet.has(a.periodId)),
@@ -1304,6 +1306,7 @@ export async function getFullSnapshot(country?: Country) {
     skus: allSkus,
     periods: allPeriods,
     forecast: allForecast,
+    foc: await db.select().from(focData),
     ims: allIms,
     shipment: allShipment,
     arrival: allArrival,
@@ -1359,9 +1362,9 @@ export async function deleteVersion(id: number) {
 }
 
 export async function restoreSnapshot(snapshot: any, country?: Country) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  
+  const database = await getDb();
+  if (!database) throw new Error("Database not available");
+  return database.transaction(async db => {
   if (country) {
     // Country-scoped restore: only delete and restore data for this country's SKUs/periods
     const countrySkus = await getSkusForCountry(country, true);
@@ -1397,6 +1400,14 @@ export async function restoreSnapshot(snapshot: any, country?: Country) {
     await db.delete(periods);
   }
   
+  // FOC is a separate layer. Restore it only from a snapshot that actually
+  // captured the layer; legacy snapshots must not silently erase new inputs.
+  if (Array.isArray(snapshot.foc)) {
+    if (country) await db.delete(focData).where(eq(focData.country, country));
+    else await db.delete(focData);
+    const countryFoc = snapshot.foc.filter((r: { country: string }) => (!country || r.country === country) && (r.country === "Libya" || r.country === "Syria"));
+    if (countryFoc.length) await db.insert(focData).values(countryFoc.map((r: any) => ({ ...r, updatedAt: new Date(r.updatedAt ?? Date.now()) })));
+  }
   // Restore periods (include country field!)
   if (snapshot.periods?.length > 0) {
     const chunks = chunkArray(snapshot.periods, 500);
@@ -1426,6 +1437,7 @@ export async function restoreSnapshot(snapshot: any, country?: Country) {
         sortOrder: s.sortOrder ?? 0,
         isExcludedFromTotal: s.isExcludedFromTotal ?? false,
         isActive: s.isActive ?? true,
+        priceToWs: s.priceToWs ?? null,
       })));
     }
   }
@@ -1435,7 +1447,7 @@ export async function restoreSnapshot(snapshot: any, country?: Country) {
     const chunks = chunkArray(snapshot.forecast, 500);
     for (const chunk of chunks) {
       await db.insert(forecastData).values(chunk.map((d: any) => ({
-        skuId: d.skuId, periodId: d.periodId, value: d.value ?? "0",
+        skuId: d.skuId, periodId: d.periodId, value: d.value ?? "0", targetWeek: d.targetWeek ?? "week1",
       })));
     }
   }
@@ -1445,7 +1457,7 @@ export async function restoreSnapshot(snapshot: any, country?: Country) {
     const chunks = chunkArray(snapshot.ims, 500);
     for (const chunk of chunks) {
       await db.insert(imsData).values(chunk.map((d: any) => ({
-        skuId: d.skuId, periodId: d.periodId, value: d.value ?? "0", isActual: d.isActual ?? false,
+        skuId: d.skuId, periodId: d.periodId, value: d.value ?? "0", isActual: d.isActual ?? false, source: d.source ?? "manual",
       })));
     }
   }
@@ -1493,6 +1505,7 @@ export async function restoreSnapshot(snapshot: any, country?: Country) {
       })));
     }
   }
+  });
 }
 
 function chunkArray<T>(arr: T[], size: number): T[][] {
@@ -2321,7 +2334,8 @@ export async function getFullPlanningDataForCountry(country: Country) {
   const planning = await db.select().from(planningFgData).where(inArray(planningFgData.skuId, skuIds));
   const clearEvts = await db.select().from(clearanceEvents).where(inArray(clearanceEvents.skuId, skuIds));
   const revised = await db.select().from(actualProductionData).where(inArray(actualProductionData.skuId, skuIds));
-  return { skus: skuList, periods: periodList, forecast, ims, shipment, arrival, planningFg: planning, clearanceEvents: clearEvts, actualProduction: revised };
+  const foc = country === "Libya" || country === "Syria" ? await db.select().from(focData).where(eq(focData.country, country)) : [];
+  return { skus: skuList, periods: periodList, forecast, ims, shipment, arrival, planningFg: planning, clearanceEvents: clearEvts, actualProduction: revised, foc };
 }
 
 export async function upsertCountryPlanningFgCell(skuId: number, periodId: number, data: { openingStock?: string; adjustments?: string; invoiced?: string; arrivals?: string }) {
@@ -2338,7 +2352,7 @@ export async function upsertCountryPlanningFgCell(skuId: number, periodId: numbe
 
 // ==================== INTL ANALYSIS (Syria / Libya) ====================
 
-export async function getIntlAnalysis(country: "Syria" | "Libya" | "KSA") {
+export async function getIntlAnalysis(country: "Syria" | "Libya" | "KSA", includeFoc = true) {
   const db = await getDb();
   if (!db) return null;
 
@@ -2350,6 +2364,8 @@ export async function getIntlAnalysis(country: "Syria" | "Libya" | "KSA") {
   const shipmentRows = await db.select().from(shipmentData).where(inArray(shipmentData.skuId, skuIds));
   const imsRows = await db.select().from(imsData).where(inArray(imsData.skuId, skuIds));
   const planningRows = await db.select().from(planningFgData).where(inArray(planningFgData.skuId, skuIds));
+  const focAdds = country === "Libya" || country === "Syria"
+    ? focReceiptAdditions({ ...await getFullPlanningDataForCountry(country), country }, includeFoc) : new Map<string, number>();
 
   const periodMap = new Map(periodList.map((p) => [p.id, p]));
   const skuMap = new Map(skuList.map((s) => [s.id, s]));
@@ -2511,7 +2527,7 @@ export async function getIntlAnalysis(country: "Syria" | "Libya" | "KSA") {
       const imsVal = imsRow ? parseFloat(imsRow.value ?? "0") || 0 : 0;
       const opening = i === 0 ? (parseFloat(planRow?.openingStock ?? "0") || 0) : prevCS;
       const adj = parseFloat(planRow?.adjustments ?? "0") || 0;
-      const arr = arrivalByClearedMonth.get(`${sku.id}-${p.id}`) ?? 0;
+      const arr = (arrivalByClearedMonth.get(`${sku.id}-${p.id}`) ?? 0) + (focAdds.get(`${sku.id}-${p.id}`) ?? 0);
       const cs = opening + adj + arr - imsVal;
       closingStocks.push(cs);
       if (p.year === curYear && p.month === curMonth) {
@@ -3368,7 +3384,7 @@ export async function getRunningRateAnalysis(country: "Lebanon" | "Syria" | "Lib
 }
 
 // ==================== STOCK LEVEL ANALYSIS ====================
-export async function getStockLevelAnalysis(country: "Lebanon" | "Syria" | "Libya" | "KSA") {
+export async function getStockLevelAnalysis(country: "Lebanon" | "Syria" | "Libya" | "KSA", includeFoc = true) {
   const db = await getDb();
   if (!db) return null;
 
@@ -3380,6 +3396,8 @@ export async function getStockLevelAnalysis(country: "Lebanon" | "Syria" | "Liby
   const planningRows = await db.select().from(planningFgData).where(inArray(planningFgData.skuId, skuIds));
   const imsRows = await db.select().from(imsData).where(inArray(imsData.skuId, skuIds));
   const forecastRows = await db.select().from(forecastData).where(inArray(forecastData.skuId, skuIds));
+  const focAdds = country === "Libya" || country === "Syria"
+    ? focReceiptAdditions({ ...await getFullPlanningDataForCountry(country), country }, includeFoc) : new Map<string, number>();
 
   const skuMap = new Map(skuList.map(s => [s.id, s]));
   const sortedPeriods = [...periodList].sort((a, b) => a.sortOrder - b.sortOrder);
@@ -3474,7 +3492,7 @@ export async function getStockLevelAnalysis(country: "Lebanon" | "Syria" | "Liby
       const adj = parseFloat(pf?.adjustments ?? "0") || 0;
       let arr = 0;
       if (isIntl) {
-        arr = clearArrivalMap.get(`${sku.id}-${p.id}`) ?? 0;
+        arr = (clearArrivalMap.get(`${sku.id}-${p.id}`) ?? 0) + (focAdds.get(`${sku.id}-${p.id}`) ?? 0);
       } else {
         const planningArrivals = parseFloat(pf?.arrivals ?? "0") || 0;
         if (planningArrivals !== 0) {
@@ -3656,7 +3674,7 @@ type ExpiryRow = {
 };
 
 // ==================== CURRENT MONTH CLOSING STOCK ====================
-export async function getCurrentMonthClosingStock(country: "Lebanon" | "Syria" | "Libya" | "KSA") {
+export async function getCurrentMonthClosingStock(country: "Lebanon" | "Syria" | "Libya" | "KSA", includeFoc = true) {
   const db = await getDb();
   if (!db) return null;
 
@@ -3675,6 +3693,8 @@ export async function getCurrentMonthClosingStock(country: "Lebanon" | "Syria" |
   const clearRows = country !== "Lebanon"
     ? await db.select().from(clearanceEvents).where(inArray(clearanceEvents.skuId, skuIds))
     : [];
+  const focAdds = country === "Libya" || country === "Syria"
+    ? focReceiptAdditions({ ...await getFullPlanningDataForCountry(country), country }, includeFoc) : new Map<string, number>();
 
   const now = new Date();
   const curYear = now.getFullYear();
@@ -3737,7 +3757,7 @@ export async function getCurrentMonthClosingStock(country: "Lebanon" | "Syria" |
     if (country === "Lebanon") {
       return planArr !== 0 ? planArr : (lebArrMap.get(`${skuId}-${periodId}`) ?? 0);
     }
-    return intlArrMap.get(`${skuId}-${periodId}`) ?? 0;
+    return (intlArrMap.get(`${skuId}-${periodId}`) ?? 0) + (focAdds.get(`${skuId}-${periodId}`) ?? 0);
   };
 
   const currentPeriodIdx = sortedPeriods.findIndex(p => p.year === curYear && p.month === curMonth);

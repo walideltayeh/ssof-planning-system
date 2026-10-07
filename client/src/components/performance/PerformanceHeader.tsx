@@ -76,6 +76,8 @@ function MultiFilter({ label, options, selected, onChange }: {
 }
 
 export interface PerformanceHeaderProps {
+  includeFoc?: boolean;
+  onIncludeFocChange?: (value: boolean) => void;
   preset: PeriodPreset;
   anchor?: string;
   from?: string;
@@ -109,6 +111,13 @@ export default function PerformanceHeader(props: PerformanceHeaderProps) {
   return (
     <div className="perf-no-print sticky top-0 z-20 -mx-4 border-b bg-background/95 px-4 py-3 backdrop-blur">
       <div className="flex flex-wrap items-end gap-2">
+        {props.onIncludeFocChange && (
+          <label className="flex h-8 items-center gap-2 rounded-md border px-3 text-sm font-medium">
+            <input type="checkbox" role="switch" aria-label="Include FOC" checked={props.includeFoc !== false}
+              onChange={e => props.onIncludeFocChange?.(e.target.checked)} />
+            Include FOC
+          </label>
+        )}
         <LabeledSelect label="Period" value={props.preset} onValueChange={(value) => props.onPresetChange(value as PeriodPreset)} items={PRESETS} className="min-w-36" />
         {shownAnchor && props.preset !== "custom" && <LabeledSelect label="Ending month" value={shownAnchor} onValueChange={props.onAnchorChange} items={periodItems} className="min-w-36" />}
         {props.preset === "custom" && shownFrom && shownTo && (
@@ -128,8 +137,8 @@ export default function PerformanceHeader(props: PerformanceHeaderProps) {
         <Button variant="outline" size="sm" onClick={props.onRefresh} disabled={props.isRefreshing}><RefreshCw className={props.isRefreshing ? "animate-spin" : ""} />Refresh</Button>
         <Button variant="outline" size="sm" onClick={props.onPresentation}><MonitorPlay />Presentation Mode</Button>
         <Button variant="outline" size="sm" onClick={props.onArrangeSlides}><ListOrdered />Arrange slides</Button>
-        <Button variant="outline" size="sm" onClick={props.onExportPdf}><FileDown />Export PDF</Button>
-        <Button variant="outline" size="sm" onClick={props.onExportExcel}><FileSpreadsheet />Export Excel</Button>
+        <Button variant="outline" size="sm" onClick={props.onExportPdf} disabled={props.isRefreshing}><FileDown />Export PDF</Button>
+        <Button variant="outline" size="sm" onClick={props.onExportExcel} disabled={props.isRefreshing}><FileSpreadsheet />Export Excel</Button>
       </div>
     </div>
   );
