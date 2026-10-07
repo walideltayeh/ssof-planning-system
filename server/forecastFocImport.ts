@@ -2,7 +2,7 @@ import { eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "./db";
 import { auditTrail, focData, forecastData, shipmentData, skus, ssofVersions } from "../drizzle/schema";
 import { loadFocReceiptData } from "./focReceiptService";
-import { evaluateFocReceipts, validReceiptDate } from "../shared/performance/focReceipts";
+import { evaluateFocReceipts } from "../shared/performance/focReceipts";
 import { type FocCountry } from "../shared/performance/foc";
 import { invalidateCountryPerformanceCache } from "./analysis/countryPerformance";
 import type { ForecastFocImportCell } from "./forecastFocWorkbook";
@@ -25,20 +25,17 @@ export async function applyForecastFocImport(country: FocCountry, actor: string,
     const changedForecast = forecasts.filter(c => Number(forecastMap.get(`${c.skuId}-${c.periodId}`)?.value ?? 0) !== Number(c.value));
     const nextFree = free.map(c => {
       const old = focMap.get(`${c.skuId}-${c.periodId}`);
-      const date = c.receivedDate === undefined ? old?.receivedDate ?? null : c.receivedDate;
-      if (date && (!validReceiptDate(date) || !ds.periods.some(p => `${p.year}-${String(p.month).padStart(2, "0")}` === date.slice(0, 7))))
-        throw new Error(`Invalid received date for SKU ${c.skuId}, month ${c.periodId}`);
       if (c.receiptDecision && !["pending", "included", "separate"].includes(c.receiptDecision))
         throw new Error(`Invalid duplicate decision for SKU ${c.skuId}`);
       // Spreadsheet metadata can preserve an existing decision, never invent
       // a new duplicate approval. Changed evidence is rechecked by the ledger.
       return { country, skuId: c.skuId, periodId: c.periodId, value: c.value,
-        received: c.value !== null && c.received, receivedDate: date,
+        received: c.value !== null && c.received,
         receiptDecision: old?.receiptDecision ?? "pending", receiptReviewKey: old?.receiptReviewKey ?? null };
     });
     const changedFree = nextFree.filter(c => {
       const old = focMap.get(`${c.skuId}-${c.periodId}`);
-      return (old?.value ?? null) !== c.value || (old?.received ?? false) !== c.received || (old?.receivedDate ?? null) !== c.receivedDate;
+      return (old?.value ?? null) !== c.value || (old?.received ?? false) !== c.received;
     });
     let versionId: number | null = null;
     if (changedForecast.length || changedFree.length) {
@@ -87,8 +84,8 @@ export async function applyForecastFocImport(country: FocCountry, actor: string,
       const s = ds.skus.find(s => s.id === c.skuId)!, p = ds.periods.find(p => p.id === c.periodId)!;
       await tx.insert(auditTrail).values({ country, username: actor, action: "import", sheet: "FOC",
         skuName: `${s.name} ${s.weight} (${s.packagingType})`, periodLabel: p.label, field: "FOC quantity / receipt",
-        oldValue: JSON.stringify({ value: old?.value ?? null, received: old?.received ?? false, receivedDate: old?.receivedDate ?? null }),
-        newValue: JSON.stringify({ value: c.value, received: c.received, receivedDate: c.receivedDate }),
+        oldValue: JSON.stringify({ value: old?.value ?? null, received: old?.received ?? false }),
+        newValue: JSON.stringify({ value: c.value, received: c.received }),
         details: "Paired Forecast Production Excel import; receipt review retained and re-evaluated" });
     }
     const next = new Map(ds.foc.map(c => [`${c.skuId}-${c.periodId}`, c]));

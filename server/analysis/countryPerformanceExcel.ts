@@ -610,38 +610,6 @@ export async function buildPerformanceWorkbook(pack: PerformancePack, extras: Wo
     s.table(["Section", "Note", "Author", "Updated"], extras.notes.map((n) => [n.sectionId, n.body, n.author, new Date(n.updatedAt).toLocaleString("en-GB")]));
   }
 
-  if (pack.foc) {
-    const f = pack.foc, s = addSheet(wb, num("FOC"));
-    s.title("Planned FOC — free product", "No FOC enters sell-out, sales targets or commercial value.");
-    s.note(`${f.total.missing} SKU/month quantities are not set. Entered subtotals are not complete totals when FOC is missing.`);
-    const rows = (xs: typeof f.months | typeof f.skus) => xs.map(r => [
-      "weight" in r ? `${r.label} ${r.weight} (${r.packaging})` : r.label,
-      r.ordered, r.foc ?? "Not set", r.enteredFoc, r.physical ?? "Not set", r.knownPhysical, r.percent ?? "Not set", r.missing,
-    ]);
-    const headings = ["Month / SKU", "Ordered (MC)", "FOC (MC)", "Entered FOC subtotal (MC)", "Physical plan (MC)", "Known plan subtotal (MC)", "FOC / ordered %", "Not-set cells"];
-    s.keyValues([["Ordered total (MC)", f.total.ordered], ["FOC total (MC)", f.total.foc ?? "Not set"],
-      ["Entered FOC subtotal (MC)", f.total.enteredFoc], ["Physical total (MC)", f.total.physical ?? "Not set"], ["FOC / ordered %", f.total.percent ?? "Not set"]]);
-    s.table(headings, rows(f.months));
-    s.question("SKU totals and ranking");
-    s.table(headings, rows(f.skus));
-    if (f.receipts) {
-      const receiptHeadings = ["Month / SKU", "FOC planned (MC)", "FOC received in arrival month (MC)", "FOC awaiting receipt (MC)",
-        "Received % of plan cohort", "Excluded by switch (MC)", "Pending duplicate review (MC)", "Not-set cells",
-        "Entered planned subtotal (MC)", "Entered awaiting subtotal (MC)"];
-      const receiptRows = (xs: typeof f.receipts.months | typeof f.receipts.skus) => xs.map(r =>
-        [r.label, r.missing ? "Not set" : r.planned, r.received, r.missing ? "Not set" : r.awaiting,
-          r.missing ? "Not set" : r.receivedPercent ?? "Not applicable", r.excluded, r.reviewPending, r.missing, r.planned, r.awaiting]);
-      s.question("FOC receipts and awaiting receipt");
-      s.note("Received quantities use the landing month; awaiting quantities and receipt percentage use the original plan month. Unreceived FOC is not stock.");
-      s.table(receiptHeadings, receiptRows(f.receipts.months));
-      s.table(receiptHeadings, receiptRows(f.receipts.skus));
-      s.question("Receipt decisions and dates");
-      s.table(["SKU", "Plan month", "FOC (MC)", "Received?", "Received date", "Landing month", "Added to arrivals (MC)", "Review status"],
-        f.receipts.entries.map(e => [e.sku, e.planMonth, e.quantity, e.received ? "Yes" : "No", e.receivedDate ?? "Plan month",
-          e.receiptMonth, e.added, e.needsReview ? "Not added; review required" : e.decision]));
-      for (const e of f.receipts.warnings) s.note(`${e.sku} · ${e.receiptMonth} · ${e.quantity} MC: ${e.needsReview ? "Pending duplicate review; not added" : e.decision}. ${e.matches.map(m => `${m.source}: ${m.quantity} MC`).join("; ")}`);
-    }
-  }
   const out = await wb.xlsx.writeBuffer();
   return Buffer.from(out as ArrayBuffer);
 }

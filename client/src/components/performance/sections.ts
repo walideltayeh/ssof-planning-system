@@ -6,7 +6,6 @@ import {
   DemandSection,
   ExecutiveSummarySection,
   FlowSection,
-  FocSection,
   ForecastQualitySection,
   ForwardSection,
   InventorySection,
@@ -49,7 +48,6 @@ export const performanceSections: PerformanceSectionDefinition[] = [
   { id: "stockSituation", title: "Stock Situation by SKU", Component: StockSituationSection },
   { id: "changes", title: "What Changed Since the Last Board", Component: BoardChangesSection },
   { id: "syriaReconciliation", title: "Syria Reconciliation", Component: SyriaReconciliationSection, available: (pack) => pack.meta.country === "Syria" },
-  { id: "foc", title: "Planned free product", Component: FocSection, available: (pack) => pack.meta.country === "Libya" || pack.meta.country === "Syria" },
   { id: "flow", title: "Supply Chain Flow", Component: FlowSection },
   { id: "demand", title: "Demand — sell-out (IMS)", Component: DemandSection },
   { id: "supply", title: "Supply — production, arrivals and clearance", Component: SupplySection },
@@ -64,6 +62,7 @@ export const performanceSections: PerformanceSectionDefinition[] = [
 ];
 
 export function titleForSection(section: PerformanceSectionDefinition, isIntl: boolean) {
+  if (section.id === "anomalies") return "Unusual Months";
   return section.id === "supply" && !isIntl ? "Supply — production and arrivals" : section.title;
 }
 

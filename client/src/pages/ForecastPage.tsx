@@ -16,7 +16,7 @@ import ImportSheetButton from "@/components/ImportSheetButton";
 import { useGridNav } from "@/hooks/useGridNav";
 import LibyaPoImport from "@/components/LibyaPoImport";
 import { ForecastFocRow, ForecastFocBanner, ForecastFocTotals, useForecastFoc } from "@/components/forecast/ForecastFoc";
-import { displayValue, fromMastercases, toMastercases } from "./FocPage";
+import { displayValue, fromMastercases, toMastercases } from "@/lib/forecastUnits";
 
 const WEIGHT_ORDER: Record<string, number> = { "1kg": 0, "250g": 1, "50g": 2 };
 
@@ -671,8 +671,8 @@ export default function ForecastPage() {
                           </td>
                         </tr>
                         {!collapsedWeights.has(`${group.category}-${weight}`) && weightSkus.map((sku, idx) => (
-                      <Fragment key={sku.id}><tr className={`border-b hover:bg-muted ${idx % 2 === 1 ? 'bg-slate-50' : ''} ${isSkuExcluded(sku.id) ? 'opacity-40' : ''}`}>
-                        <td className={`sticky left-0 ${idx % 2 === 1 ? 'bg-slate-50' : 'bg-background'} z-10 px-2 py-1.5`}>
+                      <Fragment key={sku.id}><tr className={`border-b hover:bg-muted ${foc.supported ? "h-16 text-base font-bold text-foreground" : ""} ${idx % 2 === 1 ? 'bg-slate-50' : ''} ${isSkuExcluded(sku.id) ? 'opacity-40' : ''}`}>
+                        <td className={`sticky left-0 ${idx % 2 === 1 ? 'bg-slate-50' : 'bg-background'} z-10 px-2 ${foc.supported ? "py-4" : "py-1.5"}`}>
                           <div className="flex flex-col items-start gap-0.5">
                             <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold ${
                               sku.weight === '50g' ? 'bg-blue-100 text-blue-700' :
@@ -686,9 +686,9 @@ export default function ForecastPage() {
                             )}
                           </div>
                         </td>
-                        <td className={`sticky left-[50px] ${idx % 2 === 1 ? 'bg-slate-50' : 'bg-background'} z-10 px-2 py-1.5 font-medium whitespace-nowrap`}>
+                        <td className={`sticky left-[50px] ${idx % 2 === 1 ? 'bg-slate-50' : 'bg-background'} z-10 px-2 ${foc.supported ? "py-4 font-bold" : "py-1.5 font-medium"} whitespace-nowrap`}>
                           <span>{sku.name}</span>
-                          {foc.supported && <span className="ml-2 text-[10px] font-normal text-muted-foreground">Ordered</span>}
+                          {foc.supported && <span className="ml-2 text-xs font-bold">Ordered</span>}
                         </td>
                         {periodsByYear.map(({ year, periods: yPeriods }) => {
                           const isYearCollapsed = collapsedYears.has(year);

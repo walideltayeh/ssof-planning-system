@@ -79,7 +79,6 @@ export const focData = pgTable("foc_data", {
   periodId: integer("periodId").notNull(),
   value: numeric("value", { precision: 12, scale: 2 }),
   received: boolean("received").default(false).notNull(),
-  receivedDate: date("receivedDate"),
   receiptDecision: varchar("receiptDecision", { length: 16 }).default("pending").notNull(),
   receiptReviewKey: text("receiptReviewKey"),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),

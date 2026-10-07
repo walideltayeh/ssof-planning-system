@@ -519,3 +519,30 @@ describe("DashboardLayout — Change Password dialog (weak password handling)", 
     ).toBeInTheDocument();
   });
 });
+
+describe("DashboardLayout analysis scroll placement", () => {
+  it("places the sticky analysis rail inside the real app content main, below the sidebar inset", () => {
+    H.appUserMock = {
+      id: 19,
+      username: "planner",
+      displayName: "Planner",
+      role: "viewer",
+      countries: ["Lebanon"],
+      isOwner: false,
+    };
+    render(
+      <DashboardLayout>
+        <div className="sticky top-0" data-testid="sticky-analysis-rail">
+          Working groups
+        </div>
+      </DashboardLayout>,
+    );
+
+    const rail = screen.getByTestId("sticky-analysis-rail");
+    const contentMain = rail.closest("main.flex-1.p-4");
+    expect(contentMain).not.toBeNull();
+    expect(contentMain?.closest('main[data-slot="sidebar-inset"]')).not.toBeNull();
+    expect(rail.classList.contains("sticky")).toBe(true);
+    expect(rail.classList.contains("top-0")).toBe(true);
+  });
+});

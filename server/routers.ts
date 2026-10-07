@@ -9,7 +9,6 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { getFocPlanning, setFocCell, previewLibyaPo, importLibyaPo } from "./focPlanning";
 import { updateFocReceipt, previewFocReceipts, commitFocReceipts, reviewFocReceipt } from "./focReceiptService";
-import { validReceiptDate } from "../shared/performance/focReceipts";
 import { invalidateCountryPerformanceCache } from "./analysis/countryPerformance";
 import * as db from "./db";
 import { assertRecordsScopedToCountry } from "./countryScope";
@@ -305,18 +304,17 @@ async function requireSkuCountryAdmin(
   return country;
 }
 
-const focReceiptDate = z.string().refine(validReceiptDate, "Enter a valid received date").nullable().optional();
 const focReceiptScope = {
   country: z.enum(["Libya", "Syria"]),
   skuId: z.number().int().positive().optional(), periodId: z.number().int().positive().optional(),
-  received: z.boolean(), receivedDate: focReceiptDate,
+  received: z.boolean(),
 };
 export const appRouter = router({
   focPlanning: router({
     receiptUpdate: adminProcedure.input(z.object({
       country: z.enum(["Libya", "Syria"]), skuId: z.number().int().positive(), periodId: z.number().int().positive(),
-      received: z.boolean().optional(), receivedDate: focReceiptDate,
-    }).refine(x => x.received !== undefined || x.receivedDate !== undefined, "Choose a receipt status or date")).mutation(async ({ctx, input}) => {
+      received: z.boolean(),
+    }).strict()).mutation(async ({ctx, input}) => {
       await requireCountryAdmin(ctx, input.country);
       const result = await updateFocReceipt(input.country, getAuditActor(ctx), input);
       invalidateCountryPerformanceCache(input.country);

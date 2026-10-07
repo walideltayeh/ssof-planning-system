@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import ExcelJS from "exceljs";
 import { buildStockLedger } from "../../shared/performance/stock";
-import { evaluateFocReceipts, focReceiptAdditions, summarizeFocReceipts, validReceiptDate } from "../../shared/performance/focReceipts";
+import { evaluateFocReceipts, focReceiptAdditions, summarizeFocReceipts } from "../../shared/performance/focReceipts";
 import { buildPack } from "./countryPerformance";
 import { buildPerformanceWorkbook } from "./countryPerformanceExcel";
 import type { PerformanceDataset } from "./countryPerformance.helpers";
@@ -13,7 +13,7 @@ function fixture(country: "Libya" | "Syria" = "Libya"): PerformanceDataset {
     forecast: Array.from({ length: 12 }, (_, i) => ({ skuId: 1, periodId: i + 1, value: "100" })),
     ims: [{ skuId: 1, periodId: 9, value: "10", source: "manual" }], shipment: [], arrival: [], actualProduction: [],
     clearanceEvents: [], planningFg: [{ skuId: 1, periodId: 1, openingStock: "1000", adjustments: "0", arrivals: "0" }],
-    foc: [{ skuId: 1, periodId: 9, value: "12.34", received: false, receivedDate: null }] };
+    foc: [{ skuId: 1, periodId: 9, value: "12.34", received: false }] };
 }
 const request = { country: "Libya" as const, preset: "custom" as const, from: "2026-09", to: "2026-12", compare: "plan" as const };
 const ledger = (ds: PerformanceDataset, includeFoc = true) => buildStockLedger({ ...ds, includeFoc });
@@ -52,22 +52,21 @@ describe("Confirmed FOC receipt stock rules", () => {
     ds.foc![0].received = false;
     expect(ledger(ds)).toEqual(before);
   });
-  it("receipt date moves the additive receipt, including across years; blank returns to plan month", () => {
+  it("Received Yes always arrives in its own month, ignoring obsolete dates even across years", () => {
     const ds = fixture();
     ds.periods.push({ id: 13, year: 2027, month: 1, label: "1/2027", sortOrder: 13 });
-    const c = ds.foc![0]; c.received = true; c.receivedDate = "2026-11-19";
-    let l = ledger(ds);
-    expect(l.bySku.get(1)!.get(9)!.arrivals).toBe(0);
-    expect(l.bySku.get(1)!.get(11)!.arrivals).toBe(12.34);
-    c.receivedDate = "2027-01-01"; l = ledger(ds);
-    expect(l.bySku.get(1)!.get(11)!.arrivals).toBe(0);
-    expect(l.bySku.get(1)!.get(13)!.arrivals).toBe(12.34);
-    c.receivedDate = null; l = ledger(ds);
-    expect(l.bySku.get(1)!.get(9)!.arrivals).toBe(12.34);
-    expect(l.bySku.get(1)!.get(13)!.arrivals).toBe(0);
+    const c = ds.foc![0]; c.received = true;
+    for (const legacyDate of ["2026-11-19", "2027-01-01", null]) {
+      Object.assign(c, { receivedDate: legacyDate });
+      const l = ledger(ds);
+      expect(l.bySku.get(1)!.get(9)!.arrivals).toBe(12.34);
+      expect(l.bySku.get(1)!.get(11)!.arrivals).toBe(0);
+      expect(l.bySku.get(1)!.get(13)!.arrivals).toBe(0);
+      expect(evaluateFocReceipts(ds)[0]).not.toHaveProperty("receivedDate");
+    }
   });
   it("No remains completely inert even with a date, prior review and matching arrivals", () => {
-    const ds = fixture(); ds.foc![0].receivedDate = "2026-11-12";
+    const ds = fixture();
     ds.clearanceEvents.push({ skuId: 1, periodId: 1, clearedQty: "12.34", clearedDate: "2026-11-12", country: "Libya" });
     ds.foc![0].receiptDecision = "separate"; ds.foc![0].receiptReviewKey = "stale";
     expect(ledger(ds)).toEqual(ledger({ ...ds, foc: [] }));
@@ -110,7 +109,7 @@ describe("Confirmed FOC receipt stock rules", () => {
     expect(ledger(ds)).toEqual(before);
     ds.clearanceEvents[0].clearedQty = "20"; // no longer within similarity range: prior decision still must be reviewed
     expect(evaluateFocReceipts(ds)[0]).toMatchObject({ added: 0, needsReview: true });
-    ds.foc![0].receivedDate = "2026-11-01";
+    ds.foc![0].value = "25.00";
     expect(evaluateFocReceipts(ds)[0].needsReview).toBe(true);
   });
   it("an entirely separate received FOC layer survives tracker clearing/replacing all clearance rows", () => {
@@ -127,27 +126,25 @@ describe("Confirmed FOC receipt stock rules", () => {
     ds.clearanceEvents = [{ skuId: 1, periodId: 9, clearedQty: "12.35", clearedDate: "2026-09-20", country: "Syria" }];
     expect(evaluateFocReceipts(ds)[0]).toMatchObject({ added: 0, needsReview: true });
   });
-  it("warns when two received FOC cells land in the same month at similar sizes", () => {
+  it("similar FOC quantities in different planning months never move into the same month", () => {
     const ds = fixture(); ds.foc![0].received = true;
-    ds.foc!.push({ skuId: 1, periodId: 10, value: "12.34", received: true, receivedDate: "2026-09-30" });
-    expect(evaluateFocReceipts(ds).every(e => e.needsReview && e.added === 0)).toBe(true);
+    ds.foc!.push({ skuId: 1, periodId: 10, value: "12.34", received: true });
+    expect(evaluateFocReceipts(ds).every(e => !e.needsReview && e.added === 12.34)).toBe(true);
+    expect(focReceiptAdditions(ds)).toEqual(new Map([["1-9", 12.34], ["1-10", 12.34]]));
   });
-  it("groups landed receipts by calendar date, awaiting by plan month, and cohort percent cannot exceed 100", () => {
-    const ds = fixture(); ds.foc![0].received = true; ds.foc![0].receivedDate = "2026-11-12";
+  it("groups both received and awaiting quantities by the planning month", () => {
+    const ds = fixture(); ds.foc![0].received = true;
     const s = summarizeFocReceipts(ds);
-    expect(s.months[8]).toMatchObject({ planned: 12.34, received: 0, receivedForPlan: 12.34, awaiting: 0, receivedPercent: 100 });
-    expect(s.months[10]).toMatchObject({ received: 12.34 });
+    expect(s.months[8]).toMatchObject({ planned: 12.34, received: 12.34, receivedForPlan: 12.34, awaiting: 0, receivedPercent: 100 });
+    expect(s.months[10]).toMatchObject({ received: 0 });
     expect(s.skus[0]).toMatchObject({ received: 12.34, awaiting: 0 });
     const off = summarizeFocReceipts(ds, false);
     expect(off.total).toMatchObject({ received: 0, excluded: 12.34, awaiting: 0 });
     expect(s.total.missing).toBe(11);
     expect(s.total.receivedPercent).toBeNull();
   });
-  it("unknown/invalid date buckets fail closed; legacy quantity-only rows default No; inactive/foreign never enter stock", () => {
-    const ds = fixture(); ds.foc![0].received = true; ds.foc![0].receivedDate = "2040-12-01";
-    expect(evaluateFocReceipts(ds)[0]).toMatchObject({ added: 0, needsReview: true });
-    ds.foc![0].receivedDate = "2026-02-30";
-    expect(evaluateFocReceipts(ds)[0].added).toBe(0);
+  it("legacy quantity-only rows default No; inactive/foreign never enter stock", () => {
+    const ds = fixture();
     ds.foc = [{ skuId: 1, periodId: 9, value: "12.34" }];
     expect(evaluateFocReceipts(ds)[0]).toMatchObject({ received: false, added: 0 });
     ds.foc[0].received = true; ds.foc[0].country = "Syria";
@@ -160,10 +157,18 @@ describe("Confirmed FOC receipt stock rules", () => {
     expect(evaluateFocReceipts(ds)).toEqual([]);
     expect(ledger(ds)).toEqual(ledger({ ...ds, foc: [] }));
   });
-  it("validates real ISO dates without timezone coercion", () => {
-    expect(validReceiptDate("2028-02-29")).toBe(true);
-    for (const d of ["2026-02-29", "2026-02-30", "2026-09-31", "2026-13-01", "2026-01-01T00:00:00Z", "not a date"])
-      expect(validReceiptDate(d)).toBe(false);
+  it("preserves a legacy review only if its quantity, planning month and evidence still match", () => {
+    const ds = fixture(); ds.foc![0].received = true;
+    ds.clearanceEvents = [{ skuId: 1, periodId: 9, clearedQty: "12.34", clearedDate: "2026-09-20", country: "Libya" }];
+    const key = JSON.parse(evaluateFocReceipts(ds)[0].reviewKey);
+    // Previous evidence keys had a date property between target and evidence.
+    const legacyKey = { skuId: key.skuId, periodId: key.periodId, quantity: key.quantity,
+      target: key.target, date: "2026-09-21", evidence: key.evidence, matches: key.matches };
+    Object.assign(ds.foc![0], { receiptDecision: "separate", receiptReviewKey: JSON.stringify(legacyKey) });
+    expect(evaluateFocReceipts(ds)[0].added).toBe(12.34);
+    legacyKey.target = 10;
+    ds.foc![0].receiptReviewKey = JSON.stringify(legacyKey);
+    expect(evaluateFocReceipts(ds)[0]).toMatchObject({ added: 0, needsReview: true });
   });
   it("keeps commercial/IMS values unchanged while every analysis stock headline and arrival gains the exact receipt", () => {
     const ds = fixture(); const before = buildPack(ds, request, null);
@@ -178,13 +183,13 @@ describe("Confirmed FOC receipt stock rules", () => {
     ds.foc![0].received = false;
     expect(buildPack(ds, request, null).stockSituation).toEqual(before.stockSituation);
   });
-  it("exports receipt statuses/date/destination/received/awaiting/review in the selected basis", async () => {
-    const ds = fixture(); ds.foc![0].received = true; ds.foc![0].receivedDate = "2026-11-12";
+  it("exports analysis stock including received FOC without a dedicated FOC worksheet or receipt date", async () => {
+    const ds = fixture(); ds.foc![0].received = true;
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(await buildPerformanceWorkbook(buildPack(ds, request, null)) as any);
-    const ws = wb.worksheets.find(s => s.name.endsWith("FOC"))!;
-    const values: unknown[] = []; ws.eachRow(r => r.eachCell(c => values.push(c.value)));
-    expect(values).toContain("Yes"); expect(values).toContain("2026-11-12"); expect(values).toContain(12.34);
-    expect(values).toContain("11/2026");
+    expect(wb.worksheets.some(s => /FOC/i.test(s.name))).toBe(false);
+    const values: unknown[] = []; wb.worksheets.forEach(ws => ws.eachRow(r => r.eachCell(c => values.push(c.value))));
+    expect(values).not.toContain("Received date");
+    expect(values).toContain(12.34);
   });
 });

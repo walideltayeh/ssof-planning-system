@@ -1414,17 +1414,6 @@ export async function generateExcelBufferForCountry(country: "Syria" | "Libya" |
       buildIntlPlanningFgSheet(wb, w, allSkus, sortedPeriods, ims, planningFg, arrival, { ...data, country, now: new Date(), includeFoc });
     }
   }
-  if (country === "Libya" || country === "Syria") {
-    const summary = summarizeFocReceipts({ ...data, country }, includeFoc);
-    const ws = wb.addWorksheet("FOC receipts");
-    ws.addRow([includeFoc ? "Including confirmed, duplicate-checked FOC receipts" : "Excluding FOC receipts"]);
-    ws.addRow(["SKU", "Plan month", "FOC planned (MC)", "Received?", "Received date", "Receipt month", "Added to arrivals (MC)", "Awaiting / review (MC)", "Duplicate warning / decision"]);
-    for (const e of summary.entries) ws.addRow([e.sku, e.planMonth, e.quantity, e.received ? "Yes" : "No", e.receivedDate ?? "", e.receiptMonth,
-      e.added, e.awaiting, e.needsReview ? "Not added; review required" : e.decision]);
-    ws.pageSetup.printTitlesRow = "1:2";
-    ws.headerFooter.oddHeader = `&L${includeFoc ? "Including confirmed FOC" : "Excluding FOC"}&RMC · page &P of &N`;
-    ws.headerFooter.evenHeader = ws.headerFooter.oddHeader;
-  }
   const buffer = await wb.xlsx.writeBuffer();
   return Buffer.from(buffer);
 }

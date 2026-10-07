@@ -4,7 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { getDb } from "./db";
 import { skus, periods, focData, arrivalData, planningFgData, clearanceEvents, auditTrail } from "../drizzle/schema";
 import { supportsFoc, type FocCountry } from "../shared/performance/foc";
-import { evaluateFocReceipts, validReceiptDate } from "../shared/performance/focReceipts";
+import { evaluateFocReceipts } from "../shared/performance/focReceipts";
 
 async function database() {
   const db = await getDb();
@@ -12,7 +12,7 @@ async function database() {
   return db;
 }
 type Db = Awaited<ReturnType<typeof database>>;
-export type ReceiptChange = { skuId?: number; periodId?: number; received: boolean; receivedDate?: string | null };
+export type ReceiptChange = { skuId?: number; periodId?: number; received: boolean };
 function fail(message: string): never { throw new TRPCError({ code: "BAD_REQUEST", message }); }
 
 export async function loadFocReceiptData(country: FocCountry, connection?: Db) {
@@ -34,9 +34,6 @@ function validateScope(ds: Awaited<ReturnType<typeof loadFocReceiptData>>, input
   if (!input.skuId && !input.periodId) fail("Choose a SKU row or a month");
   if (input.skuId && !ds.skus.some(s => s.id === input.skuId)) fail("SKU is not active in this country");
   if (input.periodId && !ds.periods.some(p => p.id === input.periodId)) fail("Month does not belong to this country");
-  if (input.receivedDate && (!validReceiptDate(input.receivedDate) ||
-    !ds.periods.some(p => `${p.year}-${String(p.month).padStart(2, "0")}` === input.receivedDate!.slice(0, 7))))
-    fail("Received date must be a valid date in an existing planning month for this country");
 }
 
 async function preview(country: FocCountry, input: ReceiptChange, db?: Db) {
@@ -44,18 +41,15 @@ async function preview(country: FocCountry, input: ReceiptChange, db?: Db) {
   validateScope(ds, input);
   const scoped = ds.foc.filter(c => (!input.skuId || c.skuId === input.skuId) && (!input.periodId || c.periodId === input.periodId)
     && ds.skus.some(s => s.id === c.skuId) && ds.periods.some(p => p.id === c.periodId));
-  const candidates = scoped.filter(c => c.value !== null && (c.received !== input.received ||
-    (input.receivedDate !== undefined && c.receivedDate !== input.receivedDate)));
-  const next = { ...ds, foc: ds.foc.map(c => candidates.includes(c) ? { ...c, received: input.received,
-    receivedDate: input.receivedDate === undefined ? c.receivedDate : input.receivedDate,
-  } : c) };
+  const candidates = scoped.filter(c => c.value !== null && c.received !== input.received);
+  const next = { ...ds, foc: ds.foc.map(c => candidates.includes(c) ? { ...c, received: input.received } : c) };
   const evaluated = evaluateFocReceipts(next);
   const changes = candidates.map(c => ({
     ...evaluated.find(e => e.skuId === c.skuId && e.periodId === c.periodId)!,
-    before: { received: c.received, receivedDate: c.receivedDate },
-    after: { received: input.received, receivedDate: input.receivedDate === undefined ? c.receivedDate : input.receivedDate },
+    before: { received: c.received },
+    after: { received: input.received },
   }));
-  const canonicalScope = { skuId: input.skuId, periodId: input.periodId, received: input.received, receivedDate: input.receivedDate };
+  const canonicalScope = { skuId: input.skuId, periodId: input.periodId, received: input.received };
   const token = createHash("sha256").update(JSON.stringify({ input: canonicalScope, changes, cells: scoped })).digest("hex");
   const expected = ds.skus.filter(s => !input.skuId || s.id === input.skuId).length *
     ds.periods.filter(p => !input.periodId || p.id === input.periodId).length;
@@ -63,25 +57,19 @@ async function preview(country: FocCountry, input: ReceiptChange, db?: Db) {
 }
 export async function previewFocReceipts(country: FocCountry, input: ReceiptChange) { return preview(country, input); }
 
-async function applyChanges(country: FocCountry, actor: string, input: Omit<ReceiptChange, "received"> & { received?: boolean }, token?: string) {
+async function applyChanges(country: FocCountry, actor: string, input: ReceiptChange, token?: string) {
   const db = await database();
   return db.transaction(async tx => {
     // Serialize FOC edits, bulk actions and PO imports for this country's SKUs.
     await tx.select().from(skus).where(eq(skus.country, country)).for("update");
-    let received = input.received;
-    if (received === undefined) {
-      const [current] = await tx.select().from(focData).where(and(eq(focData.country, country),
-        eq(focData.skuId, input.skuId!), eq(focData.periodId, input.periodId!)));
-      received = current?.received ?? false;
-    }
-    const result = await preview(country, { ...input, received }, tx as unknown as Db);
+    const result = await preview(country, input, tx as unknown as Db);
     if (token && token !== result.token) throw new TRPCError({ code: "CONFLICT", message: "FOC or arrivals changed since preview. Review the confirmation again." });
     if (input.skuId && input.periodId) {
       const [cell] = await tx.select().from(focData).where(and(eq(focData.country, country), eq(focData.skuId, input.skuId), eq(focData.periodId, input.periodId)));
       if (!cell || cell.value === null) fail("Enter an FOC quantity before changing its receipt");
     }
     for (const c of result.changes) {
-      await tx.update(focData).set({ received: c.after.received, receivedDate: c.after.receivedDate,
+      await tx.update(focData).set({ received: c.after.received,
         updatedAt: new Date() })
         .where(and(eq(focData.country, country), eq(focData.skuId, c.skuId), eq(focData.periodId, c.periodId)));
       await tx.insert(auditTrail).values({ country, username: actor, action: "edit_cell", sheet: "FOC",
@@ -93,7 +81,7 @@ async function applyChanges(country: FocCountry, actor: string, input: Omit<Rece
     return { success: true, changed: result.changes.length, warnings: result.changes.filter(c => c.needsReview) };
   });
 }
-export async function updateFocReceipt(country: FocCountry, actor: string, input: { skuId: number; periodId: number; received?: boolean; receivedDate?: string | null }) {
+export async function updateFocReceipt(country: FocCountry, actor: string, input: { skuId: number; periodId: number; received: boolean }) {
   return applyChanges(country, actor, input);
 }
 export async function commitFocReceipts(country: FocCountry, actor: string, input: ReceiptChange, token: string) {

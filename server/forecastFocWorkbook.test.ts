@@ -13,7 +13,7 @@ function dataset(): ForecastSheetData {
     periods: [{ id: 10, label: "Sep 26", year: 2026, month: 9, country: "Libya" }, { id: 11, label: "Oct 26", year: 2026, month: 10, country: "Libya" }],
     forecast: [{ skuId: 1, periodId: 10, value: "123.33" }, { skuId: 2, periodId: 10, value: "50" }],
     foc: [
-      { country: "Libya", skuId: 1, periodId: 10, value: "12.33", received: true, receivedDate: "2026-10-09", receiptDecision: "separate", receiptReviewKey: "stable review evidence" },
+      { country: "Libya", skuId: 1, periodId: 10, value: "12.33", received: true, receiptDecision: "separate", receiptReviewKey: "stable review evidence" },
       { country: "Libya", skuId: 1, periodId: 11, value: "0.00", received: false },
       { country: "Libya", skuId: 2, periodId: 10, value: null, received: false },
     ], arrival: [], clearanceEvents: [], planningFg: [] };
@@ -36,12 +36,14 @@ describe("paired Forecast Production workbook", () => {
     expect(result.forecast.find(c => c.skuId === 1 && c.periodId === 10)?.value).toBe("123.33");
     expect(result.forecast.find(c => c.skuId === 2 && c.periodId === 10)?.value).toBe("50.00");
     expect(result.foc.find(c => c.skuId === 1 && c.periodId === 10)).toMatchObject({
-      value: "12.33", received: true, receivedDate: "2026-10-09", receiptDecision: "separate", receiptReviewKey: "stable review evidence",
+      value: "12.33", received: true, receiptDecision: "separate", receiptReviewKey: "stable review evidence",
     });
     expect(result.foc.find(c => c.skuId === 1 && c.periodId === 11)?.value).toBe("0.00");
     expect(result.foc.find(c => c.skuId === 2 && c.periodId === 10)?.value).toBeNull();
     expect(result.foc.find(c => c.skuId === 2 && c.periodId === 11)?.value).toBeNull();
     expect(result.forecast.some(c => c.skuId === 3)).toBe(false);
+    expect(result.foc.every(c => !("receivedDate" in c))).toBe(true);
+    expect(ws.getRows(1, ws.rowCount)?.some(r => r.getCell(4).value === "FOC Received date")).toBe(false);
   });
   it("places the FOC quantity row directly below its ordered row", () => {
     const ws = make();

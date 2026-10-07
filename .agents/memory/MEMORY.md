@@ -11,3 +11,4 @@
 - [Excel workbook validity](excel-workbook-validity.md) — ExcelJS serializes zero-sheet workbooks without error; valid ZIP/XML alone does not prove Excel can open the download.
 - [Syria warehouse truth](syria-warehouse-truth.md) — tracker warehouse stock is Syria's reference; compare first, admin applies deliberately; never derive absent feed balances.
 - [FOC receipt basis](planned-foc-basis.md) — Libya/Syria FOC affects stock/cover only when received and included; unreceived remains separate; duplicate inbound requires explicit admin review.
+- [Analysis working tabs](analysis-working-tabs.md) — working tabs are separate from the full saved board/PDF order; remember selection per user, with Summary as the first-use default.

@@ -5,6 +5,7 @@ describe("arrangeSections", () => {
   it("keeps the default board order and numbers sections from 1 when no layout is saved", () => {
     const arranged = arrangeSections(performanceSections, null);
     expect(arranged.map((s) => s.id).slice(0, 5)).toEqual(["runningRate", "outlook", "executive", "stockSituation", "changes"]);
+    expect(arranged.some((s) => s.id === "foc")).toBe(false);
     expect(arranged.map((s) => s.number)).toEqual(arranged.map((_, i) => i + 1));
     expect(arranged.every((s) => !s.hiddenFromSlides)).toBe(true);
   });

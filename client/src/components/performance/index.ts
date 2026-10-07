@@ -15,4 +15,3 @@ export { default as MarketSection } from "./MarketSection";
 export { default as AnomaliesSection } from "./AnomaliesSection";
 export { default as StockSituationSection } from "./StockSituationSection";
 export { default as SyriaReconciliationSection } from "./SyriaReconciliationSection";
-export { default as FocSection } from "./FocSection";

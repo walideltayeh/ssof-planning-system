@@ -97,7 +97,7 @@ describe("FOC and approved Libya PO", () => {
     const ksa = parsePerformanceExportQuery({ country: "KSA", includeFoc: "true" });
     if (ksa.ok) expect(ksa.request.includeFoc).toBeUndefined();
   });
-  it.each([true, false])("labels every Excel sheet and printed page with includeFoc=%s and exports FOC quantities", async includeFoc => {
+  it.each([true, false])("keeps the includeFoc=%s basis on every Analysis worksheet without a dedicated FOC section", async includeFoc => {
     const pack = buildPack(fixture(), { ...req, includeFoc }, null);
     const buffer = await buildPerformanceWorkbook(pack);
     const wb = new ExcelJS.Workbook();
@@ -107,12 +107,6 @@ describe("FOC and approved Libya PO", () => {
       expect(sheet.headerFooter.oddHeader).toContain(pack.foc!.basisLabel);
       expect(sheet.pageSetup.printTitlesRow).toBe("1:2");
     }
-    const foc = wb.worksheets.find(s => s.name.endsWith("FOC"))!;
-    expect(foc).toBeDefined();
-    const cells: (string | number)[] = [];
-    foc.eachRow(row => row.eachCell(c => { if (typeof c.value === "number" || typeof c.value === "string") cells.push(c.value); }));
-    expect(cells).toContain(11427.58);
-    expect(cells).toContain(111500.01);
-    expect(cells).toContain(includeFoc ? 122927.59 : 111500.01);
+    expect(wb.worksheets.some(s => /FOC/i.test(s.name))).toBe(false);
   });
 });

@@ -1,6 +1,6 @@
 export type FocCountry = "Libya" | "Syria";
 export type FocCell = { skuId: number; periodId: number; value: string | number | null; updatedAt?: Date | string | null;
-  received?: boolean; receivedDate?: string | null; receiptDecision?: string; receiptReviewKey?: string | null; country?: string };
+  received?: boolean; receiptDecision?: string; receiptReviewKey?: string | null; country?: string };
 export const supportsFoc = (country: string): country is FocCountry => country === "Libya" || country === "Syria";
 export const focNote = "FOC is free product, not sell-out or revenue. Only confirmed, duplicate-checked FOC receipts enter stock when Include FOC is on. Awaiting FOC is not stock.";
 export const mcPrecision = (v: number) => Math.round(v * 100) / 100;

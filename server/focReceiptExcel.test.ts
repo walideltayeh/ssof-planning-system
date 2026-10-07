@@ -12,7 +12,7 @@ beforeEach(() => {
     arrival: [{ skuId: 1, periodId: 9, week1: "999" }], actualProduction: [],
     planningFg: [{ skuId: 1, periodId: 9, openingStock: "1000" }],
     clearanceEvents: [{ country: "Libya", skuId: 1, periodId: 9, clearedQty: "100", clearedDate: "2026-09-20" }],
-    foc: [{ country: "Libya", skuId: 1, periodId: 9, value: "12.34", received: false, receivedDate: "2026-10-01" }],
+    foc: [{ country: "Libya", skuId: 1, periodId: 9, value: "12.34", received: false }],
   };
   vi.mocked(db.getFullPlanningDataForCountry).mockImplementation(async () => structuredClone(data));
   vi.mocked(db.getActualProductionDataForCountry).mockResolvedValue([]);
@@ -37,10 +37,11 @@ describe("Planning FG receipt Excel parity", () => {
     expect(row(ws, "FOC awaiting receipt").getCell(4).value).toBe(12.34);
     expect(row(ws, "FOC awaiting receipt").getCell(5).value).toBe("Not set");
   });
-  it("lands Yes in the date month, excludes it when off, and No reverses exactly", async () => {
+  it("lands Yes in its own month, excludes it when off, and No reverses exactly", async () => {
     data.foc[0].received = true;
     let ws = await sheet();
-    expect(row(ws, "Arrivals / Orders").getCell(5).value).toBe(12.34);
+    expect(row(ws, "Arrivals / Orders").getCell(4).value).toBe(112.34);
+    expect(row(ws, "Arrivals / Orders").getCell(5).value).toBeNull();
     expect(row(ws, "Closing Stock").getCell(5).value).toBe(1102.34);
     expect(row(ws, "FOC awaiting receipt").getCell(4).value).toBe(0);
     ws = await sheet(false);
@@ -53,16 +54,17 @@ describe("Planning FG receipt Excel parity", () => {
   it.each([["KG", 6], ["Tons", 0.006]] as const)("exports quantities in %s but never converts cover weeks", async (unit, factor) => {
     data.foc[0].received = true;
     const ws = await sheet(true, unit);
-    expect(row(ws, "Arrivals / Orders").getCell(5).value).toBeCloseTo(12.34 * factor, 8);
+    expect(row(ws, "Arrivals / Orders").getCell(4).value).toBeCloseTo(112.34 * factor, 8);
+    expect(row(ws, "Arrivals / Orders").getCell(5).value).toBeNull();
     expect(row(ws, "Closing Stock").getCell(5).value).toBeCloseTo(1102.34 * factor, 8);
-    expect(row(ws, "Stock Weeks").getCell(4).value).toBe(436);
+    expect(row(ws, "Stock Weeks").getCell(4).value).toBe(440.9);
     expect(ws.headerFooter.oddHeader).toContain(unit);
   });
   it("holds a duplicate, exports its warning, and does not add on top of existing clearance", async () => {
     data.foc[0].received = true;
-    data.clearanceEvents.push({ country: "Libya", skuId: 1, periodId: 9, clearedQty: "12.34", clearedDate: "2026-10-01" });
+    data.clearanceEvents.push({ country: "Libya", skuId: 1, periodId: 9, clearedQty: "12.34", clearedDate: "2026-09-21" });
     const ws = await sheet();
-    expect(row(ws, "Arrivals / Orders").getCell(5).value).toBe(12.34);
+    expect(row(ws, "Arrivals / Orders").getCell(4).value).toBe(112.34);
     expect(row(ws, "Closing Stock").getCell(5).value).toBe(1102.34);
     const warnings: string[] = []; ws.eachRow(r => { warnings.push(String(r.getCell(1).value)); });
     expect(warnings.some(w => w.includes("Mint 50g") && w.includes("12.34 MC") && w.includes("not added"))).toBe(true);

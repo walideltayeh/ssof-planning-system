@@ -27,7 +27,6 @@ import ForecastSplitPage from "@/pages/ForecastSplitPage";
 import ExpiryDashboardPage from "@/pages/ExpiryDashboardPage";
 import CompetitorAnalysisPage from "@/pages/CompetitorAnalysisPage";
 import TradeOffersPage from "@/pages/TradeOffersPage";
-import FocPage from "@/pages/FocPage";
 import AutoSaveReminder from "./components/AutoSaveReminder";
 import LandingPage from "./pages/LandingPage";
 import CountrySelectorPage from "./pages/CountrySelectorPage";
@@ -41,7 +40,7 @@ function Dashboard() {
       <Switch>
         <Route path="/" component={Home} />
         <Route path="/forecast" component={ForecastPage} />
-        <Route path="/foc" component={FocPage} />
+        <Route path="/foc"><Redirect to="/forecast" /></Route>
         <Route path="/ims-vs-forecast" component={ImsVsForecastPage} />
         <Route path="/shipment" component={ShipmentPage} />
         <Route path="/arrival" component={ArrivalPage} />

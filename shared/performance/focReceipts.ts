@@ -12,7 +12,7 @@ export interface FocReceiptDataset {
 }
 export type FocReceiptEntry = {
   skuId: number; periodId: number; sku: string; planMonth: string; receiptPeriodId: number | null; receiptMonth: string;
-  quantity: number; received: boolean; receivedDate: string | null; decision: string;
+  quantity: number; received: boolean; decision: string;
   matches: { source: string; quantity: number; date: string }[]; reviewKey: string; needsReview: boolean;
   added: number; receivedQuantity: number; awaiting: number; excluded: number;
 };
@@ -25,8 +25,15 @@ export type FocReceiptSummary = {
   total: ReceiptFigures;
 };
 export const receiptMonthKey = (p: { year: number; month: number }) => `${p.year}-${String(p.month).padStart(2, "0")}`;
-export const validReceiptDate = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s) &&
-  !Number.isNaN(Date.parse(s)) && new Date(s).toISOString().slice(0, 10) === s;
+function equivalentReviewKey(previous: string | null | undefined, current: string) {
+  if (previous === current) return true;
+  if (!previous) return false;
+  try {
+    const legacy = JSON.parse(previous);
+    delete legacy.date;
+    return JSON.stringify(legacy) === current;
+  } catch { return false; }
+}
 const n = (v: Q) => Number(v) || 0;
 const near = (a: number, b: number) => a > 0 && Math.abs(a - b) <= Math.max(0.01, b * 0.02) + 1e-8;
 
@@ -38,13 +45,11 @@ export function evaluateFocReceipts(ds: FocReceiptDataset, includeFoc = true): F
   if (!supportsFoc(ds.country)) return [];
   const skus = new Map(ds.skus.filter(s => s.isActive !== false && (!s.country || s.country === ds.country)).map(s => [s.id, s]));
   const periods = new Map(ds.periods.filter(p => !p.country || p.country === ds.country).map(p => [p.id, p]));
-  const byMonth = new Map([...periods.values()].map(p => [receiptMonthKey(p), p]));
   const cells = (ds.foc ?? []).filter(c => c.value !== null && Number.isFinite(Number(c.value)) &&
     n(c.value) >= 0 && skus.has(c.skuId) && periods.has(c.periodId) && (!c.country || c.country === ds.country));
   return cells.map(c => {
     const s = skus.get(c.skuId)!, origin = periods.get(c.periodId)!;
-    const date = c.receivedDate || null;
-    const target = date ? (validReceiptDate(date) ? byMonth.get(date.slice(0, 7)) : undefined) : origin;
+    const target = origin;
     const quantity = mcPrecision(n(c.value));
     const evidence: FocReceiptEntry["matches"] = [];
     if (target) {
@@ -69,23 +74,26 @@ export function evaluateFocReceipts(ds: FocReceiptDataset, includeFoc = true): F
       for (const other of cells) {
         if (other === c || other.skuId !== c.skuId || !other.received || n(other.value) <= 0) continue;
         const op = periods.get(other.periodId)!;
-        const month = other.receivedDate?.slice(0, 7) ?? receiptMonthKey(op);
+        const month = receiptMonthKey(op);
         if (month === receiptMonthKey(target)) evidence.push({ source: `Other received FOC (${op.label ?? receiptMonthKey(op)})`, date: month, quantity: mcPrecision(n(other.value)) });
       }
     }
     const matches = evidence.filter(e => near(e.quantity, quantity)).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
-    const reviewKey = JSON.stringify({ skuId: c.skuId, periodId: c.periodId, quantity, target: target?.id ?? null, date,
+    const reviewKey = JSON.stringify({ skuId: c.skuId, periodId: c.periodId, quantity, target: target?.id ?? null,
       evidence: evidence.slice().sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))), matches });
-    const reviewed = c.receiptReviewKey === reviewKey && ["separate", "included"].includes(c.receiptDecision ?? "");
-    const staleReview = !!c.receiptReviewKey && c.receiptReviewKey !== reviewKey;
+    // Legacy reviews remain valid only if the month, quantity and evidence still
+    // match. Removing a date must not silently approve a different month's receipt.
+    const sameReview = equivalentReviewKey(c.receiptReviewKey, reviewKey);
+    const reviewed = sameReview && ["separate", "included"].includes(c.receiptDecision ?? "");
+    const staleReview = !!c.receiptReviewKey && !sameReview;
     const needsReview = !!c.received && (!target || (matches.length > 0 && !reviewed) || staleReview);
     const eligible = !!c.received && !needsReview;
     const included = reviewed && c.receiptDecision === "included";
     return {
       skuId: c.skuId, periodId: c.periodId, sku: `${s.name ?? s.id} ${s.weight ?? ""}`.trim(),
       planMonth: origin.label ?? receiptMonthKey(origin), receiptPeriodId: target?.id ?? null,
-      receiptMonth: target?.label ?? date?.slice(0, 7) ?? "Missing planning month", quantity,
-      received: c.received ?? false, receivedDate: date, decision: c.receiptDecision ?? "pending",
+      receiptMonth: target?.label ?? "Missing planning month", quantity,
+      received: c.received ?? false, decision: c.receiptDecision ?? "pending",
       matches: staleReview ? evidence : matches, reviewKey, needsReview,
       added: includeFoc && eligible && !included ? quantity : 0,
       receivedQuantity: includeFoc && eligible ? quantity : 0,
@@ -94,9 +102,7 @@ export function evaluateFocReceipts(ds: FocReceiptDataset, includeFoc = true): F
   });
 }
 
-/** Calendar receipt totals use the landing month. Receipt percentage is progress
- * against the original plan cohort, so a moved receipt never creates >100%.
- */
+/** Received and awaiting totals both belong to the original planning month. */
 export function summarizeFocReceipts(ds: FocReceiptDataset, includeFoc = true,
   skuIds = ds.skus.map(s => s.id), periodIds = ds.periods.map(p => p.id)): FocReceiptSummary {
   const entries = evaluateFocReceipts(ds, includeFoc).filter(e => skuIds.includes(e.skuId));

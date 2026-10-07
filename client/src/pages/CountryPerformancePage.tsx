@@ -1,15 +1,24 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Skeleton } from "@/components/ui/skeleton";
 import BoardChangesSection from "@/components/performance/BoardChangesSection";
+import DeepDiveDisclosure from "@/components/performance/DeepDiveDisclosure";
 import { PerformanceProvider } from "@/components/performance/PerformanceContext";
 import PerformanceHeader from "@/components/performance/PerformanceHeader";
 import PresentationMode from "@/components/performance/PresentationMode";
 import PresenterNote from "@/components/performance/PresenterNote";
 import SlideLayoutDialog from "@/components/performance/SlideLayoutDialog";
 import { arrangeSections, performanceSections, titleForSection, type OrderedSection } from "@/components/performance/sections";
+import {
+  getInitialPerformanceTab,
+  PERFORMANCE_TABS,
+  rememberPerformanceTab,
+  accessiblePerformanceCountries,
+  sectionsForPrint,
+  sectionsForTab,
+  type PerformanceTabId,
+} from "@/components/performance/navigation";
 import { SectionFrame } from "@/components/performance/shared";
 import type { CompareMode, PerformanceCountry, PerformanceFilters, PerformanceRequest, PeriodPreset } from "@/components/performance/types";
 import { useAuth } from "@/contexts/AuthContext";
@@ -17,7 +26,7 @@ import { useCountry } from "@/contexts/CountryContext";
 import { useUnit } from "@/contexts/UnitContext";
 import { formatUpdateTime, lastUpdateSentence, useLastUpdates } from "@/hooks/useLastUpdates";
 import { trpc } from "@/lib/trpc";
-import { ChevronDown } from "lucide-react";
+import { Check } from "lucide-react";
 import { useIncludeFoc } from "@/hooks/useIncludeFoc";
 
 const LebanonDeepDive = lazy(() => import("@/pages/AnalysisPage"));
@@ -33,8 +42,8 @@ function cleanFilters(filters: PerformanceFilters): PerformanceFilters | undefin
 }
 
 export default function CountryPerformancePage() {
-  const { isAdminFor } = useAuth();
-  const { country: appCountry } = useCountry();
+  const { isAdminFor, user, canAccessCountry } = useAuth();
+  const { country: appCountry, setCountry } = useCountry();
   // The page always shows the country selected in the sidebar — nothing else.
   const country = (appCountry ?? "Lebanon") as PerformanceCountry;
   const [preset, setPreset] = useState<PeriodPreset>("ytd");
@@ -49,7 +58,12 @@ export default function CountryPerformancePage() {
   const [refresh, setRefresh] = useState<true | undefined>();
   const [presentationOpen, setPresentationOpen] = useState(false);
   const [layoutOpen, setLayoutOpen] = useState(false);
-  const [deepDiveOpen, setDeepDiveOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<PerformanceTabId>(() =>
+    getInitialPerformanceTab(user?.id, typeof window === "undefined" ? undefined : window.localStorage),
+  );
+  const tabUserId = useRef(user?.id);
+  const [printing, setPrinting] = useState(false);
+  const printingRef = useRef(false);
   const layoutQuery = trpc.country.slideLayout.useQuery();
   const lastUpdates = useLastUpdates();
 
@@ -83,6 +97,12 @@ export default function CountryPerformancePage() {
     [layoutQuery.data, pack],
   );
   const slideSections = useMemo(() => visibleSections.filter((section) => !section.hiddenFromSlides), [visibleSections]);
+  const activeSections = useMemo(() => sectionsForTab(visibleSections, activeTab), [visibleSections, activeTab]);
+  const printableSections = useMemo(() => sectionsForPrint(visibleSections), [visibleSections]);
+  const accessibleCountries = useMemo(
+    () => accessiblePerformanceCountries(user, ["Lebanon", "Syria", "Libya", "KSA"], (name) => canAccessCountry(name as "Lebanon" | "Syria" | "Libya" | "KSA")),
+    [user, canAccessCountry],
+  );
   const canEdit = isAdminFor(country);
   const lastUpdate = lastUpdates.data?.find((row) => row.country === country);
   const request: PerformanceRequest = { country, preset, anchor, from: preset === "custom" ? from : undefined, to: preset === "custom" ? to : undefined, compare, filters: cleanFilters(filters), ...(supportsFoc ? { includeFoc } : {}) };
@@ -93,20 +113,38 @@ export default function CountryPerformancePage() {
     const content = section.id === "changes"
       ? <BoardChangesSection pack={pack} request={request} presentation={presentation} />
       : <section.Component pack={pack} presentation={presentation} />;
-    return <>{pack.foc && <p className="mb-3 text-xs text-muted-foreground">Planning basis: {pack.foc.basisLabel}. IMS and commercial values exclude planned FOC; actual stock is recorded movements only.</p>}{content}</>;
+    return <>{pack.foc && <p className="mb-3 rounded-md border border-[#7f1d1d]/15 bg-[#7f1d1d]/[0.035] px-3 py-2 text-xs text-muted-foreground"><span className="font-semibold text-foreground">Derived using {pack.foc.basisLabel}.</span> IMS and commercial values exclude planned FOC; actual stock reflects recorded movements only.</p>}{content}</>;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pack, preset, compare, country, anchor, from, to, filters, includeFoc]);
 
+  useEffect(() => {
+    const storage = typeof window === "undefined" ? undefined : window.localStorage;
+    if (tabUserId.current !== user?.id) {
+      tabUserId.current = user?.id;
+      setActiveTab(getInitialPerformanceTab(user?.id, storage));
+      return;
+    }
+    rememberPerformanceTab(user?.id, activeTab, storage);
+  }, [activeTab, user?.id]);
+
   const exportPdf = useCallback(() => {
-    if (packQuery.isFetching) return;
+    if (packQuery.isFetching || !pack || printingRef.current) return;
+    printingRef.current = true;
     document.body.classList.add("perf-printing");
     const cleanup = () => {
       document.body.classList.remove("perf-printing");
       window.removeEventListener("afterprint", cleanup);
+      printingRef.current = false;
+      setPrinting(false);
     };
     window.addEventListener("afterprint", cleanup);
-    window.print();
-  }, [packQuery.isFetching]);
+    flushSync(() => setPrinting(true));
+    try {
+      window.print();
+    } catch {
+      cleanup();
+    }
+  }, [pack, packQuery.isFetching]);
 
   const { unit } = useUnit();
   const exportExcel = useCallback(() => {
@@ -171,32 +209,10 @@ export default function CountryPerformancePage() {
         </p>
       </header>
 
-      {pack && (
-        <nav className="perf-no-print grid gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4" aria-label="Analysis sections">
-          {visibleSections.map((section) => (
-            <button
-              key={section.id}
-              type="button"
-              className="flex items-center gap-3 rounded-lg border border-[#7f1d1d]/20 bg-[#7f1d1d]/5 px-3 py-2 text-left text-sm font-medium text-foreground transition hover:border-[#7f1d1d]/50 hover:bg-[#7f1d1d]/10"
-              onClick={() => document.getElementById(section.id)?.scrollIntoView({ behavior: "smooth" })}
-            >
-              <span className="w-6 shrink-0 text-xs font-bold tracking-widest text-[#7f1d1d]">{String(section.number).padStart(2, "0")}</span>
-              <span className="truncate">{titleForSection(section, pack.meta.isIntl)}</span>
-            </button>
-          ))}
-        </nav>
-      )}
-
       {pack?.foc && (
-        <>
-          <p className="rounded-md border p-3 text-sm">
-            <strong>Planning basis: {pack.foc.basisLabel}.</strong> {pack.foc.note}
-          </p>
-          <style>{`@media print { @page { margin-top: 22mm; } .foc-print-basis { display:block !important; position:fixed; top:-16mm; left:0; right:0; font-size:9pt; color:#000; } }`}</style>
-          <div className="foc-print-basis hidden" aria-hidden="true">
-            {country} · {unit} · {pack.foc.basisLabel}<br />{pack.foc.note}
-          </div>
-        </>
+        <p className="rounded-md border border-[#7f1d1d]/20 bg-[#7f1d1d]/[0.035] px-4 py-3 text-sm">
+          <strong>FOC planning basis: {pack.foc.basisLabel}.</strong> {pack.foc.note}
+        </p>
       )}
       {packQuery.isLoading && !pack && (
         <div className="grid gap-4 md:grid-cols-2">
@@ -212,31 +228,105 @@ export default function CountryPerformancePage() {
       )}
 
       {pack && (
-        <div className="space-y-12">
-          {visibleSections.map((section) => {
-            const title = titleForSection(section, pack.meta.isIntl);
-            return (
-              <SectionFrame key={section.id} id={section.id} number={section.number} title={title} subtitle={section.hiddenFromSlides ? "hidden from slides and PDF" : undefined} hiddenFromSlides={section.hiddenFromSlides}>
+        <>
+          <div className="perf-no-print sticky top-0 z-30 -mx-4 border-y border-[#7f1d1d]/15 bg-background/95 px-4 py-2 shadow-[0_8px_18px_-18px_rgba(75,18,31,0.75)] backdrop-blur supports-[backdrop-filter]:bg-background/85">
+            <nav className="mx-auto flex max-w-full gap-1 overflow-x-auto" role="tablist" aria-label="Analysis working groups">
+              {PERFORMANCE_TABS.map((tab) => {
+                const selected = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    id={`analysis-tab-${tab.id}`}
+                    type="button"
+                    role="tab"
+                    aria-selected={selected}
+                    aria-controls="analysis-tab-panel"
+                    tabIndex={selected ? 0 : -1}
+                    className={`relative min-h-11 shrink-0 rounded-md px-4 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7f1d1d] ${selected ? "bg-[#7f1d1d] text-white shadow-sm" : "text-muted-foreground hover:bg-[#7f1d1d]/[0.07] hover:text-foreground"}`}
+                    onClick={() => setActiveTab(tab.id)}
+                    onKeyDown={(event) => {
+                      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+                      event.preventDefault();
+                      const index = PERFORMANCE_TABS.findIndex((item) => item.id === activeTab);
+                      const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? PERFORMANCE_TABS.length - 1
+                        : (index + (event.key === "ArrowRight" ? 1 : -1) + PERFORMANCE_TABS.length) % PERFORMANCE_TABS.length;
+                      const next = PERFORMANCE_TABS[nextIndex];
+                      setActiveTab(next.id);
+                      document.getElementById(`analysis-tab-${next.id}`)?.focus();
+                    }}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </nav>
+          </div>
+
+          <div id="analysis-tab-panel" role="tabpanel" aria-labelledby={`analysis-tab-${activeTab}`} className="perf-screen-tree space-y-8 pt-2">
+            {activeSections.map((section) => (
+              <SectionFrame
+                key={section.id}
+                id={section.id}
+                number={section.number}
+                title={titleForSection(section, pack.meta.isIntl)}
+                subtitle={section.hiddenFromSlides ? "hidden from slides and PDF" : undefined}
+                hiddenFromSlides={section.hiddenFromSlides}
+              >
                 {renderSection(section)}
                 <PresenterNote sectionId={section.id} />
               </SectionFrame>
-            );
-          })}
-        </div>
+            ))}
+
+            {activeTab === "value" && (
+              <section aria-labelledby="all-countries-heading" className="rounded-xl border border-[#7f1d1d]/15 bg-[#7f1d1d]/[0.025] p-4 md:p-5">
+                <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#7f1d1d]/20 pb-3">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#7f1d1d]">Country access</p>
+                    <h2 id="all-countries-heading" className="mt-1 text-lg font-bold">All Countries</h2>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Switch the active country to view its analysis. Only your permitted countries are shown.</p>
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {accessibleCountries.map((name) => (
+                    <button
+                      key={name}
+                      type="button"
+                      aria-current={name === country ? "page" : undefined}
+                      onClick={() => setCountry(name as "Lebanon" | "Syria" | "Libya" | "KSA")}
+                      className={`inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm font-medium transition ${name === country ? "border-[#7f1d1d]/40 bg-[#7f1d1d]/10 text-[#7f1d1d]" : "border-border bg-background hover:border-[#7f1d1d]/35 hover:bg-[#7f1d1d]/[0.04]"}`}
+                    >
+                      {name === country && <Check className="h-4 w-4" aria-hidden="true" />}
+                      {name}
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
+          </div>
+
+          {printing && (
+            <div className="perf-print-tree space-y-8">
+              {printableSections.map((section) => (
+                <SectionFrame
+                  key={`print-${section.id}`}
+                  id={`print-${section.id}`}
+                  number={section.number}
+                  title={titleForSection(section, pack.meta.isIntl)}
+                  subtitle={section.hiddenFromSlides ? "hidden from slides and PDF" : undefined}
+                  hiddenFromSlides={section.hiddenFromSlides}
+                >
+                  {renderSection(section)}
+                  <PresenterNote sectionId={section.id} />
+                </SectionFrame>
+              ))}
+            </div>
+          )}
+        </>
       )}
 
-      <section className="perf-no-print border-t pt-6">
-        <Collapsible open={deepDiveOpen} onOpenChange={setDeepDiveOpen}>
-          <CollapsibleTrigger asChild>
-            <Button variant="outline" className="w-full justify-between text-base">
-              Deep Dive — existing analysis <ChevronDown className="h-4 w-4" />
-            </Button>
-          </CollapsibleTrigger>
-          <CollapsibleContent className="pt-4">
-            <Suspense fallback={<Skeleton className="h-80 w-full" />}><DeepDive /></Suspense>
-          </CollapsibleContent>
-        </Collapsible>
-      </section>
+      <DeepDiveDisclosure>
+        <Suspense fallback={<Skeleton className="h-80 w-full" />}><DeepDive /></Suspense>
+      </DeepDiveDisclosure>
 
       {presentationOpen && pack && <PresentationMode pack={pack} sections={slideSections} lastUpdateText={lastUpdates.data ? lastUpdateSentence(lastUpdate) : undefined} onExit={() => setPresentationOpen(false)} renderSection={(section) => renderSection(section, true)} />}
       <SlideLayoutDialog open={layoutOpen} onOpenChange={setLayoutOpen} sections={visibleSections} isIntl={pack?.meta.isIntl ?? false} titleFor={(section) => titleForSection(section, pack?.meta.isIntl ?? false)} />

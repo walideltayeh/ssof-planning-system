@@ -108,7 +108,6 @@ function buildIntlMenu(weights: string[], country: Country | null): MenuItem[] {
     { label: "Arrival", path: "/arrival", adminOnly: false },
     { label: "IMS", path: "/intl-ims", adminOnly: false },
     ...buildPlanningFgItems(weights, true),
-    ...((country === "Libya" || country === "Syria") ? [{ label: "Planned free product", path: "/foc", adminOnly: false }] : []),
     { label: "Analysis", path: "/intl-analysis", adminOnly: false },
     { label: "Competitor Analysis", path: "/competitor-analysis", adminOnly: false },
     { label: "Recommended Forecast Split", path: "/forecast-split", adminOnly: false },
@@ -304,7 +303,6 @@ function DashboardLayoutContent({
   const PAGE_LABELS: Record<string, string> = {
     "/": "Dashboard",
     "/forecast": "Forecast",
-    "/foc": "Planned free product",
     "/forecast-production-vs-actual": "Forecast Production vs Actual",
     "/forecast-vs-forecast": "Forecast Production vs Actual",
     "/shipment": "Production",

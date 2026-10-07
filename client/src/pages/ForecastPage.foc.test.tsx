@@ -53,6 +53,8 @@ describe("Forecast Production paired FOC surface", () => {
     m.country = country; render(<ForecastPage />);
     const foc = screen.getByRole("row", { name: "FOC Mint 50g New" });
     expect(foc.previousElementSibling?.textContent).toContain("Ordered");
+    expect(foc.previousElementSibling).toHaveClass("h-16", "text-base", "font-bold", "text-foreground");
+    expect(foc).toHaveClass("text-[10px]", "font-normal", "text-muted-foreground");
     expect(screen.queryByText("Inactive")).not.toBeInTheDocument();
     expect(within(foc).getByLabelText("Ordered, FOC and combined totals")).toHaveTextContent("Combined 112");
     const grand = screen.getByText("Grand Total").closest("tr")!;
@@ -78,12 +80,11 @@ describe("Forecast Production paired FOC surface", () => {
     expect(m.invalidate).toHaveBeenCalled();
     expect(m.paid).not.toHaveBeenCalled(); expect(m.production).not.toHaveBeenCalled();
   });
-  it("saves Received Yes and the optional receipt date in place", () => {
+  it("saves only Received Yes/No in place, with no receipt date field", () => {
     render(<ForecastPage />);
     fireEvent.click(screen.getByRole("checkbox", { name: "Received FOC Mint 50g New Sep 26" }));
     expect(m.receipt).toHaveBeenCalledWith({ country: "Libya", skuId: 1, periodId: 9, received: true });
-    fireEvent.change(screen.getByLabelText("Received date Mint 50g New Sep 26"), { target: { value: "2026-09-21" } });
-    expect(m.receipt).toHaveBeenCalledWith({ country: "Libya", skuId: 1, periodId: 9, receivedDate: "2026-09-21" });
+    expect(screen.queryByLabelText(/Received date/)).not.toBeInTheDocument();
   });
   it("keeps viewers read-only for FOC and ordered editing and hides the import action", () => {
     m.admin = false; render(<ForecastPage />);

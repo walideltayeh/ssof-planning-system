@@ -50,27 +50,26 @@ beforeEach(() => {
   records = new Map<unknown, any[]>([
     [skus, [{ id: 1, country: "Libya", isActive: true, name: "Mint", weight: "50g", sortOrder: 1 }]],
     [periods, [9, 10, 11, 12].map(m => ({ id: m, country: "Libya", year: 2026, month: m, label: `${m}/2026`, sortOrder: m }))],
-    [focData, [{ country: "Libya", skuId: 1, periodId: 9, value: "12.34", received: false, receivedDate: null, receiptDecision: "pending", receiptReviewKey: null }]],
+    [focData, [{ country: "Libya", skuId: 1, periodId: 9, value: "12.34", received: false, receiptDecision: "pending", receiptReviewKey: null }]],
     [arrivalData, []], [planningFgData, []], [clearanceEvents, []], [auditTrail, []],
   ]);
   vi.mocked(dbModule.getDb).mockResolvedValue(connection as any);
 });
 describe("FOC receipt persistence and bulk confirmation", () => {
-  it("defaults to No, persists status/date and records authenticated actor/time without creating arrivals or clearances", async () => {
-    const result = await service.updateFocReceipt("Libya", "Administrator", { skuId: 1, periodId: 9, received: true, receivedDate: "2026-11-12" });
+  it("defaults to No, persists status and records authenticated actor/time without creating arrivals or clearances", async () => {
+    const result = await service.updateFocReceipt("Libya", "Administrator", { skuId: 1, periodId: 9, received: true });
     expect(result.changed).toBe(1);
-    expect(records.get(focData)![0]).toMatchObject({ received: true, receivedDate: "2026-11-12" });
+    expect(records.get(focData)![0]).toMatchObject({ received: true });
     expect(records.get(auditTrail)![0]).toMatchObject({ country: "Libya", username: "Administrator", field: "FOC receipt",
-      oldValue: '{"received":false,"receivedDate":null}', newValue: '{"received":true,"receivedDate":"2026-11-12"}' });
+      oldValue: '{"received":false}', newValue: '{"received":true}' });
     expect(records.get(auditTrail)![0].createdAt).toBeInstanceOf(Date);
     expect(records.get(clearanceEvents)).toEqual([]); expect(records.get(arrivalData)).toEqual([]);
   });
-  it("changing only date preserves the current received state; clearing date falls back to plan month", async () => {
+  it("Received No reverses Yes without recording any date", async () => {
     records.get(focData)![0].received = true;
-    await service.updateFocReceipt("Libya", "Admin", { skuId: 1, periodId: 9, receivedDate: "2026-10-07" });
-    expect(records.get(focData)![0].received).toBe(true);
-    await service.updateFocReceipt("Libya", "Admin", { skuId: 1, periodId: 9, receivedDate: null });
-    expect(records.get(focData)![0]).toMatchObject({ received: true, receivedDate: null });
+    await service.updateFocReceipt("Libya", "Admin", { skuId: 1, periodId: 9, received: false });
+    expect(records.get(focData)![0].received).toBe(false);
+    expect(records.get(focData)![0]).not.toHaveProperty("receivedDate");
   });
   it("bulk preview lists changes/skipped not-set without mutation and commit accepts the exact token even with transport country field", async () => {
     const p = await service.previewFocReceipts("Libya", { country: "Libya", skuId: 1, received: true } as any);
@@ -81,14 +80,13 @@ describe("FOC receipt persistence and bulk confirmation", () => {
     expect(records.get(focData)![0].received).toBe(true);
     expect(JSON.parse(records.get(auditTrail)![0].details).bulk).toBe(true);
   });
-  it("refuses stale preview after quantity, receipt, date or inbound evidence changes, atomically", async () => {
+  it("refuses stale preview after quantity, receipt or inbound evidence changes, atomically", async () => {
     for (const change of [
       () => { records.get(focData)![0].value = "99"; },
       () => { records.get(focData)![0].received = true; },
-      () => { records.get(focData)![0].receivedDate = "2026-10-01"; },
       () => { records.get(clearanceEvents)!.push({ country: "Libya", skuId: 1, clearedQty: "12.34", clearedDate: "2026-09-20" }); },
     ]) {
-      const cell = records.get(focData)![0]; Object.assign(cell, { value: "12.34", received: false, receivedDate: null });
+      const cell = records.get(focData)![0]; Object.assign(cell, { value: "12.34", received: false });
       records.set(clearanceEvents, []);
       const p = await service.previewFocReceipts("Libya", { periodId: 9, received: true });
       change();
@@ -116,10 +114,10 @@ describe("FOC receipt persistence and bulk confirmation", () => {
     await expect(service.reviewFocReceipt("Libya", "Admin", { skuId: 1, periodId: 9, decision: "included", reviewKey: e.reviewKey })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect(records.get(auditTrail)).toEqual([]);
   });
-  it("rejects foreign/inactive SKU IDs, foreign month IDs, nonexistent date buckets and unset quantity", async () => {
+  it("rejects foreign/inactive SKU IDs, foreign month IDs and unset quantity", async () => {
     for (const input of [
       { skuId: 99, periodId: 9, received: true }, { skuId: 1, periodId: 99, received: true },
-      { skuId: 1, periodId: 9, receivedDate: "2027-01-01" }, { skuId: 1, periodId: 10, received: true },
+      { skuId: 1, periodId: 10, received: true },
     ]) await expect(service.updateFocReceipt("Libya", "Admin", input)).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await expect(service.updateFocReceipt("Syria", "Admin", { skuId: 1, periodId: 9, received: true })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     records.get(skus)![0].isActive = false;

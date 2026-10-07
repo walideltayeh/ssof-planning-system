@@ -10,7 +10,7 @@ export type ForecastSheetData = Omit<FocReceiptDataset, "skus"> & {
 };
 export type ForecastFocImportCell = {
   skuId: number; periodId: number; value: string | null; received: boolean;
-  receivedDate?: string | null; receiptDecision?: string; receiptReviewKey?: string | null;
+  receiptDecision?: string; receiptReviewKey?: string | null;
 };
 const factor = (unit: ForecastUnit) => unit === "KG" ? 6 : unit === "Tons" ? 0.006 : 1;
 const text = (cell: ExcelJS.Cell) => {
@@ -52,7 +52,6 @@ export function buildForecastFocSheet(wb: ExcelJS.Workbook, ds: ForecastSheetDat
     write(s, "FOC", free.map(q => q === null ? null : convert(q)),
       missing ? `Not set; entered subtotal ${convert(entered)} ${unit}` : convert(entered));
     write(s, "FOC Received", cells.map(c => c?.received ? "Yes" : "No"));
-    write(s, "FOC Received date", cells.map(c => c?.receivedDate ?? null));
     write(s, "FOC duplicate decision", cells.map(c => c?.receiptDecision ?? "pending"));
     write(s, "FOC review key", cells.map(c => c?.receiptReviewKey ?? null));
     write(s, `Combined (${basis})`, ordered.map((q, i) => includeFoc && free[i] === null ? "Not set" : convert(q + (includeFoc ? free[i] ?? 0 : 0))),
@@ -116,7 +115,7 @@ export function parseForecastFocSheet(ws: ExcelJS.Worksheet, country: string, ds
     skuMap.set(k, s);
   }
   const grouped = new Map<number, Map<string, ExcelJS.Row>>();
-  const labels = new Set(["Ordered", "FOC", "FOC Received", "FOC Received date", "FOC duplicate decision", "FOC review key"]);
+  const labels = new Set(["Ordered", "FOC", "FOC Received", "FOC duplicate decision", "FOC review key"]);
   for (let r = headerRow + 1; r <= ws.rowCount; r++) {
     const row = ws.getRow(r), name = text(row.getCell(1)), label = text(row.getCell(typeCol));
     if (!name || name === "Grand total" || name.startsWith("Subtotal") || name.startsWith("Combined basis:") || label.startsWith("Combined (")) continue;
@@ -145,11 +144,7 @@ export function parseForecastFocSheet(ws: ExcelJS.Worksheet, country: string, ds
       if (!["", "yes", "no", "true", "false"].includes(raw)) throw new Error(`Received must be Yes or No for SKU ${skuId}, month ${periodId}`);
       const received = raw === "yes" || raw === "true", value = quantity(rows.get("FOC")!.getCell(col), true);
       if (received && value === null) throw new Error(`Received FOC needs a quantity for SKU ${skuId}, month ${periodId}`);
-      const dateCell = rows.get("FOC Received date")?.getCell(col);
-      const dateValue = dateCell?.value;
-      const date = Object.prototype.toString.call(dateValue) === "[object Date]"
-        ? (dateValue as Date).toISOString().slice(0, 10) : dateCell ? text(dateCell) : undefined;
-      foc.push({ skuId, periodId, value, received, receivedDate: date === undefined ? undefined : date || null,
+      foc.push({ skuId, periodId, value, received,
         receiptDecision: rows.has("FOC duplicate decision") ? text(rows.get("FOC duplicate decision")!.getCell(col)) : undefined,
         receiptReviewKey: rows.has("FOC review key") ? text(rows.get("FOC review key")!.getCell(col)) || null : undefined });
     }

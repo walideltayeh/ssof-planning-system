@@ -33,8 +33,10 @@ beforeEach(() => {
 });
 describe("FOC country permissions", () => {
   it.each(["receiptUpdate", "receiptPreview", "receiptCommit", "receiptReview"] as const)("denies viewer and cross-country admin %s", async method => {
-    const input = { country: "Libya" as const, skuId: 1, periodId: 1, received: true, token: "a".repeat(64),
-      decision: "separate" as const, reviewKey: "evidence" };
+    const input = method === "receiptUpdate"
+      ? { country: "Libya" as const, skuId: 1, periodId: 1, received: true }
+      : { country: "Libya" as const, skuId: 1, periodId: 1, received: true, token: "a".repeat(64),
+        decision: "separate" as const, reviewKey: "evidence" };
     await expect((caller("user").focPlanning[method] as any)(input)).rejects.toMatchObject({ code: "FORBIDDEN" });
     vi.mocked(db.getAppUserByUsername).mockResolvedValue({ username: "FOC Tester", countries: '["Libya","Syria"]',
       role: "admin", isOwner: false, countryRoles: '{"Libya":"viewer","Syria":"admin"}' } as any);
@@ -42,20 +44,20 @@ describe("FOC country permissions", () => {
     expect(receipts.updateFocReceipt).not.toHaveBeenCalled(); expect(receipts.commitFocReceipts).not.toHaveBeenCalled();
     expect(receipts.reviewFocReceipt).not.toHaveBeenCalled(); expect(receipts.previewFocReceipts).not.toHaveBeenCalled();
   });
-  it("attributes receipt/date/review and bulk changes to the authenticated country administrator", async () => {
-    await caller().focPlanning.receiptUpdate({ country: "Syria", skuId: 1, periodId: 1, received: true, receivedDate: "2026-09-15" });
-    expect(receipts.updateFocReceipt).toHaveBeenCalledWith("Syria", "FOC Tester", expect.objectContaining({ received: true, receivedDate: "2026-09-15" }));
+  it("attributes receipt/review and bulk changes to the authenticated country administrator", async () => {
+    await caller().focPlanning.receiptUpdate({ country: "Syria", skuId: 1, periodId: 1, received: true });
+    expect(receipts.updateFocReceipt).toHaveBeenCalledWith("Syria", "FOC Tester", expect.objectContaining({ received: true }));
     await caller().focPlanning.receiptCommit({ country: "Syria", periodId: 1, received: true, token: "a".repeat(64) });
     expect(receipts.commitFocReceipts).toHaveBeenCalledWith("Syria", "FOC Tester", { periodId: 1, received: true }, "a".repeat(64));
     await caller().focPlanning.receiptReview({ country: "Syria", skuId: 1, periodId: 1, decision: "included", reviewKey: "current" });
     expect(receipts.reviewFocReceipt).toHaveBeenCalledWith("Syria", "FOC Tester", expect.objectContaining({ decision: "included", reviewKey: "current" }));
   });
-  it.each(["2026-02-30", "2026-02-29", "2026-13-01", "2026-09-01T00:00:00Z"])("rejects invalid receipt date %s before storage", async receivedDate => {
-    await expect(caller().focPlanning.receiptUpdate({ country: "Libya", skuId: 1, periodId: 1, receivedDate })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  it.each(["2026-02-30", "2026-09-15", null])("rejects the removed receipt date %s before storage", async receivedDate => {
+    await expect(caller().focPlanning.receiptUpdate({ country: "Libya", skuId: 1, periodId: 1, received: true, receivedDate } as any)).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect(receipts.updateFocReceipt).not.toHaveBeenCalled();
   });
   it("requires a receipt field, a bulk scope, a preview token and assigned country", async () => {
-    await expect(caller().focPlanning.receiptUpdate({ country: "Libya", skuId: 1, periodId: 1 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(caller().focPlanning.receiptUpdate({ country: "Libya", skuId: 1, periodId: 1 } as any)).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await expect(caller().focPlanning.receiptPreview({ country: "Libya", received: true })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await expect(caller().focPlanning.receiptCommit({ country: "Libya", periodId: 1, received: true, token: "" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     vi.mocked(db.getAppUserByUsername).mockResolvedValue({ username: "FOC Tester", countries: '["Syria"]', role: "admin", isOwner: false } as any);

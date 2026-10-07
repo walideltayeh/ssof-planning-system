@@ -179,6 +179,10 @@
   }
 }
 
+.perf-print-tree {
+  display: none;
+}
+
 /* ── Cell flash animation for recommendation apply/rollback ── */
 @keyframes cell-flash {
   0%   { background-color: transparent; }
@@ -219,6 +223,14 @@
   body.perf-printing [data-sidebar],
   body.perf-printing .perf-no-print {
     display: none !important;
+  }
+
+  body.perf-printing .perf-screen-tree {
+    display: none !important;
+  }
+
+  body.perf-printing .perf-print-tree {
+    display: block !important;
   }
 
   body.perf-printing main {
