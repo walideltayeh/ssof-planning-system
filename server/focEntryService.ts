@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { getDb } from "./db";
 import { loadFocReceiptData } from "./focReceiptService";
@@ -10,7 +10,7 @@ import { evaluateFocReceipts } from "../shared/performance/focReceipts";
 import { buildStockLedger, type StockDataset } from "../shared/performance/stock";
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
-export type CellChange = { skuId: number; periodId: number; value?: number | null; received?: boolean; lineId?: string; decision?: "separate" | "included"; reviewKey?: string };
+export type CellChange = { skuId: number; periodId: number; value?: number | null; received?: boolean; lineId?: string; remove?: boolean; decision?: "separate" | "included"; reviewKey?: string };
 export type FocOperation = { lines: FocDraft[] } | { cell: CellChange };
 async function database() {
   const db = await getDb();
@@ -64,6 +64,7 @@ async function previewWith(db: Db, country: FocCountry, operation: FocOperation,
     const key = `${c.skuId}-${c.periodId}`, old = next.get(key) ?? { skuId: c.skuId, periodId: c.periodId, value: null, country };
     if (c.received !== undefined && (old.value === null || Number(old.value) <= 0)) bad("Enter an FOC quantity before changing its receipt.");
     let changed = changeFocCell(old, c, "", "", "preview-grid");
+    if (Number(changed.value) > 9999999999.99) bad("The combined FOC quantity exceeds the maximum. No lines were saved.");
     if (c.decision) {
       const entries = evaluateFocReceipts(ds).filter(e => e.skuId === c.skuId && e.periodId === c.periodId);
       const entry = c.lineId ? entries.find(e => e.lineId === c.lineId) : entries.find(e => e.needsReview) ?? entries[0];
@@ -121,7 +122,9 @@ export async function commitFocEntry(country: FocCountry, operation: FocOperatio
       if (JSON.stringify(original) === JSON.stringify(cell)) continue;
       const lines = (cell.lines ?? []).map(l => l.id.startsWith("preview-") ? { ...l,
         id: ids.get(`${cell.skuId}-${cell.periodId}-${l.id}`) ?? randomUUID(), actor, recordedAt } : l);
-      await tx.insert(focData).values({ country, skuId: cell.skuId, periodId: cell.periodId, value: cell.value === null ? null : String(cell.value),
+      if (cell.value === null && !lines.length) {
+        await tx.delete(focData).where(and(eq(focData.country, country), eq(focData.skuId, cell.skuId), eq(focData.periodId, cell.periodId)));
+      } else await tx.insert(focData).values({ country, skuId: cell.skuId, periodId: cell.periodId, value: cell.value === null ? null : String(cell.value),
         received: !!cell.received, lines, receiptDecision: cell.receiptDecision ?? "pending", receiptReviewKey: cell.receiptReviewKey ?? null })
         .onConflictDoUpdate({ target: [focData.country, focData.skuId, focData.periodId],
           set: { value: cell.value === null ? null : String(cell.value), received: !!cell.received, lines, updatedAt: now } });

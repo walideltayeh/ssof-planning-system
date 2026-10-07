@@ -6,6 +6,7 @@ import { useGridNav } from "@/hooks/useGridNav";
 import { useAppAuth } from "@/contexts/AuthContext";
 import { useCountry } from "@/contexts/CountryContext";
 import { useUnit } from "@/contexts/UnitContext";
+import { ReceivedFocArrivals } from "@/components/forecast/ReceivedFocArrivals";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
@@ -875,6 +876,7 @@ export default function ArrivalPage() {
           );
         })()}
 
+        {(country === "Libya" || country === "Syria") && <ReceivedFocArrivals country={country} />}
         {batches.length === 0 ? (
           <Card>
             <CardContent className="p-8 text-center text-muted-foreground">

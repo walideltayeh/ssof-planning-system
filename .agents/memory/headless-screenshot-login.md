@@ -11,3 +11,9 @@ Use isolated browser API fixtures when visual verification needs signed-in conte
 **How to apply:** Intercept every API request in an isolated browser session and use synthetic users/data only. Drive the bundled Chromium via CDP, keeping authentication intact in app code. State explicitly that signed-in visual checks used fixtures rather than a live account.
 
 Keep the fixture-controlling CDP connection alive through capture. Closing it releases request interception and subsequent authentication requests can sign the synthetic session out; reconnecting does not restore the rendered signed-in state.
+
+Browser checks must wait for the requested route and its real data-dependent controls, not just a table.
+
+**Why:** Loading skeletons also contain tables, and navigation can briefly expose the previous page. A generic table check can report a missing control or a successful reversal before the new screen has loaded.
+
+**How to apply:** Assert the requested path and a page-specific non-skeleton control before clicking or capturing. Check evaluation exceptions explicitly; do not treat an undefined result as success.

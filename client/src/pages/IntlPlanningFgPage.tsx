@@ -18,7 +18,6 @@ import { computeArrivalDate } from "./ShipmentPage";
 import { collectOrphanClearances } from "./arrival.helpers";
 import { buildStockLedger } from "@shared/performance/stock";
 import { Link } from "wouter";
-import { useIncludeFoc } from "@/hooks/useIncludeFoc";
 import { evaluateFocReceipts } from "@shared/performance/focReceipts";
 import { supportsFoc } from "@shared/performance/foc";
 import {
@@ -107,7 +106,8 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
   const { formatVal, unitLabel } = useUnit();
   const supportedFocCountry = supportsFoc(country ?? "");
   const focCountry = (supportedFocCountry ? country : "Libya") as "Libya" | "Syria";
-  const { includeFoc, setIncludeFoc } = useIncludeFoc(focCountry);
+  // Operational stock always includes eligible received FOC. Analysis owns its comparison switch.
+  const includeFoc = true;
   const utils = trpc.useUtils();
 
   const { data, isLoading, isFetching, refetch } = trpc.country.planningFg.useQuery(
@@ -332,6 +332,14 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
     return map;
   }, [focReceiptEntries]);
   const focWarnings = useMemo(() => focReceiptEntries.filter((entry) => entry.received && (entry.needsReview || entry.matches.length > 0)), [focReceiptEntries]);
+  const focAddedMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const entry of focReceiptEntries) if (entry.added > 0 && entry.receiptPeriodId !== null) {
+      const key = `${entry.skuId}-${entry.receiptPeriodId}`;
+      map.set(key, (map.get(key) ?? 0) + entry.added);
+    }
+    return map;
+  }, [focReceiptEntries]);
 
   const getRowValues = useCallback(
     (skuId: number, periods: Period[]) => {
@@ -798,10 +806,6 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
-          {supportedFocCountry && <label className="inline-flex items-center gap-2 rounded-md border bg-card px-3 text-xs font-medium">
-            <input type="checkbox" role="switch" aria-label="Include FOC in stock" checked={includeFoc} onChange={(event) => setIncludeFoc(event.target.checked)} className="accent-[#7f1d1d]" />
-            Include confirmed FOC
-          </label>}
           <Button variant="outline" size="sm" onClick={() => setCollapsedYears(new Set(years))}>
             Collapse All Years
           </Button>
@@ -832,7 +836,7 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
       </div>
 
       {supportedFocCountry && <div className="rounded-lg border border-[#7f1d1d]/15 bg-[#f8f2ed] px-3 py-2 text-xs text-muted-foreground">
-        Received, duplicate-cleared FOC enters arrivals only when the shared Include FOC switch is on. Awaiting quantities below are informational only and never affect closing stock or IMS-based cover.
+        Received FOC from FOC Record is included in arrivals and closing stock after duplicate review. Unreceived FOC does not affect stock. The Analysis Include FOC switch only changes analysis comparisons.
       </div>}
       {focWarnings.length > 0 && <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">
         <strong>{focWarnings.length} possible duplicate FOC receipt{focWarnings.length === 1 ? "" : "s"}.</strong>
@@ -1103,7 +1107,7 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
                   </tr>
                 </thead>
                 <tbody>
-                  {ROW_LABELS.map((label) => {
+                  {ROW_LABELS.filter(label => !supportedFocCountry || label !== "FOC awaiting receipt").map((label) => {
                     const isFutureEditable = FUTURE_EDITABLE_ROWS.has(label);
                     const isStrictlyFutureEditable = STRICTLY_FUTURE_EDITABLE_ROWS.has(label);
                     const isClosingWeeks = label === "Closing Stock - Weeks";
@@ -1257,6 +1261,10 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
                                 title={isAutoFilledFutureIms ? "Auto-filled from recommended forecast" : undefined}
                               >
                                 {val === 0 ? "—" : formatVal(val)}
+                                {isArrivals && (focAddedMap.get(`${sku.id}-${p.id}`) ?? 0) > 0 && <span
+                                  aria-label={`FOC arrivals ${sku.name} ${p.label}`}
+                                  className="block text-[9px] font-normal text-emerald-700"
+                                >FOC: {formatVal(focAddedMap.get(`${sku.id}-${p.id}`)!)} {unitLabel}</span>}
                               </td>
                             );
                           });

@@ -10,6 +10,7 @@ import { UnitProvider } from "./contexts/UnitContext";
 import DashboardLayout from "./components/DashboardLayout";
 import Home from "./pages/Home";
 import ForecastPage from "./pages/ForecastPage";
+import FocRecordPage from "./pages/FocRecordPage";
 import ImsVsForecastPage from "./pages/ImsVsForecastPage";
 import ShipmentPage from "./pages/ShipmentPage";
 import ArrivalPage from "./pages/ArrivalPage";
@@ -40,7 +41,8 @@ function Dashboard() {
       <Switch>
         <Route path="/" component={Home} />
         <Route path="/forecast" component={ForecastPage} />
-        <Route path="/foc"><Redirect to="/forecast" /></Route>
+        <Route path="/foc" component={FocRecordPage} />
+        <Route path="/foc-record" component={FocRecordPage} />
         <Route path="/ims-vs-forecast" component={ImsVsForecastPage} />
         <Route path="/shipment" component={ShipmentPage} />
         <Route path="/arrival" component={ArrivalPage} />

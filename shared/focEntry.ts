@@ -99,9 +99,18 @@ export function recordedFocLines(cell: FocCell, actor = "Existing record", recor
 }
 
 /** Preserve the incoming lines and their original quantities when a grid total is corrected. */
-export function changeFocCell(cell: FocCell, change: { value?: number | null; received?: boolean; lineId?: string }, actor: string, recordedAt: string, id: string): FocCell {
+export function changeFocCell(cell: FocCell, change: { value?: number | null; received?: boolean; lineId?: string; remove?: boolean }, actor: string, recordedAt: string, id: string): FocCell {
   let lines = recordedFocLines(cell).map(l => ({ ...l }));
-  if (change.value !== undefined) {
+  if (change.lineId && !lines.some(l => l.id === change.lineId)) throw new Error("Recorded FOC line not found. Refresh and review again.");
+  if (change.remove) {
+    lines = change.lineId ? lines.filter(l => l.id !== change.lineId) : [];
+  } else if (change.lineId && change.value !== undefined) {
+    if (change.value === null) throw new Error("Use delete to remove an individual FOC line.");
+    lines = lines.map(l => l.id === change.lineId ? { ...l, originalQuantityMC: l.originalQuantityMC ?? l.quantityMC,
+      quantityMC: mcPrecision(change.value!) } : l);
+  } else if (change.value === null) {
+    lines = [];
+  } else if (change.value !== undefined) {
     const target = change.value ?? 0, current = Number(cell.value) || 0;
     if (target > current) lines.push({ id, quantityMC: mcPrecision(target - current), received: !!cell.received,
       accType: "", salesManager: "", source: "Grid adjustment", actor, recordedAt });
@@ -122,7 +131,7 @@ export function changeFocCell(cell: FocCell, change: { value?: number | null; re
     lines = lines.map(l => !change.lineId || l.id === change.lineId ? { ...l, received: change.received! } : l);
   }
   const total = mcPrecision(lines.reduce((sum, l) => sum + l.quantityMC, 0));
-  return { ...cell, value: change.value === null ? null : total.toFixed(2), lines,
+  return { ...cell, value: !lines.length ? null : total.toFixed(2), lines,
     received: total > 0 && receivedFocMC({ ...cell, lines }) === total };
 }
 export function receivedFocMC(cell: FocCell) {

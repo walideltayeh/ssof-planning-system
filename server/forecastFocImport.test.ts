@@ -99,12 +99,12 @@ const paid = (value = "100.00") => [{ skuId: 1, periodId: 9, value }];
 const free = (patch = {}) => [{ skuId: 1, periodId: 9, value: "12.34", received: false, ...patch }];
 
 describe("atomic paired forecast / FOC import", () => {
-  it("round-trips a real exported workbook without changing paid data, manual production or making blank FOC zero", async () => {
+  it("rejects legacy paired workbooks on Forecast Production without changing any saved data", async () => {
     const ds = await loadFocReceiptData("Libya");
     const wb = new ExcelJS.Workbook();
     buildForecastFocSheet(wb, { ...ds, forecast: records.get(forecastData)! }, true, "Tons");
-    const result = await importForecastSheet(Buffer.from(await wb.xlsx.writeBuffer()), "Libya", "Trusted admin");
-    expect(result.updated).toBe(0); expect(result.versionId).toBeNull();
+    await expect(importForecastSheet(Buffer.from(await wb.xlsx.writeBuffer()), "Libya", "Trusted admin"))
+      .rejects.toThrow("FOC is recorded only on FOC Record");
     expect(records.get(shipmentData)![0].week2).toBe("100.00");
     expect(records.get(focData)).toHaveLength(1);
     expect(records.get(ssofVersions)).toEqual([]); expect(records.get(auditTrail)).toEqual([]);

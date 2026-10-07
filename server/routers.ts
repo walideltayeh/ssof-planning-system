@@ -335,10 +335,11 @@ export const appRouter = router({
     previewCell: adminProcedure.input(z.object({
       country: z.enum(["Libya", "Syria"]), includeFoc: z.boolean(), skuId: z.number().int().positive(), periodId: z.number().int().positive(),
       value: z.number().finite().nonnegative().max(9999999999.99).multipleOf(0.01).nullable().optional(),
-      received: z.boolean().optional(), lineId: z.string().max(100).optional(),
+      received: z.boolean().optional(), lineId: z.string().max(100).optional(), remove: z.boolean().optional(),
       decision: z.enum(["separate", "included"]).optional(), reviewKey: z.string().max(50000).optional(),
-    }).strict().refine(c => c.value !== undefined || c.received !== undefined || !!c.decision, "Choose a quantity or receipt change")
-      .refine(c => !c.lineId || ((c.received !== undefined || !!c.decision) && c.value === undefined), "Line receipt edits cannot replace the monthly quantity"))
+    }).strict().refine(c => c.value !== undefined || c.received !== undefined || !!c.decision || !!c.remove, "Choose a quantity, receipt or deletion change")
+      .refine(c => !c.lineId || c.value !== null, "Use delete to remove an individual FOC line")
+      .refine(c => !c.remove || (c.value === undefined && c.received === undefined && !c.decision), "Deletion cannot be combined with another change"))
       .mutation(async ({ ctx, input }) => {
         await requireCountryAdmin(ctx, input.country);
         const { country, includeFoc, ...cell } = input;
@@ -347,10 +348,11 @@ export const appRouter = router({
     commitCell: adminProcedure.input(z.object({
       country: z.enum(["Libya", "Syria"]), includeFoc: z.boolean(), token: z.string().length(64), skuId: z.number().int().positive(), periodId: z.number().int().positive(),
       value: z.number().finite().nonnegative().max(9999999999.99).multipleOf(0.01).nullable().optional(),
-      received: z.boolean().optional(), lineId: z.string().max(100).optional(),
+      received: z.boolean().optional(), lineId: z.string().max(100).optional(), remove: z.boolean().optional(),
       decision: z.enum(["separate", "included"]).optional(), reviewKey: z.string().max(50000).optional(),
-    }).strict().refine(c => c.value !== undefined || c.received !== undefined || !!c.decision, "Choose a quantity or receipt change")
-      .refine(c => !c.lineId || ((c.received !== undefined || !!c.decision) && c.value === undefined), "Line receipt edits cannot replace the monthly quantity"))
+    }).strict().refine(c => c.value !== undefined || c.received !== undefined || !!c.decision || !!c.remove, "Choose a quantity, receipt or deletion change")
+      .refine(c => !c.lineId || c.value !== null, "Use delete to remove an individual FOC line")
+      .refine(c => !c.remove || (c.value === undefined && c.received === undefined && !c.decision), "Deletion cannot be combined with another change"))
       .mutation(async ({ ctx, input }) => {
         await requireCountryAdmin(ctx, input.country);
         const { token, country, includeFoc, ...cell } = input;

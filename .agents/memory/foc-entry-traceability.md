@@ -2,11 +2,17 @@
 name: Recorded FOC traceability and past-period entry
 description: Business constraints for Libya/Syria past-month FOC, individual source lines, receipt decisions and rollback.
 ---
-Country administrators in Libya/Syria may enter or correct FOC and Received states in any existing period, including past months. Ordered forecast rules must remain unchanged. Keep this on Forecast Production, not a new page or permanent empty sub-rows.
+Country administrators in Libya/Syria may enter or correct FOC and Received states in any existing period, including past months. Ordered forecast rules must remain unchanged. FOC belongs on a separate sidebar FOC Record page, never on Forecast Production.
 
-**Why:** The user requested self-service past-month FOC without returning to an oversized redesign or reopening ordinary ordered forecast editing.
+**Why:** The user explicitly replaced the earlier same-page approach with a complete separation, while preserving all saved data and restoring the original Forecast Production design.
 
-**How to apply:** Preserve the compact spreadsheet. Support repeated SKU/month entries that sum while retaining their original Date, Acc Type, Sales Manager, Flavor, Weight, Packaging and exact MC quantity. Never guess ambiguous matches or silently drop invalid rows; require preview and explicit confirmation.
+**How to apply:** Match the original Forecast grid's density, typography, colours, SKU panels and totals on FOC Record. Support repeated SKU/month entries that sum while retaining their original Date, Acc Type, Sales Manager, Flavor, Weight, Packaging and exact MC quantity. Never guess ambiguous matches or silently drop invalid rows; require preview and explicit confirmation for quantity, receipt and deletion changes.
+
+Put FOC Record directly below Forecast Production, only for Libya and Syria; all other sidebar ordering stays unchanged. Forecast Production must use its original pre-FOC header, not the subsequently modified header. FOC Record must use that same sheet design, with Forecast Production vs Actual as the other reference.
+
+**Why:** The user explicitly corrected the previous restoration: the original labels, year/month layout, heights, spacing, colours and borders take priority over new behaviour.
+
+**How to apply:** Keep sticky header behaviour only if its appearance is pixel-identical to the original; otherwise drop the sticky behaviour. Do not reinterpret the original muted header as a dark red redesign. Only FOC content and Received controls should distinguish FOC Record's table.
 
 Manual FOC identity entry must use one searchable registered-SKU selector, not separate typed Flavor/Weight/Packaging fields. Offer only active SKUs for the selected country in the planning grid's order; repeated SKU/month selections remain allowed. Months must be selected from existing country periods. Full name, weight and packaging must be readable in options and the closed selection without hovering or ellipses.
 
@@ -18,7 +24,7 @@ Receipt eligibility belongs to each original line, not only the monthly aggregat
 
 **Why:** One monthly total can contain both received and unreceived FOC, or one duplicate receipt alongside another legitimate shipment. A single checkbox or netted quantity loses those distinctions.
 
-**How to apply:** Calculate stock from eligible received lines using the authoritative Planning FG ledger; preview affected and subsequent months, including unchanged values under an excluded basis. Keep original details inspectable and unknown legacy actors/times explicitly unknown.
+**How to apply:** Calculate operational Arrival and Planning FG stock from eligible received lines independently of Analysis's Include FOC comparison switch. Unreceived FOC never affects stock. Keep duplicate receipts held for review, original details inspectable and unknown legacy actors/times explicitly unknown.
 
 FOC entry rollback should restore only that country's FOC ledger, not unrelated paid forecasts, IMS or arrivals.
 

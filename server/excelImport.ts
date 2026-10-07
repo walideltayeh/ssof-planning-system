@@ -2,8 +2,7 @@ import ExcelJS from "exceljs";
 import * as db from "./db";
 import { loadXlsxBuffer } from "./excelLoad";
 import { assertRecordsScopedToCountry } from "./countryScope";
-import { isForecastFocSheet, parseForecastFocSheet } from "./forecastFocWorkbook";
-import { supportsFoc } from "../shared/performance/foc";
+import { isForecastFocSheet } from "./forecastFocWorkbook";
 
 interface ImportResult {
   updated: number;
@@ -214,19 +213,7 @@ export async function importForecastSheet(buffer: Buffer, country: string, usern
 
   const format = isForecastFocSheet(ws, header.row);
   if (format.paired) {
-    if (!supportsFoc(country)) throw new Error("FOC rows are supported only for Libya and Syria");
-    const [ss, ps] = await Promise.all([db.getSkusForCountry(country, true), db.getPeriodsForCountry(country)]);
-    const cols = new Map<number, number>();
-    for (const [label, col] of header.periodCols) {
-      const id = periodMap.get(label);
-      if (!id) throw new Error(`Month '${label}' does not exist for ${country}; no rows imported`);
-      cols.set(id, col);
-    }
-    const parsed = parseForecastFocSheet(ws, country, { skus: ss, periods: ps }, header.row, format.typeCol, cols);
-    const { applyForecastFocImport } = await import("./forecastFocImport");
-    const result = await applyForecastFocImport(country, username, parsed.forecast, parsed.foc);
-    return { ...result, skipped: [], sheet: "Forecast Production", detectedPeriods: [...header.periodCols.keys()],
-      matchedPeriods: [...header.periodCols.keys()], unmatchedPeriods: [] };
+    throw new Error("FOC is recorded only on FOC Record. Import a forecast-only sheet here; use Record FOC to paste free-stock entries.");
   }
 
   const skuNameCol = findSkuNameCol(ws, header.row);

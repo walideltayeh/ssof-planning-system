@@ -78,7 +78,7 @@ function buildPlanningFgItems(weights: string[], intl: boolean): MenuItem[] {
 }
 
 // Lebanon menu items (original)
-function buildLebanonMenu(weights: string[]): MenuItem[] {
+export function buildLebanonMenu(weights: string[]): MenuItem[] {
   return [
     { label: "Dashboard", path: "/", adminOnly: false },
     { label: "Forecast", path: "/forecast", adminOnly: false },
@@ -99,10 +99,11 @@ function buildLebanonMenu(weights: string[]): MenuItem[] {
 }
 
 // Syria / Libya / KSA menu items
-function buildIntlMenu(weights: string[], country: Country | null): MenuItem[] {
+export function buildIntlMenu(weights: string[], country: Country | null): MenuItem[] {
   return [
     { label: "Dashboard", path: "/", adminOnly: false },
     { label: "Forecast Production", path: "/forecast", adminOnly: false },
+    ...(country === "Libya" || country === "Syria" ? [{ label: "FOC Record", path: "/foc", adminOnly: false }] : []),
     { label: "Forecast Production vs Actual", path: "/forecast-production-vs-actual", adminOnly: false },
     { label: "Production", path: "/shipment", adminOnly: false },
     { label: "Arrival", path: "/arrival", adminOnly: false },
@@ -303,6 +304,8 @@ function DashboardLayoutContent({
   const PAGE_LABELS: Record<string, string> = {
     "/": "Dashboard",
     "/forecast": "Forecast",
+    "/foc": "FOC Record",
+    "/foc-record": "FOC Record",
     "/forecast-production-vs-actual": "Forecast Production vs Actual",
     "/forecast-vs-forecast": "Forecast Production vs Actual",
     "/shipment": "Production",

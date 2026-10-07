@@ -99,7 +99,30 @@ describe("multi-line FOC stock and traceability", () => {
     expect(changed.lines?.[1]).toMatchObject({ quantityMC: 5, originalQuantityMC: 20 });
     expect(receivedFocMC(changed)).toBe(10);
     const cleared = changeFocCell(changed, { value: null }, "Admin", "", "clear");
-    expect(cleared.value).toBeNull(); expect(cleared.lines).toHaveLength(2); expect(receivedFocMC(cleared)).toBe(0);
+    expect(cleared.value).toBeNull(); expect(cleared.lines).toHaveLength(0); expect(receivedFocMC(cleared)).toBe(0);
+    expect(original.lines.map(l => l.quantityMC)).toEqual([10, 20]);
     expect(receivedFocMC(changeFocCell(original, { lineId: "b", received: true }, "Admin", "", "receipt"))).toBe(30);
+  });
+  it("changes only the selected recorded line and retains its original quantity and identity", () => {
+    const original = { skuId: 2, periodId: 6, value: "30", lines: [line("a", 10, true), line("b", 20, false)] };
+    const changed = changeFocCell(original, { lineId: "a", value: 15.25 }, "Admin", "", "edit");
+    expect(changed.value).toBe("35.25");
+    expect(changed.lines?.[0]).toMatchObject({ id: "a", quantityMC: 15.25, originalQuantityMC: 10, received: true });
+    expect(changed.lines?.[1]).toEqual(original.lines[1]);
+    expect(receivedFocMC(changed)).toBe(15.25);
+    expect(original.lines[0].quantityMC).toBe(10);
+  });
+  it("deletes a single recorded line, recalculates receipts and deletes the final line completely", () => {
+    const original = { skuId: 2, periodId: 6, value: "30", lines: [line("a", 10, true), line("b", 20, false)] };
+    const changed = changeFocCell(original, { lineId: "b", remove: true }, "Admin", "", "delete");
+    expect(changed).toMatchObject({ value: "10.00", received: true, lines: [original.lines[0]] });
+    expect(receivedFocMC(changed)).toBe(10);
+    expect(changeFocCell(changed, { lineId: "a", remove: true }, "Admin", "", "last")).toMatchObject({ value: null, received: false, lines: [] });
+    expect(changeFocCell(original, { remove: true }, "Admin", "", "all")).toMatchObject({ value: null, received: false, lines: [] });
+  });
+  it("rejects stale line identities rather than correcting or deleting a different line", () => {
+    const original = { skuId: 2, periodId: 6, value: "10", lines: [line("a", 10, true)] };
+    expect(() => changeFocCell(original, { lineId: "missing", value: 15 }, "Admin", "", "edit")).toThrow("Recorded FOC line not found");
+    expect(() => changeFocCell(original, { lineId: "missing", remove: true }, "Admin", "", "delete")).toThrow("Recorded FOC line not found");
   });
 });

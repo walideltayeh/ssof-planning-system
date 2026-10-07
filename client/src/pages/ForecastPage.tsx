@@ -14,20 +14,16 @@ import { TableSkeleton } from "@/components/TableSkeleton";
 import ExportSheetButton from "@/components/ExportSheetButton";
 import ImportSheetButton from "@/components/ImportSheetButton";
 import { useGridNav } from "@/hooks/useGridNav";
-import { ForecastFocEditButton, ForecastFocRow, ForecastFocBanner, ForecastFocTotals, useForecastFoc } from "@/components/forecast/ForecastFoc";
-import { displayValue, exactDisplayValue, fromMastercases, toMastercases } from "@/lib/forecastUnits";
-import { RecordFocDialog } from "@/components/forecast/RecordFocDialog";
 
 const WEIGHT_ORDER: Record<string, number> = { "1kg": 0, "250g": 1, "50g": 2 };
 
 export default function ForecastPage() {
   const { user: appUser, isAdminFor } = useAppAuth();
   const { country, config } = useCountry();
-  const { formatVal, unit } = useUnit();
+  const { formatVal } = useUnit();
   const isLebanon = country === "Lebanon";
+  const canEditForecast = country === "Libya" || country === "Syria" ? isAdminFor(country) : true;
   const utils = trpc.useUtils();
-  const foc = useForecastFoc(country);
-  const canEditForecast = !foc.supported || isAdminFor(foc.country);
 
   // Lebanon uses the existing data.forecast endpoint
   const { data: lbData, isLoading: lbLoading, isFetching: lbFetching, refetch: lbRefetch } = trpc.data.forecast.useQuery(undefined, { enabled: isLebanon, staleTime: 0, refetchOnWindowFocus: true });
@@ -60,8 +56,7 @@ export default function ForecastPage() {
     onError: (err: any) => toast.error("Failed to save: " + err.message),
   });
   const updateProductionIntl = trpc.country.updateProduction.useMutation({
-    onSuccess: (_, input) => input.country === "Libya" || input.country === "Syria"
-      ? foc.invalidate(input.country) : utils.country.data.invalidate(),
+    onSuccess: () => utils.country.data.invalidate(),
     onError: (err: any) => toast.error("Failed to sync production: " + err.message),
   });
   const updateForecastWeek = trpc.country.updateForecastWeek.useMutation({
@@ -96,9 +91,10 @@ export default function ForecastPage() {
   const [filterSearch, setFilterSearch] = useState("");
   const [filterSize, setFilterSize] = useState<string>("All");
   const [filterPackaging, setFilterPackaging] = useState<string>("All");
+  // Isolate drafts and pending cell editors when switching country.
   useEffect(() => {
     setEditingCell(null); setEditValue(""); setOldValue("");
-  }, [country, unit]);
+  }, [country]);
   useEffect(() => {
     setWeekPickerOpen(null); setProdLinkWeek(new Map()); weekMapInitialized.current = false;
     setExcludedSkuIds(new Set()); setExcludeCore(false); setExcludeNPI(false);
@@ -163,7 +159,7 @@ export default function ForecastPage() {
     }
   }, [dbWeekMap]);
 
-  const allSkus = useMemo(() => (data?.skus ?? []).filter(s => !foc.supported || s.isActive !== false), [data?.skus, foc.supported]);
+  const allSkus = data?.skus ?? [];
   const periods = data?.periods ?? [];
 
   // Sort SKUs: group by category (Core first, NPI second), then by weight (1kg, 250g, 50g), then by name
@@ -211,19 +207,18 @@ export default function ForecastPage() {
     return groups;
   }, [filteredSkus]);
 
-  const formatNumber = (val: number) => val === 0 ? "" : foc.supported ? displayValue(val, unit) : formatVal(val, 0);
+  const formatNumber = (val: number) => val === 0 ? "" : formatVal(val);
 
   const handleCellClick = useCallback((cellKey: string, currentValue: string) => {
     if (!canEditForecast) return;
     setEditingCell(cellKey);
     setOldValue(currentValue);
-    setEditValue(currentValue === "0" ? "" : foc.supported ? String(fromMastercases(Number(currentValue), unit)) : currentValue);
-  }, [canEditForecast, foc.supported, unit]);
+    setEditValue(currentValue === "0" ? "" : currentValue);
+  }, [canEditForecast]);
 
   const handleCellSave = useCallback((skuId: number, periodId: number) => {
     if (!canEditForecast) return;
-    if (foc.supported && (!Number.isFinite(Number(editValue)) || Number(editValue) < 0)) { toast.error("Enter a valid non-negative ordered quantity."); return; }
-    const numVal = foc.supported ? toMastercases(Number(editValue), unit) : parseFloat(editValue) || 0;
+    const numVal = parseFloat(editValue) || 0;
     const sku = data?.skus.find(s => s.id === skuId);
     const period = data?.periods.find(p => p.id === periodId);
     updateCell.mutate({ skuId, periodId, value: numVal.toString(), skuName: sku?.name, periodLabel: period?.label, oldValue });
@@ -240,7 +235,7 @@ export default function ForecastPage() {
       });
     }
     setEditingCell(null);
-  }, [editValue, updateCell, isLebanon, country, prodLinkWeek, updateProductionIntl, appUser, data, canEditForecast, foc.supported, unit]);
+  }, [editValue, updateCell, isLebanon, country, prodLinkWeek, updateProductionIntl, appUser, data, canEditForecast]);
 
   // handleCellKeyDown is defined after periodsByYear (see below)
 
@@ -325,7 +320,7 @@ export default function ForecastPage() {
       setEditingCell(id);
       setOldValue(rawVal);
       if (!canEditForecast) { setEditingCell(null); return; }
-      setEditValue(rawVal === "0" ? "" : foc.supported ? String(fromMastercases(Number(rawVal), unit)) : rawVal);
+      setEditValue(rawVal === "0" ? "" : rawVal);
     },
     onSave: (cellId) => {
       const parts = cellId.split("-");
@@ -399,12 +394,11 @@ export default function ForecastPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">{config?.terms.forecast ?? "Forecast"}</h1>
-          <p className="text-sm text-muted-foreground mt-1">Monthly {isLebanon ? "forecast" : "forecast production"} by SKU. Grouped by Core/NPI, sorted by weight. {foc.supported ? "Figures follow the selected basis; editing changes ordered MC only." : "Click a monthly cell to edit."}</p>
+          <p className="text-sm text-muted-foreground mt-1">Monthly {isLebanon ? "forecast" : "forecast production"} by SKU. Grouped by Core/NPI, sorted by weight. Click a monthly cell to edit.</p>
         </div>
         <div className="flex items-center gap-2">
            {canEditForecast && <ImportSheetButton sheet="forecast" country={country} label="Import Forecast" />}
-           {foc.supported && (country === "Libya" || country === "Syria") && isAdminFor(foc.country) && data && <RecordFocDialog country={foc.country} skus={sortedSkus} periods={periods} includeFoc={foc.includeFoc} onSaved={() => foc.invalidate(foc.country)} />}
-           <ExportSheetButton sheet="forecast" country={country} label="Export Forecast" includeFoc={foc.supported ? foc.includeFoc : undefined} unit={foc.supported ? unit : undefined} />
+           <ExportSheetButton sheet="forecast" country={country} label="Export Forecast" />
           <div className="flex items-center gap-1">
             <button
               onClick={() => setCollapsedYears(new Set(years))}
@@ -421,7 +415,7 @@ export default function ForecastPage() {
               Expand All
             </button>
             <button
-              onClick={() => { refetchAll(); if (foc.supported) foc.query.refetch(); }}
+              onClick={() => { refetchAll(); }}
               disabled={isFetching}
               className="flex items-center gap-1 px-2 py-1 text-[10px] font-medium rounded border border-primary/40 bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               title="Sync all data from server"
@@ -515,8 +509,6 @@ export default function ForecastPage() {
         </div>
       </div>
 
-      {foc.supported && <ForecastFocBanner model={foc} canEdit={canEditForecast} />}
-
       {/* Filter bar — Syria/Libya only */}
       {!isLebanon && (
         <div className="flex flex-wrap items-center gap-2 pb-1">
@@ -571,27 +563,19 @@ export default function ForecastPage() {
 
       <Card>
         <CardContent className="p-0">
-          <div className="overflow-auto max-h-[75vh] rounded-b-lg">
-            <table className="text-xs table-fixed border-separate border-spacing-0" style={{ width: "100%", minWidth: 230 + periodsByYear.reduce((sum, group) => sum + (collapsedYears.has(group.year) ? 0 : group.periods.length) * 100 + 112, 0) }}>
-              <colgroup>
-                <col style={{ width: 50 }} />
-                <col style={{ width: 180 }} />
-                {periodsByYear.flatMap(({ year, periods: yPeriods }) => [
-                  ...(!collapsedYears.has(year) ? yPeriods.map(p => <col key={`col-${p.id}`} style={{ width: 100 }} />) : []),
-                  <col key={`col-total-${year}`} style={{ width: 112 }} />,
-                ])}
-              </colgroup>
-              <thead>
-                <tr className="sticky top-0 z-40 h-[30px] bg-[#7f1d1d] text-white">
-                  <th className="sticky left-0 z-50 border-b border-[#9e4242] bg-[#7f1d1d] px-2 py-1 text-left font-semibold">Weight</th>
-                  <th className="sticky left-[50px] z-50 border-r border-b border-[#9e4242] bg-[#7f1d1d] px-2 py-1 text-left font-semibold shadow-[5px_0_8px_-7px_rgba(22,44,35,0.7)]">SKU Name</th>
+          <div className="overflow-auto max-h-[75vh]">
+            <table className="w-full text-xs border-collapse">
+              <thead className="sticky top-0 z-20">
+                <tr className="bg-muted">
+                  <th className="sticky left-0 bg-muted z-30 px-2 py-2 text-left font-medium text-muted-foreground min-w-[50px]">Weight</th>
+                  <th className="sticky left-[50px] bg-muted z-30 px-2 py-2 text-left font-medium text-muted-foreground min-w-[180px]">SKU Name</th>
                   {periodsByYear.map(({ year, periods: yPeriods }) => {
                     const isCollapsed = collapsedYears.has(year);
                     return (
                       <th
                         key={`yh-${year}`}
                         colSpan={isCollapsed ? 1 : yPeriods.length + 1}
-                        className="border-b border-l border-[#9e4242] px-1 py-1 text-center font-semibold text-white cursor-pointer select-none hover:bg-[#681717] transition-colors"
+                        className="px-1 py-1 text-center font-bold border-l border-border text-primary cursor-pointer select-none hover:bg-muted/80 transition-colors"
                         onClick={() => toggleYear(year)}
                         title={isCollapsed ? `Expand ${year}` : `Collapse ${year}`}
                       >
@@ -605,17 +589,17 @@ export default function ForecastPage() {
                     );
                   })}
                 </tr>
-                <tr className="sticky top-[30px] z-40 h-[26px] bg-[#8f2a2a] text-white">
-                  <th className="sticky left-0 z-50 border-b border-[#9e4242] bg-[#8f2a2a] px-2 py-1"></th>
-                  <th className="sticky left-[50px] z-50 border-r border-b border-[#9e4242] bg-[#8f2a2a] px-2 py-1 shadow-[5px_0_8px_-7px_rgba(22,44,35,0.7)]"></th>
+                <tr className="bg-muted border-b">
+                  <th className="sticky left-0 bg-muted z-30 px-2 py-1"></th>
+                  <th className="sticky left-[50px] bg-muted z-30 px-2 py-1"></th>
                   {periodsByYear.map(({ year, periods: yPeriods }) => {
                     const isCollapsed = collapsedYears.has(year);
                     return (
                       <Fragment key={`sub-${year}`}>
                         {!isCollapsed && yPeriods.map(p => (
-                          <th key={p.id} className="border-b border-[#9e4242] px-1 py-1 text-center text-white/90 text-[10px]"><span className="block truncate" title={p.label}>{p.label.split(' ')[0]}</span></th>
+                          <th key={p.id} className="px-1 py-1 text-center text-muted-foreground min-w-[60px] text-[10px]">{p.label.split(' ')[0]}</th>
                         ))}
-                        <th className="border-b border-l-2 border-amber-400 bg-[#f8edcf] px-1 py-1 text-center font-bold text-amber-900 text-[10px]">
+                        <th className="px-1 py-1 text-center font-bold border-l-2 border-amber-400 bg-amber-50 text-amber-800 min-w-[70px] text-[10px]">
                           {isCollapsed ? year : "Total"}
                         </th>
                       </Fragment>
@@ -628,11 +612,12 @@ export default function ForecastPage() {
                   <Fragment key={`group-${group.category}`}>
                     {/* Category header row */}
                     <tr
-                      className={`${group.category === "Core" ? "bg-[#e9f4ed]" : "bg-[#f0edf6]"} cursor-pointer select-none hover:brightness-95 transition-all`}
+                      className={`${group.category === "Core" ? "bg-emerald-50" : "bg-violet-50"} cursor-pointer select-none hover:brightness-95 transition-all`}
                       onClick={() => toggleCategory(group.category)}
                     >
-                      <td className={`sticky left-0 z-20 border-b border-[#d7dfda] px-2 py-1 ${group.category === "Core" ? "bg-[#e9f4ed]" : "bg-[#f0edf6]"}`}></td>
-                      <td className={`sticky left-[50px] z-20 border-r border-b border-[#d7dfda] px-2 py-1 font-bold text-xs tracking-wider uppercase shadow-[5px_0_8px_-7px_rgba(22,44,35,0.7)] ${group.category === "Core" ? "bg-[#e9f4ed]" : "bg-[#f0edf6]"}`} style={{ color: group.category === "Core" ? "#047857" : "#6d28d9" }}>
+                      <td colSpan={2 + periodsByYear.reduce((acc, py) => collapsedYears.has(py.year) ? acc + 1 : acc + py.periods.length + 1, 0)}
+                        className="px-3 py-1.5 font-bold text-xs tracking-wider uppercase sticky left-0 z-10"
+                        style={{ color: group.category === "Core" ? "#047857" : "#6d28d9" }}>
                         <span className="inline-flex items-center gap-2">
                           <svg
                             className={`w-3.5 h-3.5 transition-transform duration-200 ${collapsedCategories.has(group.category) ? '' : 'rotate-90'}`}
@@ -646,7 +631,6 @@ export default function ForecastPage() {
                           </span>
                         </span>
                       </td>
-                      <td colSpan={periodsByYear.reduce((acc, py) => collapsedYears.has(py.year) ? acc + 1 : acc + py.periods.length + 1, 0)} className={`border-b border-[#d7dfda] ${group.category === "Core" ? "bg-[#e9f4ed]" : "bg-[#f0edf6]"}`}></td>
                     </tr>
 
                     {!collapsedCategories.has(group.category) && group.weightGroups.map(({ weight, skus: weightSkus }) => (
@@ -656,8 +640,8 @@ export default function ForecastPage() {
                           className="bg-slate-100 cursor-pointer select-none hover:bg-slate-200 transition-colors"
                           onClick={() => toggleWeight(`${group.category}-${weight}`)}
                         >
-                          <td className="sticky left-0 z-20 border-b border-[#d7dfda] bg-[#edf0eb] px-2 py-1"></td>
-                          <td className="sticky left-[50px] z-20 border-r border-b border-[#d7dfda] bg-[#edf0eb] px-2 py-1 text-xs font-semibold text-slate-600 shadow-[5px_0_8px_-7px_rgba(22,44,35,0.7)]">
+                          <td colSpan={2 + periodsByYear.reduce((acc, py) => collapsedYears.has(py.year) ? acc + 1 : acc + py.periods.length + 1, 0)}
+                            className="px-4 py-1 text-xs font-semibold text-slate-600 sticky left-0 z-10">
                             <span className="inline-flex items-center gap-2">
                               <svg
                                 className={`w-3 h-3 transition-transform duration-200 ${collapsedWeights.has(`${group.category}-${weight}`) ? '' : 'rotate-90'}`}
@@ -675,29 +659,27 @@ export default function ForecastPage() {
                               </span>
                             </span>
                           </td>
-                          <td colSpan={periodsByYear.reduce((acc, py) => collapsedYears.has(py.year) ? acc + 1 : acc + py.periods.length + 1, 0)} className="border-b border-[#d7dfda] bg-[#edf0eb]"></td>
                         </tr>
                         {!collapsedWeights.has(`${group.category}-${weight}`) && weightSkus.map((sku, idx) => (
-                      <Fragment key={sku.id}><tr className={`h-7 border-b hover:bg-[#edf3ef] ${idx % 2 === 1 ? 'bg-[#f3f6f4]' : 'bg-[#fbfcfb]'}`}>
-                        <td className={`sticky left-0 z-20 w-[50px] border-r border-[#d7dfda] ${idx % 2 === 1 ? 'bg-[#f3f6f4]' : 'bg-[#fbfcfb]'} px-1 py-1`}>
-                          <div className="flex items-center">
+                      <Fragment key={sku.id}><tr className={`border-b border-border hover:bg-muted ${idx % 2 === 1 ? 'bg-slate-50' : ''} ${isSkuExcluded(sku.id) ? 'opacity-40' : ''}`}>
+                        <td className={`sticky left-0 ${idx % 2 === 1 ? 'bg-slate-50' : 'bg-background'} z-10 px-2 py-1.5`}>
+                          <div className="flex flex-col items-start gap-0.5">
                             <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold ${
                               isSkuExcluded(sku.id) ? 'bg-[#e3e8e4] text-muted-foreground' :
                               sku.weight === '50g' ? 'bg-blue-100 text-blue-700' :
                               sku.weight === '250g' ? 'bg-amber-100 text-amber-700' :
                               'bg-rose-100 text-rose-700'
                             }`}>{sku.weight}</span>
+                            {!isLebanon && (
+                              <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                isSkuExcluded(sku.id) ? 'bg-[#e3e8e4] text-muted-foreground' :
+                                ((sku as any).packagingType ?? 'New') === 'New' ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-700'
+                              }`}>{(sku as any).packagingType ?? 'New'}</span>
+                            )}
                           </div>
                         </td>
-                        <td title={sku.name} className={`group/sku sticky left-[50px] z-20 w-[180px] border-r border-[#d7dfda] ${idx % 2 === 1 ? 'bg-[#f3f6f4]' : 'bg-[#fbfcfb]'} px-2 py-1 font-medium whitespace-nowrap shadow-[5px_0_8px_-7px_rgba(22,44,35,0.7)] ${isSkuExcluded(sku.id) ? "text-muted-foreground" : ""}`}>
-                          <div className="flex items-center gap-1">
-                          {!isLebanon && <span className={`mr-1 inline-flex items-center rounded px-1 py-0.5 text-[9px] font-semibold ${
-                            isSkuExcluded(sku.id) ? 'bg-[#e3e8e4] text-muted-foreground' :
-                            ((sku as any).packagingType ?? 'New') === 'New' ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-700'
-                          }`}>{(sku as any).packagingType ?? 'New'}</span>}
-                          <span className="min-w-0 flex-1 truncate" title={sku.name}>{sku.name}</span>
-                          {foc.supported && <ForecastFocEditButton sku={sku} years={periodsByYear} model={foc} canEdit={canEditForecast} />}
-                          </div>
+                        <td title={sku.name} className={`group/sku sticky left-[50px] ${idx % 2 === 1 ? 'bg-slate-50' : 'bg-background'} z-10 px-2 py-1.5 font-medium whitespace-nowrap ${isSkuExcluded(sku.id) ? "text-muted-foreground" : ""}`}>
+                          <span>{sku.name}</span>
                         </td>
                         {periodsByYear.map(({ year, periods: yPeriods }) => {
                           const isYearCollapsed = collapsedYears.has(year);
@@ -731,13 +713,11 @@ export default function ForecastPage() {
                               return (
                                 <td
                                   key={cellKey}
-                                  className={`px-1 py-1 text-right tabular-nums cursor-pointer hover:bg-primary/10 transition-colors relative group ${isSkuExcluded(sku.id) ? "text-muted-foreground" : ""}`}
-                                  title={foc.supported ? undefined : `${p.label}: ${formatNumber(numVal)}`}
+                              className={`px-1 py-1.5 text-right tabular-nums cursor-pointer hover:bg-primary/10 transition-colors relative group ${isSkuExcluded(sku.id) ? "text-muted-foreground" : ""}`}
+                                  title={`${p.label}: ${formatNumber(numVal)}`}
                                   onClick={() => handleCellClick(cellKey, rawVal)}
                                 >
-                                  {foc.supported
-                                    ? <ForecastFocTotals skus={[sku]} periods={[p]} ordered={data?.data ?? []} model={foc} muted={isSkuExcluded(sku.id)} />
-                                    : <span className="block truncate" title={exactDisplayValue(numVal, unit)}>{formatNumber(numVal)}</span>}
+                                  <span className="block truncate">{formatNumber(numVal)}</span>
                                   {!isLebanon && numVal > 0 && (
                                     <button
                                       type="button"
@@ -785,23 +765,22 @@ export default function ForecastPage() {
                                 </td>
                               );
                             })}
-                            <td title={foc.supported ? `${year} selected-basis total` : `${year} total: ${exactDisplayValue(computeYearTotal(sku.id, year), unit)}`} className={`px-1 py-1 text-right tabular-nums font-semibold border-l-2 border-amber-400 bg-[#fbf2dc] text-amber-900 ${isSkuExcluded(sku.id) ? "text-muted-foreground" : ""}`}>
-                              {foc.supported ? <ForecastFocTotals skus={[sku]} periods={yPeriods} ordered={data?.data ?? []} model={foc} muted={isSkuExcluded(sku.id)} /> : formatNumber(computeYearTotal(sku.id, year))}
+                            <td className={`px-1 py-1.5 text-right tabular-nums font-bold border-l-2 border-amber-400 bg-amber-50 text-amber-900 ${isSkuExcluded(sku.id) ? "text-muted-foreground" : ""}`}>
+                              {formatNumber(computeYearTotal(sku.id, year))}
                             </td>
                           </Fragment>
                           );
                         })}
                       </tr>
-                      {foc.supported && <ForecastFocRow sku={sku} years={periodsByYear} collapsedYears={collapsedYears} model={foc} canEdit={canEditForecast} ordered={data?.data ?? []} />}
                       </Fragment>
                         ))}
                       </Fragment>
                     ))}
 
                     {/* Category subtotal row */}
-                    <tr className={`font-semibold border-b ${group.category === "Core" ? "bg-[#e9f4ed]" : "bg-[#f0edf6]"}`}>
-                      <td className={`sticky left-0 z-20 border-r border-[#d7dfda] px-2 py-1.5 ${group.category === "Core" ? "bg-[#e9f4ed]" : "bg-[#f0edf6]"}`}></td>
-                      <td className={`sticky left-[50px] z-20 border-r border-[#d7dfda] px-2 py-1.5 whitespace-nowrap text-xs shadow-[5px_0_8px_-7px_rgba(22,44,35,0.7)] ${group.category === "Core" ? "bg-[#e9f4ed]" : "bg-[#f0edf6]"}`} style={{ color: group.category === "Core" ? "#047857" : "#6d28d9" }}>
+                    <tr className={`font-semibold ${group.category === "Core" ? "bg-emerald-50" : "bg-violet-50"} border-b-2`}>
+                      <td className="sticky left-0 z-10 px-2 py-1.5" style={{ backgroundColor: group.category === "Core" ? "rgb(236 253 245)" : "rgb(245 243 255)" }}></td>
+                      <td className="sticky left-[50px] z-10 px-2 py-1.5 whitespace-nowrap text-xs" style={{ color: group.category === "Core" ? "#047857" : "#6d28d9" }}>
                         Subtotal {group.category}
                       </td>
                       {periodsByYear.map(({ year, periods: yPeriods }) => {
@@ -809,12 +788,12 @@ export default function ForecastPage() {
                         return (
                         <Fragment key={`subtot-${group.category}-${year}`}>
                           {!isYearCollapsed && yPeriods.map(p => (
-                            <td key={`subtot-${group.category}-${p.id}`} title={`Subtotal ${group.category} · ${p.label}${foc.supported ? "" : `: ${exactDisplayValue(computeCategoryTotal(group.category, p.id), unit)}`}`} className="px-1 py-1.5 text-right tabular-nums text-xs" style={{ color: group.category === "Core" ? "#047857" : "#6d28d9" }}>
-                              {foc.supported ? <ForecastFocTotals skus={allSkus.filter(s => s.category === group.category && !isSkuExcluded(s.id))} periods={[p]} ordered={data?.data ?? []} model={foc} /> : formatNumber(computeCategoryTotal(group.category, p.id))}
+                            <td key={`subtot-${group.category}-${p.id}`} title={`Subtotal ${group.category} · ${p.label}`} className="px-1 py-1.5 text-right tabular-nums" style={{ color: group.category === "Core" ? "#047857" : "#6d28d9" }}>
+                              {formatNumber(computeCategoryTotal(group.category, p.id))}
                             </td>
                           ))}
-                          <td title={foc.supported ? undefined : exactDisplayValue(computeCategoryYearTotal(group.category, year), unit)} className="px-1 py-1.5 text-right tabular-nums text-xs font-semibold border-l-2 border-amber-400 bg-[#f8edcf]" style={{ color: group.category === "Core" ? "#047857" : "#6d28d9" }}>
-                            {foc.supported ? <ForecastFocTotals skus={allSkus.filter(s => s.category === group.category && !isSkuExcluded(s.id))} periods={yPeriods} ordered={data?.data ?? []} model={foc} /> : formatNumber(computeCategoryYearTotal(group.category, year))}
+                          <td className="px-1 py-1.5 text-right tabular-nums font-bold border-l-2 border-amber-400 bg-amber-50" style={{ color: group.category === "Core" ? "#047857" : "#6d28d9" }}>
+                            {formatNumber(computeCategoryYearTotal(group.category, year))}
                           </td>
                         </Fragment>
                         );
@@ -824,25 +803,25 @@ export default function ForecastPage() {
                 ))}
 
               </tbody>
-              <tfoot className="[&_td]:border-t [&_td]:border-[#9e4242]">
-                {/* Monthly totals and Grand Total remain visible while scrolling SKUs. */}
-                <tr className="sticky bottom-0 z-30 h-[32px] border-t-2 border-[#681717] bg-[#7f1d1d] text-[12px] font-semibold text-white">
-                  <td className="sticky left-0 z-40 border-r border-[#9e4242] bg-[#7f1d1d] px-2 py-1"></td>
-                  <td className="sticky left-[50px] z-40 border-r border-[#9e4242] bg-[#7f1d1d] px-2 py-1 whitespace-nowrap shadow-[5px_0_8px_-7px_rgba(22,44,35,0.7)]">
-                    <span className="block truncate text-[13px] font-semibold" title="Grand Total">Grand Total</span>
-                    {totalExcluded > 0 && <span className="text-[10px] font-normal ml-1 text-white/75">({totalExcluded} excluded)</span>}
+              <tfoot>
+                {/* Grand Total row */}
+                <tr className="border-t-2 border-primary bg-slate-100 font-bold">
+                  <td className="sticky left-0 z-40 bg-slate-100 px-2 py-2"></td>
+                  <td className="sticky left-[50px] z-40 bg-slate-100 px-2 py-2 whitespace-nowrap text-primary">
+                    Grand Total
+                    {totalExcluded > 0 && <span className="text-[10px] font-normal ml-1 text-muted-foreground">({totalExcluded} excluded)</span>}
                   </td>
                   {periodsByYear.map(({ year, periods: yPeriods }) => {
                     const isYearCollapsed = collapsedYears.has(year);
                     return (
                     <Fragment key={`gt-y-${year}`}>
                       {!isYearCollapsed && yPeriods.map(p => (
-                        <td key={`gt-${p.id}`} title={`${p.label} grand total`} className="bg-[#7f1d1d] px-1 py-1 text-right tabular-nums text-white">
-                          {foc.supported ? <ForecastFocTotals skus={allSkus.filter(s => !isSkuExcluded(s.id))} periods={[p]} ordered={data?.data ?? []} model={foc} prominent /> : <span className="block truncate" title={exactDisplayValue(computeTotal(p.id), unit)}>{formatNumber(computeTotal(p.id))}</span>}
+                        <td key={`gt-${p.id}`} className="px-1 py-2 text-right tabular-nums text-primary">
+                          {formatNumber(computeTotal(p.id))}
                         </td>
                       ))}
-                      <td className="px-1 py-1 text-right tabular-nums font-semibold border-l-2 border-amber-400 bg-[#f4e3b8] text-amber-900">
-                        {foc.supported ? <ForecastFocTotals skus={allSkus.filter(s => !isSkuExcluded(s.id))} periods={yPeriods} ordered={data?.data ?? []} model={foc} grand /> : <span className="block truncate text-[13px]" title={exactDisplayValue(computeColumnYearTotal(year), unit)}>{formatNumber(computeColumnYearTotal(year))}</span>}
+                      <td className="px-1 py-2 text-right tabular-nums font-bold border-l-2 border-amber-400 bg-amber-100 text-amber-900">
+                        {formatNumber(computeColumnYearTotal(year))}
                       </td>
                     </Fragment>
                     );

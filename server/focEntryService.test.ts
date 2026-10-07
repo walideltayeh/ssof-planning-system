@@ -3,6 +3,10 @@ import { PgDialect } from "drizzle-orm/pg-core";
 import { skus, periods, focData, forecastData, imsData, arrivalData, planningFgData, clearanceEvents, auditTrail, ssofVersions } from "../drizzle/schema";
 import { blankFocDraft } from "../shared/focEntry";
 import { restoreFocOnlySnapshot } from "./focSnapshot";
+import { loadFocReceiptData } from "./focReceiptService";
+import { evaluateFocReceipts } from "../shared/performance/focReceipts";
+import { buildStockLedger } from "../shared/performance/stock";
+import type { CellChange } from "./focEntryService";
 vi.mock("./db", async original => ({ ...await original<typeof import("./db")>(), getDb: vi.fn() }));
 const dbModule = await import("./db");
 const service = await import("./focEntryService");
@@ -63,6 +67,77 @@ beforeEach(() => {
   vi.mocked(dbModule.getDb).mockResolvedValue(connection as any);
 });
 describe("past FOC preview, atomic commit, audit and rollback", () => {
+  it.each(["Libya", "Syria"] as const)("reverses operational arrivals and every closing stock exactly for %s, independently of tracker rebuilds", async country => {
+    const skuId = country === "Libya" ? 1 : 2;
+    records.get(periods)!.forEach(p => { p.country = country; });
+    records.set(planningFgData, [{ skuId, periodId: 6, openingStock: "100", adjustments: "0" }]);
+    const apply = async (cell: CellChange) => {
+      const operation = { cell };
+      const preview = await service.previewFocEntry(country, operation, true);
+      await service.commitFocEntry(country, operation, true, "Country admin", preview.token);
+      return preview;
+    };
+    await apply({ skuId, periodId: 6, value: 30 });
+    const read = async () => {
+      const ds = await loadFocReceiptData(country);
+      return { entries: evaluateFocReceipts(ds, true), stock: buildStockLedger({
+        ...ds, ims: [], forecast: [], includeFoc: true, now: new Date(2026, 9, 7),
+      }).bySku.get(skuId)! };
+    };
+    let actual = await read();
+    expect(actual.entries.reduce((sum, e) => sum + e.added, 0)).toBe(0);
+    expect([...actual.stock.values()].map(v => v.closing)).toEqual([100, 100, 100]);
+    const received = await apply({ skuId, periodId: 6, received: true });
+    expect(received.impact.map(p => [p.before, p.after])).toEqual([[100, 130], [100, 130], [100, 130]]);
+    actual = await read();
+    expect(actual.entries.reduce((sum, e) => sum + e.added, 0)).toBe(30);
+    expect(actual.stock.get(6)).toMatchObject({ arrivals: 30, closing: 130 });
+    const persisted = structuredClone(records.get(focData));
+    // Tracker rebuild owns production/clearance inputs, never the independent FOC record.
+    records.set(arrivalData, []);
+    records.set(clearanceEvents, []);
+    actual = await read();
+    expect(records.get(focData)).toEqual(persisted);
+    expect([...actual.stock.values()].map(v => v.closing)).toEqual([130, 130, 130]);
+    const reversed = await apply({ skuId, periodId: 6, received: false });
+    expect(reversed.impact.map(p => [p.before, p.after])).toEqual([[130, 100], [130, 100], [130, 100]]);
+    actual = await read();
+    expect(actual.entries.reduce((sum, e) => sum + e.added, 0)).toBe(0);
+    expect([...actual.stock.values()].map(v => [v.arrivals, v.closing])).toEqual([[0, 100], [0, 100], [0, 100]]);
+    expect(records.get(ssofVersions)).toHaveLength(3);
+    expect(records.get(auditTrail)).toHaveLength(3);
+    expect(records.get(ssofVersions)![2].snapshotData.foc[0].received).toBe(true);
+    expect(records.get(clearanceEvents)).toEqual([]);
+    expect(records.get(forecastData)).toEqual([]);
+  });
+  it("audits and backs up individual edits, line deletions and whole-cell deletion without touching siblings or another country", async () => {
+    const operation = { lines: [draft("10"), draft("20", "Jun-26", false)] };
+    const preview = await service.previewFocEntry("Libya", operation, true);
+    await service.commitFocEntry("Libya", operation, true, "Creator", preview.token);
+    const [first, second] = structuredClone(records.get(focData)![0].lines);
+    records.get(focData)!.push({ country: "Syria", skuId: 2, periodId: 6, value: "50.00", received: true, lines: [] });
+    const foreign = structuredClone(records.get(focData)![1]);
+    const apply = async (cell: CellChange) => {
+      const op = { cell };
+      const p = await service.previewFocEntry("Libya", op, true);
+      await service.commitFocEntry("Libya", op, true, "Editor", p.token);
+    };
+    await apply({ skuId: 1, periodId: 6, lineId: first.id, value: 15 });
+    expect(records.get(focData)![0]).toMatchObject({ value: "35.00", lines: [
+      { ...first, quantityMC: 15, originalQuantityMC: 10 }, second,
+    ] });
+    await apply({ skuId: 1, periodId: 6, lineId: second.id, remove: true });
+    expect(records.get(focData)![0]).toMatchObject({ value: "15.00", received: true });
+    expect(records.get(focData)![0].lines).toHaveLength(1);
+    await apply({ skuId: 1, periodId: 6, remove: true });
+    expect(records.get(focData)).toEqual([foreign]);
+    expect(records.get(ssofVersions)).toHaveLength(4);
+    expect(records.get(auditTrail)).toHaveLength(4);
+    expect(records.get(ssofVersions)![2].snapshotData.foc[0].lines[1]).toEqual(second);
+    expect(records.get(ssofVersions)![3].snapshotData.foc[0].value).toBe("15.00");
+    expect(records.get(auditTrail)![3]).toMatchObject({ country: "Libya", username: "Editor", sheet: "FOC" });
+    expect(JSON.parse(records.get(auditTrail)![3].newValue)).toMatchObject({ value: null, received: false, lines: [] });
+  });
   it("records repeated selected SKU IDs using the registered identity, not supplied text", async () => {
     const operation = { lines: [{ ...draft("10"), skuId: 1, flavor: "Wrong", weight: "Wrong", packaging: "Wrong" },
       { ...draft("20"), skuId: 1 }] };

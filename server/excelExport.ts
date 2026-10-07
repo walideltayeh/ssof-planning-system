@@ -3,7 +3,6 @@ import * as db from "./db";
 import { buildInternationalArrivalSheets } from "./arrivalExcelExport";
 import { buildStockLedger, type StockDataset } from "../shared/performance/stock";
 import { summarizeFocReceipts } from "../shared/performance/focReceipts";
-import { buildForecastFocSheet } from "./forecastFocWorkbook";
 
 // ==================== TYPES ====================
 interface Sku {
@@ -1131,9 +1130,7 @@ export async function generateSingleSheetBufferForCountry(country: "Syria" | "Li
   if (sheet === "ims") {
     buildIntlImsSheet(wb, allSkus, sortedPeriods, ims);
   } else if (sheet === "forecast") {
-    if (country === "Libya" || country === "Syria")
-      buildForecastFocSheet(wb, { ...data, country, periods: sortedPeriods }, includeFoc, unit);
-    else buildIntlForecastSheet(wb, "Forecast Production", allSkus, sortedPeriods, forecast);
+    buildIntlForecastSheet(wb, "Forecast Production", allSkus, sortedPeriods, forecast);
   } else if (sheet === "forecast-vs-actual") {
     buildIntlForecastVsActualSheet(wb, allSkus, sortedPeriods, forecast, actualProduction);
   } else if (sheet === "arrival") {
@@ -1405,9 +1402,7 @@ export async function generateExcelBufferForCountry(country: "Syria" | "Libya" |
   wb.creator = "SSOF Planning System";
   wb.created = new Date();
   buildIntlImsSheet(wb, allSkus, sortedPeriods, ims);
-  if (country === "Libya" || country === "Syria")
-    buildForecastFocSheet(wb, { ...data, country, periods: sortedPeriods }, includeFoc, "MC");
-  else buildIntlForecastSheet(wb, "Forecast Production", allSkus, sortedPeriods, forecast);
+  buildIntlForecastSheet(wb, "Forecast Production", allSkus, sortedPeriods, forecast);
   buildIntlForecastVsActualSheet(wb, allSkus, sortedPeriods, forecast, actualProduction);
   for (const w of weights) {
     if (allSkus.some(s => s.weight === w)) {
