@@ -20,3 +20,9 @@ Forecast's primary figure must follow Include FOC. Do not repeat Ordered/FOC/Com
 **Why:** The user repeated that the grid was unreadable, especially when scrolling toward totals, and explicitly required zero transparency.
 
 **How to apply:** Preserve the selected-basis display versus paid-only editing distinction. Keep headers frozen, totals pinned inside the grid, and Grand Total largest. Verify both scroll directions at narrow laptop width across all units, including long names and large numbers.
+
+Do not display purchase-order reference documents or the Domestic / Export split on Forecast Production, in any country. Keep the load traceable through its existing Audit Trail entry and Version history snapshot instead.
+
+**Why:** The user explicitly reversed the earlier instruction to keep these references visible on this page.
+
+**How to apply:** Remove page-only reference UI and code, not audit records, saved versions, or the underlying imported quantities.

@@ -14,7 +14,6 @@ import { TableSkeleton } from "@/components/TableSkeleton";
 import ExportSheetButton from "@/components/ExportSheetButton";
 import ImportSheetButton from "@/components/ImportSheetButton";
 import { useGridNav } from "@/hooks/useGridNav";
-import LibyaPoImport from "@/components/LibyaPoImport";
 import { ForecastFocRow, ForecastFocBanner, ForecastFocTotals, useForecastFoc } from "@/components/forecast/ForecastFoc";
 import { displayValue, fromMastercases, toMastercases } from "@/lib/forecastUnits";
 
@@ -514,7 +513,6 @@ export default function ForecastPage() {
         </div>
       </div>
 
-      {country === "Libya" && <LibyaPoImport />}
       {foc.supported && <ForecastFocBanner model={foc} canEdit={canEditForecast} />}
 
       {/* Filter bar — Syria/Libya only */}

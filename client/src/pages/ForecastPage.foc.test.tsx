@@ -12,7 +12,6 @@ vi.mock("@/contexts/AuthContext", () => ({ useAppAuth: () => ({ user: { role: "a
 vi.mock("@/contexts/UnitContext", () => ({ useUnit: () => ({
   unit: m.unit, unitLabel: m.unit, formatVal: (q: number) => String(q * (m.unit === "KG" ? 6 : m.unit === "Tons" ? .006 : 1)),
 }) }));
-vi.mock("@/components/LibyaPoImport", () => ({ default: () => null }));
 vi.mock("@/components/ExportSheetButton", () => ({ default: (p: any) => <button data-testid="export" data-include={String(p.includeFoc)} data-unit={p.unit}>Export Forecast</button> }));
 vi.mock("@/components/ImportSheetButton", () => ({ default: () => <button>Import Forecast</button> }));
 vi.mock("@/lib/trpc", () => {
