@@ -314,7 +314,7 @@ export const appRouter = router({
   focPlanning: router({
     previewEntries: adminProcedure.input(z.object({
       country: z.enum(["Libya", "Syria"]), includeFoc: z.boolean(),
-      lines: z.array(z.object({ date: z.string().max(100), flavor: z.string().max(150), weight: z.string().max(30),
+      lines: z.array(z.object({ skuId: z.number().int().positive().optional(), date: z.string().max(100), flavor: z.string().max(150), weight: z.string().max(30),
         packaging: z.string().max(40), quantityMC: z.string().max(40), received: z.boolean(),
         accType: z.string().max(200), salesManager: z.string().max(200), error: z.string().max(500).optional() }).strict()).min(1).max(200),
     }).strict()).mutation(async ({ ctx, input }) => {
@@ -323,7 +323,7 @@ export const appRouter = router({
     }),
     commitEntries: adminProcedure.input(z.object({
       country: z.enum(["Libya", "Syria"]), includeFoc: z.boolean(), token: z.string().length(64),
-      lines: z.array(z.object({ date: z.string().max(100), flavor: z.string().max(150), weight: z.string().max(30),
+      lines: z.array(z.object({ skuId: z.number().int().positive().optional(), date: z.string().max(100), flavor: z.string().max(150), weight: z.string().max(30),
         packaging: z.string().max(40), quantityMC: z.string().max(40), received: z.boolean(),
         accType: z.string().max(200), salesManager: z.string().max(200), error: z.string().max(500).optional() }).strict()).min(1).max(200),
     }).strict()).mutation(async ({ ctx, input }) => {

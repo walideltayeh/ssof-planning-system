@@ -12,4 +12,5 @@
 - [Syria warehouse truth](syria-warehouse-truth.md) — tracker warehouse stock is Syria's reference; compare first, admin applies deliberately; never derive absent feed balances.
 - [FOC receipt basis](planned-foc-basis.md) — Libya/Syria FOC affects stock/cover only when received and included; unreceived remains separate; duplicate inbound requires explicit admin review.
 - [FOC entry traceability](foc-entry-traceability.md) — past-period admin entry, per-line receipt eligibility, original sheet details and FOC-only rollback.
+- [Command input accessibility](command-input-accessibility.md) — generated aria-labelledby can override input aria-label; use the primitive's root label and role-based tests.
 - [Analysis working tabs](analysis-working-tabs.md) — working tabs are separate from the full saved board/PDF order; remember selection per user, with Summary as the first-use default.

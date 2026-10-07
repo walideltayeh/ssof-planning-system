@@ -40,7 +40,9 @@ async function previewWith(db: Db, country: FocCountry, operation: FocOperation,
     db.select({ row: imsData }).from(imsData).innerJoin(skus, eq(skus.id, imsData.skuId)).where(eq(skus.country, country)),
     db.select({ row: forecastData }).from(forecastData).innerJoin(skus, eq(skus.id, forecastData.skuId)).where(eq(skus.country, country)),
   ]);
-  const rows = "lines" in operation ? matchFocDrafts(operation.lines, ds.skus, ds.periods, country) : [];
+  // Include inactive identities only for explicit pasted-row validation, never in the stock ledger.
+  const matchSkus = "lines" in operation ? await db.select().from(skus).where(eq(skus.country, country)) : ds.skus;
+  const rows = "lines" in operation ? matchFocDrafts(operation.lines, matchSkus, ds.periods, country) : [];
   const next = new Map(ds.foc.map(c => [`${c.skuId}-${c.periodId}`, c as FocCell]));
   const affected = new Map<number, number>();
   if ("lines" in operation) {

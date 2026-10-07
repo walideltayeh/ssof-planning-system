@@ -2,27 +2,40 @@ import { useEffect, useMemo, useState } from "react";
 import { Plus, Trash2, Upload } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useUnit } from "@/contexts/UnitContext";
-import { blankFocDraft, parseFocPaste, type FocDraft } from "@shared/focEntry";
+import { blankFocDraft, focMonth, parseFocPaste, type FocDraft, type FocMatchSku } from "@shared/focEntry";
 import type { FocCountry } from "@shared/performance/foc";
 import { FocImpactConfirmation } from "./FocImpactConfirmation";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { FocSkuCombobox } from "./FocSkuCombobox";
 
-type Period = { id: number; label: string; year: number; month?: number };
-export function RecordFocDialog({ country, periods, includeFoc, onSaved }: { country: FocCountry; periods: Period[]; includeFoc: boolean; onSaved: () => Promise<unknown> }) {
+type Period = { id: number; label: string; year: number; month?: number; country?: string };
+export function RecordFocDialog({ country, periods, skus, includeFoc, onSaved }: { country: FocCountry; periods: Period[]; skus: FocMatchSku[]; includeFoc: boolean; onSaved: () => Promise<unknown> }) {
   const [open, setOpen] = useState(false), [drafts, setDrafts] = useState<FocDraft[]>([blankFocDraft()]);
   const previewMutation = trpc.focPlanning.previewEntries.useMutation();
   const commitMutation = trpc.focPlanning.commitEntries.useMutation();
   type EntriesPreview = Awaited<ReturnType<typeof previewMutation.mutateAsync>> & { versionId?: number };
   const [paste, setPaste] = useState(""), [preview, setPreview] = useState<EntriesPreview | null>(null), [confirming, setConfirming] = useState(false);
   const { unit } = useUnit();
-  const sortedPeriods = useMemo(() => [...periods].sort((a, b) => b.year - a.year || (b.month ?? 0) - (a.month ?? 0)), [periods]);
+  const sortedPeriods = useMemo(() => periods.filter(p => !p.country || p.country === country).sort((a, b) => b.year - a.year || (b.month ?? 0) - (a.month ?? 0)), [periods, country]);
   const monthNumber = (p: Period) => p.month ?? (["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"].findIndex(m => p.label.toLowerCase().startsWith(m)) + 1);
   useEffect(() => { setPreview(null); setConfirming(false); setDrafts([blankFocDraft()]); setPaste(""); }, [country]);
   const clear = () => { setDrafts([blankFocDraft()]); setPaste(""); setPreview(null); setConfirming(false); };
-  const edit = (index: number, key: keyof FocDraft, value: string | boolean) => {
+  const edit = (index: number, key: keyof FocDraft, value: string | boolean | number | undefined) => {
     setDrafts(prev => prev.map((line, i) => i === index ? { ...line, [key]: value, error: undefined } : line));
     setPreview(null);
+  };
+  const selectSku = (index: number, sku: FocMatchSku | null) => {
+    setDrafts(prev => prev.map((line, i) => i === index
+      ? { ...line, skuId: sku?.id, flavor: sku?.name ?? "", weight: sku?.weight ?? "", packaging: sku?.packagingType ?? "New", error: undefined }
+      : line));
+    setPreview(null);
+  };
+  const periodValue = (date: string) => {
+    const parsed = focMonth(date);
+    if (!parsed) return "";
+    const match = sortedPeriods.find(period => period.year === parsed.year && monthNumber(period) === parsed.month && (!period.country || period.country === country));
+    return match ? `${match.year}-${String(monthNumber(match)).padStart(2, "0")}` : "";
   };
   const runPreview = async () => {
     try {
@@ -60,13 +73,15 @@ export function RecordFocDialog({ country, periods, includeFoc, onSaved }: { cou
           <button onClick={acceptPaste} disabled={!paste.trim()} className="self-end rounded border bg-background px-3 py-2 text-xs disabled:opacity-50"><Upload className="mr-1 inline h-3 w-3" />Use pasted rows</button>
         </div>
         <div className="max-h-[45vh] space-y-2 overflow-auto pr-1">
-          {drafts.map((line, index) => <div key={index} className="grid grid-cols-2 gap-2 rounded border p-2 md:grid-cols-8">
-            <label className="text-[10px] text-muted-foreground">Month<select value={line.date} onChange={e => edit(index, "date", e.target.value)} className="mt-1 h-7 w-full rounded border bg-background px-1 text-xs"><option value="">Select month</option>
-              {line.date && !sortedPeriods.some(p => `${p.year}-${String(monthNumber(p)).padStart(2, "0")}` === line.date) && <option value={line.date}>{line.date} (pasted)</option>}
-              {sortedPeriods.map(p => <option key={p.id} value={`${p.year}-${String(monthNumber(p)).padStart(2, "0")}`}>{p.label}</option>)}</select></label>
-            <label className="text-[10px] text-muted-foreground">Flavor<input value={line.flavor} onChange={e => edit(index, "flavor", e.target.value)} className="mt-1 h-7 w-full rounded border px-1 text-xs" /></label>
-            <label className="text-[10px] text-muted-foreground">Weight<input value={line.weight} onChange={e => edit(index, "weight", e.target.value)} placeholder="1kg" className="mt-1 h-7 w-full rounded border px-1 text-xs" /></label>
-            <label className="text-[10px] text-muted-foreground">Packaging<select value={line.packaging} onChange={e => edit(index, "packaging", e.target.value)} className="mt-1 h-7 w-full rounded border bg-background px-1 text-xs"><option>New</option><option>Old</option></select></label>
+          {drafts.map((line, index) => <div key={index} className="grid grid-cols-2 gap-2 rounded border p-2 md:grid-cols-6">
+            <label className="text-[10px] text-muted-foreground">Month<select aria-label="Month" value={periodValue(line.date)} onChange={e => edit(index, "date", e.target.value)} className="mt-1 h-7 w-full rounded border bg-background px-1 text-xs"><option value="">Select month</option>
+              {sortedPeriods.filter(p => !p.country || p.country === country).map(p => <option key={p.id} value={`${p.year}-${String(monthNumber(p)).padStart(2, "0")}`}>{p.label}</option>)}</select>
+              {line.date && !periodValue(line.date) && <span className="mt-1 block truncate text-[9px] text-amber-800" title={line.date}>Pasted month: {line.date}</span>}
+            </label>
+            <label className="text-[10px] text-muted-foreground">SKU
+              <FocSkuCombobox country={country} skus={skus} selectedSkuId={line.skuId} onSelect={sku => selectSku(index, sku)} />
+              {!line.skuId && (line.flavor || line.weight || line.packaging) && <span className="mt-1 block truncate text-[9px] text-amber-800" title={`${line.flavor} · ${line.weight} · ${line.packaging}`}>Pasted identity: {line.flavor || "—"} · {line.weight || "—"} · {line.packaging || "—"}</span>}
+            </label>
             <label className="text-[10px] text-muted-foreground">Quantity (MC)<input value={line.quantityMC} onChange={e => edit(index, "quantityMC", e.target.value)} type="number" min="0" step="0.01" className="mt-1 h-7 w-full rounded border px-1 text-xs" /></label>
             <label className="text-[10px] text-muted-foreground">Acc Type<input value={line.accType} onChange={e => edit(index, "accType", e.target.value)} className="mt-1 h-7 w-full rounded border px-1 text-xs" /></label>
             <label className="text-[10px] text-muted-foreground">Sales Manager<input value={line.salesManager} onChange={e => edit(index, "salesManager", e.target.value)} className="mt-1 h-7 w-full rounded border px-1 text-xs" /></label>

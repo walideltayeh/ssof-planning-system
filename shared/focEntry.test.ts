@@ -9,6 +9,28 @@ const periods = [{ id: 6, country: "Libya", year: 2026, month: 6, label: "Jun 26
   { id: 7, country: "Libya", year: 2026, month: 7, label: "Jul 26", sortOrder: 7 }];
 const header = "Date\tAcc Type\tSales Manager\tFlavor\tWeight\tPackaging\tQuantity in MC";
 describe("FOC sheet parsing and exact country matching", () => {
+  it("resolves selected IDs to canonical registered identities and allows repeated selections", () => {
+    const selected = { ...blankFocDraft(), skuId: 2, date: "2026-06", quantityMC: "10",
+      flavor: "Mistyped", weight: "Wrong", packaging: "Wrong" };
+    const rows = matchFocDrafts([selected, { ...selected, quantityMC: "20" }], skus, periods, "Libya");
+    expect(rows.map(r => [r.skuId, r.periodId, r.quantity])).toEqual([[2, 6, 10], [2, 6, 20]]);
+    expect(rows[0]).toMatchObject({ flavor: "Mint", weight: "50g", packaging: "New", errors: [] });
+  });
+  it("rejects foreign, inactive and missing selected IDs without falling back to text", () => {
+    const inactive = { ...skus[1], id: 4, isActive: false };
+    for (const skuId of [3, 4, 999]) {
+      const [row] = matchFocDrafts([{ ...blankFocDraft(), skuId, date: "2026-06", quantityMC: "10",
+        flavor: "Mint", weight: "50g", packaging: "New" }], [...skus, inactive], periods, "Libya");
+      expect(row.skuId).toBeNull();
+      expect(row.errors).toContain(skuId === 4 ? "This SKU is inactive. Select an active SKU for this country." : "No matching SKU in this country.");
+    }
+  });
+  it("flags inactive pasted matches explicitly while retaining original pasted identity", () => {
+    const drafts = parseFocPaste(`${header}\nJun-26\tExport\tA\tTwo Apples\t1000gr\tOld Packaging\t10`);
+    const [row] = matchFocDrafts(drafts, skus.map(s => ({ ...s, isActive: s.id !== 1 })), periods, "Libya");
+    expect(row).toMatchObject({ skuId: null, flavor: "Two Apples", weight: "1000gr", packaging: "Old Packaging",
+      errors: ["This SKU is inactive. Select an active SKU for this country."] });
+  });
   it("reads the exact seven-column Excel layout without converting MC and preserves recorded details", () => {
     const drafts = parseFocPaste(`${header}\r\nJun-26\tExport\tManager A\tTwo Apples\t1000gr\tOld Packaging\t1,200.50\r\nJun-26\tDomestic\tManager B\tMint\t50gr\tNew Packaging\t12`);
     const rows = matchFocDrafts(drafts, skus, periods, "Libya");

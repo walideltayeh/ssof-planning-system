@@ -63,6 +63,37 @@ beforeEach(() => {
   vi.mocked(dbModule.getDb).mockResolvedValue(connection as any);
 });
 describe("past FOC preview, atomic commit, audit and rollback", () => {
+  it("records repeated selected SKU IDs using the registered identity, not supplied text", async () => {
+    const operation = { lines: [{ ...draft("10"), skuId: 1, flavor: "Wrong", weight: "Wrong", packaging: "Wrong" },
+      { ...draft("20"), skuId: 1 }] };
+    const preview = await service.previewFocEntry("Libya", operation, true);
+    expect(preview.canSave).toBe(true);
+    await service.commitFocEntry("Libya", operation, true, "Admin", preview.token);
+    expect(records.get(focData)![0]).toMatchObject({ value: "30.00", lines: [
+      expect.objectContaining({ flavor: "Mint", weight: "50g", packaging: "New", quantityMC: 10 }),
+      expect.objectContaining({ flavor: "Mint", weight: "50g", packaging: "New", quantityMC: 20 }),
+    ] });
+  });
+  it("flags an inactive pasted SKU explicitly and never commits it", async () => {
+    records.get(skus)![0].isActive = false;
+    const operation = { lines: [draft()] };
+    const preview = await service.previewFocEntry("Libya", operation, true);
+    expect(preview.canSave).toBe(false);
+    expect(preview.rows[0].errors).toContain("This SKU is inactive. Select an active SKU for this country.");
+    await expect(service.commitFocEntry("Libya", operation, true, "Admin", preview.token)).rejects.toThrow();
+    expect(records.get(focData)).toEqual([]);
+    expect(records.get(ssofVersions)).toEqual([]);
+  });
+  it("rejects inactive and foreign selected IDs even with valid active SKU text", async () => {
+    records.get(skus)!.push({ ...records.get(skus)![0], id: 3, isActive: false });
+    for (const skuId of [2, 3]) {
+      const operation = { lines: [{ ...draft(), skuId }] };
+      const preview = await service.previewFocEntry("Libya", operation, true);
+      expect(preview.canSave).toBe(false);
+      await expect(service.commitFocEntry("Libya", operation, true, "Admin", preview.token)).rejects.toThrow();
+    }
+    expect(records.get(focData)).toEqual([]);
+  });
   it("previews past-month carry-forward without writing, sums lines and snapshots everything before commit", async () => {
     const operation = { lines: [draft("10"), draft("20", "Jun-26", false)] };
     const preview = await service.previewFocEntry("Libya", operation, true);

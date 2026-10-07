@@ -403,7 +403,7 @@ export default function ForecastPage() {
         </div>
         <div className="flex items-center gap-2">
            {canEditForecast && <ImportSheetButton sheet="forecast" country={country} label="Import Forecast" />}
-           {foc.supported && (country === "Libya" || country === "Syria") && isAdminFor(foc.country) && data && <RecordFocDialog country={foc.country} periods={periods} includeFoc={foc.includeFoc} onSaved={() => foc.invalidate(foc.country)} />}
+           {foc.supported && (country === "Libya" || country === "Syria") && isAdminFor(foc.country) && data && <RecordFocDialog country={foc.country} skus={sortedSkus} periods={periods} includeFoc={foc.includeFoc} onSaved={() => foc.invalidate(foc.country)} />}
            <ExportSheetButton sheet="forecast" country={country} label="Export Forecast" includeFoc={foc.supported ? foc.includeFoc : undefined} unit={foc.supported ? unit : undefined} />
           <div className="flex items-center gap-1">
             <button
