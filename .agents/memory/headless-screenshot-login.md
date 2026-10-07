@@ -4,8 +4,8 @@ description: How to visually verify pages behind the SSOF login when the Screens
 ---
 The built-in Screenshot tool cannot get past the login page (no cookie / localStorage session).
 
-**What works:** run the bundled headless browser at `/repl/tools/bin/chromium` against the **https dev domain** (`$REPLIT_DEV_DOMAIN`), pointed at a *temporary* static html page in `client/public/` that calls `appUsers.verifyLogin` via fetch, writes the `ssof-session-v2` localStorage entry (`{ user, country }`) and then `location.replace()`s to the page under test. Flags: `--headless=new --no-sandbox --disable-gpu --hide-scrollbars --window-size=W,H --virtual-time-budget=30000 --screenshot=/tmp/x.png URL`.
+Use isolated browser API fixtures when visual verification needs signed-in content. Do not create public auto-login pages, embed credentials, or remove application authentication for a screenshot.
 
-**Why https, not 127.0.0.1:** the server sets the session cookie with `SameSite=None`; over plain http it lacks `Secure`, so Chrome drops it, every tRPC call returns 401 and the app bounces back to the login page.
+**Why:** Temporary public login helpers can accidentally ship. Browser-scoped request interception checks the real rendered components without exposing accounts or mutating live records.
 
-**How to apply:** delete the temporary html file immediately after the screenshot — it hardcodes credentials and `client/public` ships to production. Node here has no `ws` package and no global WebSocket, so driving CDP by hand is not worth it.
+**How to apply:** Intercept every API request in an isolated browser session and use synthetic users/data only. Drive the bundled Chromium via CDP, keeping authentication intact in app code. State explicitly that signed-in visual checks used fixtures rather than a live account.

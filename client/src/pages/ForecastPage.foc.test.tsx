@@ -56,9 +56,13 @@ describe("Forecast Production paired FOC surface", () => {
     expect(foc.previousElementSibling).toHaveClass("h-16", "text-base", "font-bold", "text-foreground");
     expect(foc).toHaveClass("text-[10px]", "font-normal", "text-muted-foreground");
     expect(screen.queryByText("Inactive")).not.toBeInTheDocument();
-    expect(within(foc).getByLabelText("Ordered, FOC and combined totals")).toHaveTextContent("Combined 112");
+    expect(within(foc).getByLabelText("FOC quantity total")).toHaveTextContent("12");
     const grand = screen.getByText("Grand Total").closest("tr")!;
-    expect(within(grand).getAllByLabelText("Ordered, FOC and combined totals")[0]).toHaveTextContent("Ordered 100FOC 12Combined 112");
+    const total = within(grand).getAllByLabelText("Selected-basis forecast total")[0];
+    expect(total.firstElementChild).toHaveTextContent("112");
+    expect(total).toHaveTextContent("+12 FOC");
+    expect(total).not.toHaveTextContent("Ordered");
+    expect(total).not.toHaveTextContent("Combined");
   });
   it("uses the shared switch for combined totals and the exported basis without changing receipt records", () => {
     render(<ForecastPage />);
@@ -66,7 +70,8 @@ describe("Forecast Production paired FOC surface", () => {
     expect(localStorage.getItem("ssof:include-foc:Libya")).toBe("false");
     expect(screen.getByTestId("export")).toHaveAttribute("data-include", "false");
     const foc = screen.getByRole("row", { name: "FOC Mint 50g New" });
-    expect(within(foc).getByLabelText("Ordered, FOC and combined totals")).toHaveTextContent("Combined 100");
+    expect(within(foc).getByLabelText("FOC quantity total")).toHaveTextContent("12");
+    expect(within(screen.getByText("Grand Total").closest("tr")!).getAllByLabelText("Selected-basis forecast total")[0].firstElementChild).toHaveTextContent("100");
     expect(screen.getByText("Ordered only — FOC excluded")).toBeInTheDocument();
     expect(m.receipt).not.toHaveBeenCalled();
   });
@@ -99,14 +104,53 @@ describe("Forecast Production paired FOC surface", () => {
   it("distinguishes missing FOC from explicitly entered zero and clears quantities to not set", async () => {
     m.value = null;
     const view = render(<ForecastPage />);
-    expect(screen.getByRole("button", { name: "Edit FOC Mint 50g New Sep 26" })).toHaveTextContent("Not set");
-    expect(screen.getByRole("checkbox", { name: "Received FOC Mint 50g New Sep 26" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Edit FOC Mint 50g New Sep 26" })).toHaveTextContent("—");
+    expect(screen.queryByRole("checkbox", { name: "Received FOC Mint 50g New Sep 26" })).not.toBeInTheDocument();
     m.value = "0.00"; view.rerender(<ForecastPage />);
     expect(screen.getByRole("button", { name: "Edit FOC Mint 50g New Sep 26" })).toHaveTextContent("0");
     fireEvent.click(screen.getByRole("button", { name: "Edit FOC Mint 50g New Sep 26" }));
     fireEvent.change(screen.getByRole("spinbutton"), { target: { value: "" } });
     fireEvent.blur(screen.getByRole("spinbutton"));
     await waitFor(() => expect(m.quantity).toHaveBeenCalledWith({ country: "Libya", skuId: 1, periodId: 9, value: null }));
+  });
+  it.each([null, "0.00"])("does not invent a secondary FOC line for quantity %s", value => {
+    m.value = value; render(<ForecastPage />);
+    const foc = screen.getByRole("row", { name: "FOC Mint 50g New" });
+    const ordered = foc.previousElementSibling as HTMLTableRowElement;
+    const total = within(ordered).getAllByLabelText("Selected-basis forecast total")[0];
+    expect(total.firstElementChild).toHaveTextContent("100");
+    expect(total.children).toHaveLength(1);
+    expect(document.querySelector("table")).not.toHaveTextContent(/Not set|0 entered/);
+    const grand = screen.getByText("Grand Total").closest("tr")!;
+    expect(within(grand).getAllByLabelText("Selected-basis forecast total")[0].firstElementChild).toHaveTextContent("100");
+  });
+  it.each([["MC", "112", "100"], ["KG", "672", "600"], ["Tons", "0.672", "0.6"]] as const)(
+    "uses the selected basis in %s while editing only the ordered quantity", (unit, visible, editable) => {
+      m.unit = unit; render(<ForecastPage />);
+      const ordered = screen.getByRole("row", { name: "FOC Mint 50g New" }).previousElementSibling as HTMLTableRowElement;
+      expect(within(ordered).getAllByLabelText("Selected-basis forecast total")[0].firstElementChild).toHaveTextContent(visible);
+      fireEvent.click(ordered.cells[2]);
+      expect(screen.getByRole("spinbutton")).toHaveValue(Number(editable));
+      fireEvent.change(screen.getByRole("spinbutton"), { target: { value: editable } });
+      fireEvent.blur(screen.getByRole("spinbutton"));
+      expect(m.paid).toHaveBeenCalledWith(expect.objectContaining({ value: "100" }));
+    },
+  );
+  it("uses fixed geometry, opaque frozen cells and a prominent pinned totals footer", () => {
+    render(<ForecastPage />);
+    const grand = screen.getByText("Grand Total").closest("tr")!;
+    expect(grand.closest("tfoot")).not.toBeNull();
+    expect(grand).toHaveClass("sticky", "bottom-0");
+    expect(grand.cells[0]).toHaveClass("sticky", "left-0", "bg-[#e5ece7]");
+    expect(grand.cells[1]).toHaveClass("sticky", "left-[76px]", "bg-[#e5ece7]");
+    expect(within(grand).getAllByLabelText("Selected-basis forecast total")[0].firstElementChild).toHaveClass("text-[22px]", "truncate");
+    expect(within(grand).getAllByLabelText("Selected-basis forecast total")[1].firstElementChild).toHaveClass("text-[26px]", "truncate");
+    expect(screen.getByText("Grand Total")).toHaveAttribute("title", "Grand Total");
+    const columns = [...document.querySelectorAll("col")];
+    expect(columns.map(c => c.style.width)).toEqual(["76px", "232px", "156px", "208px"]);
+    const headerRows = [...document.querySelectorAll("thead tr")];
+    expect(headerRows[0]).toHaveClass("sticky", "top-0");
+    expect(headerRows[1]).toHaveClass("sticky", "top-[34px]");
   });
   it("resets a pending draft on country and unit switches", () => {
     const view = render(<ForecastPage />);
