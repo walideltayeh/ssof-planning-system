@@ -2,6 +2,7 @@ import { eq, and, asc, inArray, sql, desc, gt } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { focReceiptAdditions } from "../shared/performance/focReceipts";
+import { restoreFocOnlySnapshot } from "./focSnapshot";
 import { InsertUser, users, skus, periods, forecastData, focData, imsData, shipmentData, arrivalData, planningFgData, uploadHistory, auditTrail, ssofVersions, versionComments, actualProductionData, clearanceEvents, appUsers, competitorData, appSettings, posmItems, tradeFocRules, boardPackSnapshots, presenterNotes, userPreferences, boardPlanBaselines } from "../drizzle/schema";
 import type { PosmItemRow, TradeFocRuleRow } from "../drizzle/schema";
 import { NON_DATA_ACTIONS, NON_DATA_SHEETS, type CountryLastUpdate } from "@shared/audit/lastUpdate";
@@ -1365,6 +1366,10 @@ export async function restoreSnapshot(snapshot: any, country?: Country) {
   const database = await getDb();
   if (!database) throw new Error("Database not available");
   return database.transaction(async db => {
+  if (snapshot.focOnly === true) {
+    await restoreFocOnlySnapshot(db as unknown as NonNullable<Awaited<ReturnType<typeof getDb>>>, snapshot, country);
+    return;
+  }
   if (country) {
     // Country-scoped restore: only delete and restore data for this country's SKUs/periods
     const countrySkus = await getSkusForCountry(country, true);

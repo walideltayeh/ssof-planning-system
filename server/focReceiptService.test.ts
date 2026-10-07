@@ -56,6 +56,18 @@ beforeEach(() => {
   vi.mocked(dbModule.getDb).mockResolvedValue(connection as any);
 });
 describe("FOC receipt persistence and bulk confirmation", () => {
+  it("bulk receipt previews sum recorded lines and surface a duplicate in a later line", async () => {
+    records.get(focData)![0].value = "30";
+    records.get(focData)![0].lines = [{ id: "a", quantityMC: 10, received: false }, { id: "b", quantityMC: 20, received: false }];
+    records.get(clearanceEvents)!.push({ country: "Libya", skuId: 1, clearedDate: "2026-09-15", clearedQty: "20" });
+    const preview = await service.previewFocReceipts("Libya", { skuId: 1, received: true });
+    expect(preview.changes[0]).toMatchObject({ quantity: 30, added: 10, needsReview: true, lineId: "b" });
+    const result = await service.commitFocReceipts("Libya", "Admin", { skuId: 1, received: true }, preview.token);
+    expect(result.warnings).toHaveLength(1);
+    expect(records.get(focData)![0].lines.every((l: any) => l.received)).toBe(true);
+    await service.updateFocReceipt("Libya", "Admin", { skuId: 1, periodId: 9, received: false });
+    expect(records.get(focData)![0].lines.every((l: any) => !l.received)).toBe(true);
+  });
   it("defaults to No, persists status and records authenticated actor/time without creating arrivals or clearances", async () => {
     const result = await service.updateFocReceipt("Libya", "Administrator", { skuId: 1, periodId: 9, received: true });
     expect(result.changed).toBe(1);

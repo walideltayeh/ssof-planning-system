@@ -41,14 +41,20 @@ async function preview(country: FocCountry, input: ReceiptChange, db?: Db) {
   validateScope(ds, input);
   const scoped = ds.foc.filter(c => (!input.skuId || c.skuId === input.skuId) && (!input.periodId || c.periodId === input.periodId)
     && ds.skus.some(s => s.id === c.skuId) && ds.periods.some(p => p.id === c.periodId));
-  const candidates = scoped.filter(c => c.value !== null && c.received !== input.received);
-  const next = { ...ds, foc: ds.foc.map(c => candidates.includes(c) ? { ...c, received: input.received } : c) };
+  const candidates = scoped.filter(c => c.value !== null && (c.lines?.length ? c.lines.some(l => l.received !== input.received) : c.received !== input.received));
+   const next = { ...ds, foc: ds.foc.map(c => candidates.includes(c) ? { ...c, received: input.received,
+     lines: c.lines?.map(l => ({ ...l, received: input.received })) } : c) };
   const evaluated = evaluateFocReceipts(next);
-  const changes = candidates.map(c => ({
-    ...evaluated.find(e => e.skuId === c.skuId && e.periodId === c.periodId)!,
-    before: { received: c.received },
-    after: { received: input.received },
-  }));
+  const changes = candidates.map(c => {
+    const entries = evaluated.filter(e => e.skuId === c.skuId && e.periodId === c.periodId);
+    const entry = entries.find(e => e.needsReview) ?? entries[0];
+    const sum = (field: "quantity" | "added" | "receivedQuantity" | "awaiting" | "excluded") =>
+      Math.round(entries.reduce((total, e) => total + e[field], 0) * 100) / 100;
+    return { ...entry, quantity: sum("quantity"), added: sum("added"), receivedQuantity: sum("receivedQuantity"),
+      awaiting: sum("awaiting"), excluded: sum("excluded"), needsReview: entries.some(e => e.needsReview),
+      before: { received: c.received }, after: { received: input.received },
+      nextLines: c.lines?.map(l => ({ ...l, received: input.received })) };
+  });
   const canonicalScope = { skuId: input.skuId, periodId: input.periodId, received: input.received };
   const token = createHash("sha256").update(JSON.stringify({ input: canonicalScope, changes, cells: scoped })).digest("hex");
   const expected = ds.skus.filter(s => !input.skuId || s.id === input.skuId).length *
@@ -69,7 +75,8 @@ async function applyChanges(country: FocCountry, actor: string, input: ReceiptCh
       if (!cell || cell.value === null) fail("Enter an FOC quantity before changing its receipt");
     }
     for (const c of result.changes) {
-      await tx.update(focData).set({ received: c.after.received,
+       await tx.update(focData).set({ received: c.after.received,
+         ...(c.nextLines?.length ? { lines: c.nextLines } : {}),
         updatedAt: new Date() })
         .where(and(eq(focData.country, country), eq(focData.skuId, c.skuId), eq(focData.periodId, c.periodId)));
       await tx.insert(auditTrail).values({ country, username: actor, action: "edit_cell", sheet: "FOC",
@@ -88,12 +95,13 @@ export async function commitFocReceipts(country: FocCountry, actor: string, inpu
   return applyChanges(country, actor, input, token);
 }
 export async function reviewFocReceipt(country: FocCountry, actor: string,
-  input: { skuId: number; periodId: number; decision: "separate" | "included"; reviewKey: string }) {
+  input: { skuId: number; periodId: number; decision: "separate" | "included"; reviewKey: string; lineId?: string }) {
   const db = await database();
   return db.transaction(async tx => {
     await tx.select().from(skus).where(eq(skus.country, country)).for("update");
     const ds = await loadFocReceiptData(country, tx as unknown as Db);
-    const entry = evaluateFocReceipts(ds).find(e => e.skuId === input.skuId && e.periodId === input.periodId);
+    const entries = evaluateFocReceipts(ds).filter(e => e.skuId === input.skuId && e.periodId === input.periodId);
+    const entry = input.lineId ? entries.find(e => e.lineId === input.lineId) : entries.find(e => e.needsReview) ?? entries[0];
     if (!entry?.received || (!entry.matches.length && !entry.needsReview) || !entry.receiptPeriodId) fail("No received FOC duplicate warning to review");
     if (entry.reviewKey !== input.reviewKey) throw new TRPCError({ code: "CONFLICT", message: "Arrival evidence changed. Reload and review the warning again." });
     const old = ds.foc.find(c => c.skuId === input.skuId && c.periodId === input.periodId)!;
@@ -101,7 +109,8 @@ export async function reviewFocReceipt(country: FocCountry, actor: string,
     // arrivals in international countries are not the authoritative stock ledger.
     if (input.decision === "included" && !entry.matches.some(m => m.source.includes("clearance") || m.source === "Clearance arrival"))
       fail("No matching stock-counted clearance arrival exists. Review the recorded arrival before resolving this as already counted.");
-    await tx.update(focData).set({ receiptDecision: input.decision, receiptReviewKey: entry.reviewKey, updatedAt: new Date() })
+    await tx.update(focData).set({ receiptDecision: input.decision, receiptReviewKey: entry.reviewKey, updatedAt: new Date(),
+      ...(old.lines?.length ? { lines: old.lines.map(l => l.id === entry.lineId ? { ...l, receiptDecision: input.decision, receiptReviewKey: entry.reviewKey } : l) } : {}) })
       .where(and(eq(focData.country, country), eq(focData.skuId, entry.skuId), eq(focData.periodId, entry.periodId)));
     await tx.insert(auditTrail).values({ country, username: actor, action: "edit_cell", sheet: "FOC",
       skuName: entry.sku, periodLabel: entry.planMonth, field: "FOC duplicate receipt review",

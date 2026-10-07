@@ -6,6 +6,8 @@ import { evaluateFocReceipts } from "../shared/performance/focReceipts";
 import { type FocCountry } from "../shared/performance/foc";
 import { invalidateCountryPerformanceCache } from "./analysis/countryPerformance";
 import type { ForecastFocImportCell } from "./forecastFocWorkbook";
+import { changeFocCell } from "../shared/focEntry";
+import { randomUUID } from "node:crypto";
 
 export async function applyForecastFocImport(country: FocCountry, actor: string,
   forecasts: { skuId: number; periodId: number; value: string }[], free: ForecastFocImportCell[]) {
@@ -29,8 +31,11 @@ export async function applyForecastFocImport(country: FocCountry, actor: string,
         throw new Error(`Invalid duplicate decision for SKU ${c.skuId}`);
       // Spreadsheet metadata can preserve an existing decision, never invent
       // a new duplicate approval. Changed evidence is rechecked by the ledger.
-      return { country, skuId: c.skuId, periodId: c.periodId, value: c.value,
+      const adjusted = old?.lines?.length ? changeFocCell(old, { value: c.value === null ? null : Number(c.value),
+        ...(old.received !== c.received ? { received: c.received } : {}) }, actor, new Date().toISOString(), randomUUID()) : undefined;
+      return { country, skuId: c.skuId, periodId: c.periodId, value: adjusted ? adjusted.value === null ? null : String(adjusted.value) : c.value,
         received: c.value !== null && c.received,
+        ...(adjusted ? { lines: adjusted.lines, received: adjusted.received } : {}),
         receiptDecision: old?.receiptDecision ?? "pending", receiptReviewKey: old?.receiptReviewKey ?? null };
     });
     const changedFree = nextFree.filter(c => {

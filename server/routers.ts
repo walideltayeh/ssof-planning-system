@@ -9,6 +9,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { getFocPlanning, setFocCell, previewLibyaPo, importLibyaPo } from "./focPlanning";
 import { updateFocReceipt, previewFocReceipts, commitFocReceipts, reviewFocReceipt } from "./focReceiptService";
+import { previewFocEntry, commitFocEntry } from "./focEntryService";
 import { invalidateCountryPerformanceCache } from "./analysis/countryPerformance";
 import * as db from "./db";
 import { assertRecordsScopedToCountry } from "./countryScope";
@@ -311,6 +312,52 @@ const focReceiptScope = {
 };
 export const appRouter = router({
   focPlanning: router({
+    previewEntries: adminProcedure.input(z.object({
+      country: z.enum(["Libya", "Syria"]), includeFoc: z.boolean(),
+      lines: z.array(z.object({ date: z.string().max(100), flavor: z.string().max(150), weight: z.string().max(30),
+        packaging: z.string().max(40), quantityMC: z.string().max(40), received: z.boolean(),
+        accType: z.string().max(200), salesManager: z.string().max(200), error: z.string().max(500).optional() }).strict()).min(1).max(200),
+    }).strict()).mutation(async ({ ctx, input }) => {
+      await requireCountryAdmin(ctx, input.country);
+      return previewFocEntry(input.country, { lines: input.lines }, input.includeFoc);
+    }),
+    commitEntries: adminProcedure.input(z.object({
+      country: z.enum(["Libya", "Syria"]), includeFoc: z.boolean(), token: z.string().length(64),
+      lines: z.array(z.object({ date: z.string().max(100), flavor: z.string().max(150), weight: z.string().max(30),
+        packaging: z.string().max(40), quantityMC: z.string().max(40), received: z.boolean(),
+        accType: z.string().max(200), salesManager: z.string().max(200), error: z.string().max(500).optional() }).strict()).min(1).max(200),
+    }).strict()).mutation(async ({ ctx, input }) => {
+      await requireCountryAdmin(ctx, input.country);
+      const result = await commitFocEntry(input.country, { lines: input.lines }, input.includeFoc, getAuditActor(ctx), input.token);
+      invalidateCountryPerformanceCache(input.country);
+      return result;
+    }),
+    previewCell: adminProcedure.input(z.object({
+      country: z.enum(["Libya", "Syria"]), includeFoc: z.boolean(), skuId: z.number().int().positive(), periodId: z.number().int().positive(),
+      value: z.number().finite().nonnegative().max(9999999999.99).multipleOf(0.01).nullable().optional(),
+      received: z.boolean().optional(), lineId: z.string().max(100).optional(),
+      decision: z.enum(["separate", "included"]).optional(), reviewKey: z.string().max(50000).optional(),
+    }).strict().refine(c => c.value !== undefined || c.received !== undefined || !!c.decision, "Choose a quantity or receipt change")
+      .refine(c => !c.lineId || ((c.received !== undefined || !!c.decision) && c.value === undefined), "Line receipt edits cannot replace the monthly quantity"))
+      .mutation(async ({ ctx, input }) => {
+        await requireCountryAdmin(ctx, input.country);
+        const { country, includeFoc, ...cell } = input;
+        return previewFocEntry(country, { cell }, includeFoc);
+      }),
+    commitCell: adminProcedure.input(z.object({
+      country: z.enum(["Libya", "Syria"]), includeFoc: z.boolean(), token: z.string().length(64), skuId: z.number().int().positive(), periodId: z.number().int().positive(),
+      value: z.number().finite().nonnegative().max(9999999999.99).multipleOf(0.01).nullable().optional(),
+      received: z.boolean().optional(), lineId: z.string().max(100).optional(),
+      decision: z.enum(["separate", "included"]).optional(), reviewKey: z.string().max(50000).optional(),
+    }).strict().refine(c => c.value !== undefined || c.received !== undefined || !!c.decision, "Choose a quantity or receipt change")
+      .refine(c => !c.lineId || ((c.received !== undefined || !!c.decision) && c.value === undefined), "Line receipt edits cannot replace the monthly quantity"))
+      .mutation(async ({ ctx, input }) => {
+        await requireCountryAdmin(ctx, input.country);
+        const { token, country, includeFoc, ...cell } = input;
+        const result = await commitFocEntry(country, { cell }, includeFoc, getAuditActor(ctx), token);
+        invalidateCountryPerformanceCache(country);
+        return result;
+      }),
     receiptUpdate: adminProcedure.input(z.object({
       country: z.enum(["Libya", "Syria"]), skuId: z.number().int().positive(), periodId: z.number().int().positive(),
       received: z.boolean(),
@@ -334,7 +381,7 @@ export const appRouter = router({
     }),
     receiptReview: adminProcedure.input(z.object({
       country: z.enum(["Libya", "Syria"]), skuId: z.number().int().positive(), periodId: z.number().int().positive(),
-      decision: z.enum(["separate", "included"]), reviewKey: z.string().max(50000),
+      decision: z.enum(["separate", "included"]), reviewKey: z.string().max(50000), lineId: z.string().max(100).optional(),
     })).mutation(async ({ctx, input}) => {
       await requireCountryAdmin(ctx, input.country);
       const result = await reviewFocReceipt(input.country, getAuditActor(ctx), input);

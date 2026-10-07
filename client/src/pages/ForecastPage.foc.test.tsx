@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import ForecastPage from "./ForecastPage";
+import { matchFocDrafts } from "@shared/focEntry";
 const m = vi.hoisted(() => ({
   country: "Libya", admin: true, unit: "MC" as "MC" | "KG" | "Tons",
   quantity: vi.fn(), receipt: vi.fn(), review: vi.fn(), paid: vi.fn(), production: vi.fn(),
   invalidate: vi.fn(), query: vi.fn(),
+  preview: vi.fn(), commit: vi.fn(), entriesCommit: vi.fn(),
   value: "12.00" as string | null, received: false, entries: [] as any[],
 }));
 vi.mock("@/contexts/CountryContext", () => ({ useCountry: () => ({ country: m.country, config: { terms: { forecast: "Forecast Production" } } }) }));
@@ -18,7 +20,7 @@ vi.mock("@/lib/trpc", () => {
   const skus = [
     { id: 1, name: "Mint", weight: "50g", packagingType: "New", isActive: true, category: "Core" },
     { id: 2, name: "Inactive", weight: "50g", packagingType: "New", isActive: false, category: "Core" },
-  ], periods = [{ id: 9, label: "Sep 26", year: 2026, sortOrder: 1 }];
+   ], periods = [{ id: 9, label: "Sep 26", year: 2026, month: 9, sortOrder: 1 }];
   const forecast = [{ skuId: 1, periodId: 9, value: "100.00" }];
   const useMutation = (spy: any) => ({ useMutation: (options: any) => ({
     isPending: false,
@@ -38,10 +40,28 @@ vi.mock("@/lib/trpc", () => {
     },
     focPlanning: {
       list: { useQuery: (input: any, options: any) => { m.query(input, options); return {
-        data: { cells: [{ skuId: 1, periodId: 9, value: m.value, received: m.received }], receipts: { entries: m.entries } },
+         data: { skus, periods, cells: [{ skuId: 1, periodId: 9, value: m.value, received: m.received }], receipts: { entries: m.entries } },
         refetch: vi.fn(), error: null,
       }; } },
       update: useMutation(m.quantity), receiptUpdate: useMutation(m.receipt), receiptReview: useMutation(m.review),
+       previewCell: { useMutation: () => ({ isPending: false, mutateAsync: async (input: any) => {
+         m.preview(input); return { token: "a".repeat(64), canSave: true, rows: [], impact: [], warnings: m.entries };
+       } }) },
+       commitCell: { useMutation: () => ({ isPending: false, mutateAsync: async (input: any) => {
+         m.commit(input);
+         const { country, skuId, periodId, value, received, decision, reviewKey } = input;
+         if (value !== undefined) m.quantity({ country, skuId, periodId, value });
+         else if (decision) m.review({ country, skuId, periodId, decision, reviewKey });
+         else m.receipt({ country, skuId, periodId, received });
+         return { success: true, versionId: 42, warnings: [] };
+       } }) },
+       previewEntries: { useMutation: () => ({ isPending: false, mutateAsync: async (input: any) => {
+         m.preview(input); const rows = matchFocDrafts(input.lines, skus, periods, input.country);
+         return { token: "a".repeat(64), canSave: rows.every(r => !r.errors.length), rows, impact: [], warnings: [] };
+       } }) },
+       commitEntries: { useMutation: () => ({ isPending: false, mutateAsync: async (input: any) => {
+         m.entriesCommit(input); return { success: true, versionId: 43, warnings: [] };
+       } }) },
     },
   } };
 });
@@ -79,14 +99,20 @@ describe("Forecast Production paired FOC surface", () => {
     const input = screen.getByRole("spinbutton", { name: `FOC quantity Mint 50g New Sep 26 (${unit})` });
     fireEvent.change(input, { target: { value: unit === "MC" ? "20" : unit === "KG" ? "120" : "0.12" } });
     fireEvent.blur(input);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Confirm and save" })).toBeInTheDocument());
+    expect(m.quantity).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm and save" }));
     await waitFor(() => expect(m.quantity).toHaveBeenCalledWith({ country: "Libya", skuId: 1, periodId: 9, value: 20 }));
     expect(m.invalidate).toHaveBeenCalled();
     expect(m.paid).not.toHaveBeenCalled(); expect(m.production).not.toHaveBeenCalled();
   });
-  it("saves only Received Yes/No in place, with no receipt date field", () => {
+  it("previews Received Yes/No before saving, with no receipt date field", async () => {
     render(<ForecastPage />);
     fireEvent.click(screen.getByRole("checkbox", { name: "Received FOC Mint 50g New Sep 26" }));
-    expect(m.receipt).toHaveBeenCalledWith({ country: "Libya", skuId: 1, periodId: 9, received: true });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Confirm and save" })).toBeInTheDocument());
+    expect(m.receipt).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm and save" }));
+    await waitFor(() => expect(m.receipt).toHaveBeenCalledWith({ country: "Libya", skuId: 1, periodId: 9, received: true }));
     expect(screen.queryByLabelText(/Received date/)).not.toBeInTheDocument();
   });
   it("keeps viewers read-only for FOC and ordered editing and hides the import action", () => {
@@ -94,6 +120,7 @@ describe("Forecast Production paired FOC surface", () => {
     expect(screen.getByRole("button", { name: "Edit FOC Mint 50g New Sep 26" })).toBeDisabled();
     expect(screen.getByRole("checkbox", { name: "Received FOC Mint 50g New Sep 26" })).toBeDisabled();
     expect(screen.queryByText("Import Forecast")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Record FOC" })).not.toBeInTheDocument();
     fireEvent.click((screen.getByRole("row", { name: "FOC Mint 50g New" }).previousElementSibling as HTMLTableRowElement).cells[2]);
     expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
     fireEvent.click(screen.getByText("→W1"));
@@ -112,6 +139,8 @@ describe("Forecast Production paired FOC surface", () => {
     fireEvent.click(screen.getByRole("button", { name: "Edit FOC Mint 50g New Sep 26" }));
     fireEvent.change(screen.getByRole("spinbutton"), { target: { value: "" } });
     fireEvent.blur(screen.getByRole("spinbutton"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Confirm and save" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Confirm and save" }));
     await waitFor(() => expect(m.quantity).toHaveBeenCalledWith({ country: "Libya", skuId: 1, periodId: 9, value: null }));
   });
   it.each([null, "0.00"])("does not invent a secondary FOC line for quantity %s", value => {
@@ -178,24 +207,65 @@ describe("Forecast Production paired FOC surface", () => {
     m.unit = "Tons"; view.rerender(<ForecastPage />);
     expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
   });
-  it("submits an explicit duplicate decision with the current evidence key", () => {
+  it("previews an explicit duplicate decision before committing the current evidence key", async () => {
     m.received = true;
     m.entries = [{ skuId: 1, periodId: 9, needsReview: true, reviewKey: "current evidence",
       matches: [{ source: "Clearance arrival", quantity: 12, date: "2026-09-20" }] }];
     render(<ForecastPage />);
     fireEvent.click(screen.getByRole("button", { name: "Review FOC receipt Mint 50g New Sep 26" }));
-    expect(screen.getByText("Possible duplicate — not added to stock.")).toBeInTheDocument();
+    expect(screen.getByText("Possible duplicate — held out of stock until review.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Already included in arrival" }));
-    expect(m.review).toHaveBeenCalledWith({ country: "Libya", skuId: 1, periodId: 9, decision: "included", reviewKey: "current evidence" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Confirm and save" })).toBeInTheDocument());
+    expect(m.review).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm and save" }));
+    await waitFor(() => expect(m.review).toHaveBeenCalledWith({ country: "Libya", skuId: 1, periodId: 9, decision: "included", reviewKey: "current evidence" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Done" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Received FOC Mint 50g New Sep 26" }));
-    expect(m.receipt).toHaveBeenCalledWith({ country: "Libya", skuId: 1, periodId: 9, received: false });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Confirm and save" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Confirm and save" }));
+    await waitFor(() => expect(m.receipt).toHaveBeenCalledWith({ country: "Libya", skuId: 1, periodId: 9, received: false }));
   });
   it.each(["Lebanon", "KSA"])("does not introduce FOC rows, controls or export parameters in %s", country => {
     m.country = country; render(<ForecastPage />);
     expect(screen.queryByRole("checkbox", { name: "Include FOC" })).not.toBeInTheDocument();
     expect(screen.queryByRole("row", { name: /FOC Mint/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Record FOC" })).not.toBeInTheDocument();
     expect(screen.getByTestId("export")).toHaveAttribute("data-include", "undefined");
     expect(screen.getByTestId("export")).not.toHaveAttribute("data-unit");
     expect(m.query).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ enabled: false }));
+  });
+  it("records several pasted past-month lines only after confirmation, always in MC regardless of toggle", async () => {
+    m.unit = "KG"; render(<ForecastPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Record FOC" }));
+    fireEvent.change(screen.getByRole("textbox", { name: /Paste sheet rows/ }), { target: { value:
+      "Date\tAcc Type\tSales Manager\tFlavor\tWeight\tPackaging\tQuantity in MC\nSep-26\tExport\tManager A\tMint\t50gr\tNew Packaging\t15\nSep-26\tDomestic\tManager B\tMint\t50gr\tNew Packaging\t20" } });
+    fireEvent.click(screen.getByRole("button", { name: "Use pasted rows" }));
+    expect(screen.getAllByLabelText("Quantity (MC)").map(el => (el as HTMLInputElement).value)).toEqual(["15", "20"]);
+    fireEvent.click(screen.getByRole("button", { name: /Preview/ }));
+    const confirm = await screen.findByRole("button", { name: "Confirm and save" });
+    expect(m.entriesCommit).not.toHaveBeenCalled();
+    fireEvent.click(confirm);
+    await waitFor(() => expect(m.entriesCommit).toHaveBeenCalledWith(expect.objectContaining({
+      country: "Libya", token: "a".repeat(64), lines: [expect.objectContaining({ quantityMC: "15", accType: "Export", salesManager: "Manager A" }),
+        expect.objectContaining({ quantityMC: "20", accType: "Domestic", salesManager: "Manager B" })],
+    })));
+  });
+  it("keeps an unmatched pasted line visible and blocks the entire save", async () => {
+    render(<ForecastPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Record FOC" }));
+    fireEvent.change(screen.getByRole("textbox", { name: /Paste sheet rows/ }), { target: { value:
+      "Date\tAcc Type\tSales Manager\tFlavor\tWeight\tPackaging\tQuantity in MC\nSep-26\tExport\tManager\tMint\t50gr\tNew Packaging\t15\nSep-26\tExport\tManager\tUnknown Flavor\t50gr\tNew Packaging\t20" } });
+    fireEvent.click(screen.getByRole("button", { name: "Use pasted rows" }));
+    fireEvent.click(screen.getByRole("button", { name: /Preview/ }));
+    expect(await screen.findByText("No matching SKU in this country.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm and save" })).toBeDisabled();
+    expect(m.entriesCommit).not.toHaveBeenCalled();
+  });
+  it("cancels a received change without writing", async () => {
+    render(<ForecastPage />);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Received FOC Mint 50g New Sep 26" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Back" }));
+    expect(m.commit).not.toHaveBeenCalled();
+    expect(m.receipt).not.toHaveBeenCalled();
   });
 });

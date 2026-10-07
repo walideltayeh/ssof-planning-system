@@ -17,10 +17,15 @@ vi.mock("./focReceiptService", () => ({
   commitFocReceipts: vi.fn(async () => ({ success: true, changed: 1, warnings: [] })),
   reviewFocReceipt: vi.fn(async () => ({ success: true })),
 }));
+vi.mock("./focEntryService", () => ({
+  previewFocEntry: vi.fn(async () => ({ token: "a".repeat(64), canSave: true, rows: [], impact: [], warnings: [] })),
+  commitFocEntry: vi.fn(async () => ({ success: true, versionId: 1, warnings: [] })),
+}));
 const { appRouter } = await import("./routers");
 const db = await import("./db");
 const foc = await import("./focPlanning");
 const receipts = await import("./focReceiptService");
+const entries = await import("./focEntryService");
 function caller(role: "admin" | "user" = "admin") {
   return appRouter.createCaller({ user: { id: 1, name: "FOC Tester", role }, req: {}, res: {} } as TrpcContext);
 }
@@ -32,6 +37,23 @@ beforeEach(() => {
   } as any);
 });
 describe("FOC country permissions", () => {
+  it.each(["previewEntries", "commitEntries", "previewCell", "commitCell"] as const)("denies viewers and admins from a different country: %s", async method => {
+    const input = method.endsWith("Entries")
+      ? { country: "Libya" as const, includeFoc: true, ...(method.startsWith("commit") ? { token: "a".repeat(64) } : {}),
+        lines: [{ date: "Jun-26", flavor: "Mint", weight: "50gr", packaging: "New Packaging", quantityMC: "10", received: true, accType: "Export", salesManager: "Manager" }] }
+      : { country: "Libya" as const, includeFoc: true, skuId: 1, periodId: 6, received: true, ...(method.startsWith("commit") ? { token: "a".repeat(64) } : {}) };
+    await expect((caller("user").focPlanning[method] as any)(input)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    vi.mocked(db.getAppUserByUsername).mockResolvedValue({ username: "FOC Tester", role: "admin", countries: '["Libya","Syria"]', countryRoles: '{"Libya":"viewer","Syria":"admin"}', isOwner: false } as any);
+    await expect((caller().focPlanning[method] as any)(input)).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(entries.previewFocEntry).not.toHaveBeenCalled(); expect(entries.commitFocEntry).not.toHaveBeenCalled();
+  });
+  it("keeps past preview and commit cell payloads identical and uses the authenticated audit actor", async () => {
+    const cell = { country: "Libya" as const, includeFoc: true, skuId: 1, periodId: 6, value: 12.34 };
+    await caller().focPlanning.previewCell(cell);
+    await caller().focPlanning.commitCell({ ...cell, token: "a".repeat(64) });
+    expect(entries.previewFocEntry).toHaveBeenCalledWith("Libya", { cell: { skuId: 1, periodId: 6, value: 12.34 } }, true);
+    expect(entries.commitFocEntry).toHaveBeenCalledWith("Libya", { cell: { skuId: 1, periodId: 6, value: 12.34 } }, true, "FOC Tester", "a".repeat(64));
+  });
   it.each(["receiptUpdate", "receiptPreview", "receiptCommit", "receiptReview"] as const)("denies viewer and cross-country admin %s", async method => {
     const input = method === "receiptUpdate"
       ? { country: "Libya" as const, skuId: 1, periodId: 1, received: true }

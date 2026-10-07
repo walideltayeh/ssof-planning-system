@@ -1,4 +1,5 @@
 import { and, eq, sql } from "drizzle-orm";
+import { commitFocEntry } from "./focEntryService";
 import { createHash } from "node:crypto";
 import { getDb } from "./db";
 import { auditTrail, focData, forecastData, periods, skus, ssofVersions } from "../drizzle/schema";
@@ -6,6 +7,8 @@ import { matchLibyaPo, LIBYA_PO_REFERENCE, LIBYA_PO_ROUNDING_NOTE, LIBYA_PO_SPLI
 import { supportsFoc, type FocCountry } from "../shared/performance/foc";
 import { loadFocReceiptData } from "./focReceiptService";
 import { summarizeFocReceipts } from "../shared/performance/focReceipts";
+import { changeFocCell } from "../shared/focEntry";
+import { randomUUID } from "node:crypto";
 
 async function database() {
   const db = await getDb();
@@ -18,25 +21,7 @@ export async function getFocPlanning(country: FocCountry, includeFoc = true) {
 }
 export async function setFocCell(country: FocCountry, skuId: number, periodId: number, value: number | null, actor: string) {
   if (!supportsFoc(country)) throw new Error("FOC is available only for Libya and Syria");
-  const db = await database();
-  return db.transaction(async tx => {
-    const [s] = await tx.select().from(skus).where(and(eq(skus.id, skuId), eq(skus.country, country), eq(skus.isActive, true))).for("update");
-    const [p] = await tx.select().from(periods).where(and(eq(periods.id, periodId), eq(periods.country, country)));
-    if (!s || !p) throw new Error("SKU or month is not active in this country");
-    const where = and(eq(focData.country, country), eq(focData.skuId, skuId), eq(focData.periodId, periodId));
-    const [old] = await tx.select().from(focData).where(where);
-    const next = value === null ? null : value.toFixed(2);
-    if ((old?.value ?? null) === next) return { success: true };
-    await tx.insert(focData).values({ country, skuId, periodId, value: next }).onConflictDoUpdate({
-      target: [focData.country, focData.skuId, focData.periodId], set: { value: next,
-        ...(next === null ? { received: false } : {}), updatedAt: new Date() },
-    });
-    await tx.insert(auditTrail).values({ country, username: actor, action: "edit_cell", sheet: "FOC", skuName: `${s.name} ${s.weight} (${s.packagingType})`,
-      periodLabel: p.label, field: "FOC MC", oldValue: old?.value ?? "not set", newValue: next ?? "not set",
-      details: JSON.stringify({ receivedBefore: old?.received ?? false, receivedAfter: next === null ? false : old?.received ?? false,
-        note: "Receipt review re-evaluated against changed quantity. Received FOC affects stock only when included and duplicate-checked; no sell-out created." }) });
-    return { success: true };
-  });
+  return commitFocEntry(country, { cell: { skuId, periodId, value } }, true, actor);
 }
 
 const poAuditWhere = and(eq(auditTrail.country, "Libya"), eq(auditTrail.action, "import_purchase_order"), eq(auditTrail.field, LIBYA_PO_REFERENCE));
@@ -52,7 +37,8 @@ async function previewWith(db: Awaited<ReturnType<typeof database>>) {
   const rows = matchLibyaPo(ss, ps).map(r => {
     const existing = fs.filter(f => f.skuId === r.skuId && f.periodId === r.periodId);
     if (existing.length > 1) throw new Error(`Duplicate forecast cells for ${r.sku} ${r.month}; import stopped.`);
-    return { ...r, before: Number(existing[0]?.value ?? 0), beforeFoc: fc.find(f => f.skuId === r.skuId && f.periodId === r.periodId)?.value ?? null };
+    const beforeFocCell = fc.find(f => f.skuId === r.skuId && f.periodId === r.periodId);
+    return { ...r, before: Number(existing[0]?.value ?? 0), beforeFoc: beforeFocCell?.value ?? null, beforeFocCell };
   });
   const token = createHash("sha256").update(JSON.stringify(rows)).digest("hex");
   return { reference: LIBYA_PO_REFERENCE, rows, token, importedBefore: previous.length > 0,
@@ -93,8 +79,11 @@ export async function importLibyaPo(actor: string, token?: string, onlyExpectedZ
       const where = and(eq(forecastData.skuId, r.skuId), eq(forecastData.periodId, r.periodId));
       const changed = await tx.update(forecastData).set({ value: r.ordered.toFixed(2), updatedAt: new Date() }).where(where).returning({ id: forecastData.id });
       if (!changed.length) await tx.insert(forecastData).values({ skuId: r.skuId, periodId: r.periodId, value: r.ordered.toFixed(2) });
+      const adjusted = r.beforeFocCell?.lines?.length
+        ? changeFocCell(r.beforeFocCell, { value: r.foc }, actor, new Date().toISOString(), randomUUID()) : undefined;
       await tx.insert(focData).values({ country: "Libya", skuId: r.skuId, periodId: r.periodId, value: r.foc.toFixed(2) }).onConflictDoUpdate({
-        target: [focData.country, focData.skuId, focData.periodId], set: { value: r.foc.toFixed(2), updatedAt: new Date() },
+        target: [focData.country, focData.skuId, focData.periodId], set: { value: r.foc.toFixed(2),
+          ...(adjusted ? { lines: adjusted.lines, received: adjusted.received } : {}), updatedAt: new Date() },
       });
       for (const [sheet, oldValue, newValue] of [["Forecast Production", String(r.before), String(r.ordered)], ["FOC", r.beforeFoc ?? "not set", String(r.foc)]]) {
         await tx.insert(auditTrail).values({ country: "Libya", username: actor, action: "edit_cell", sheet, skuName: r.sku,

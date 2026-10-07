@@ -84,6 +84,17 @@ beforeEach(() => {
   vi.mocked(dbModule.getSkusForCountry).mockImplementation(async c => records.get(skus)!.filter(s => s.country === c));
   vi.mocked(dbModule.getPeriodsForCountry).mockImplementation(async c => records.get(periods)!.filter(p => p.country === c));
 });
+it("keeps recorded source lines and mixed receipt states when a spreadsheet adjusts the monthly total", async () => {
+  const cell = records.get(focData)![0];
+  cell.value = "30.00";
+  cell.lines = [{ id: "received", quantityMC: 10, received: true, source: "Recorded FOC", accType: "Export", salesManager: "A" },
+    { id: "planned", quantityMC: 20, received: false, source: "Recorded FOC", accType: "Domestic", salesManager: "B" }];
+  await applyForecastFocImport("Libya", "Admin", [], [{ skuId: 1, periodId: 9, value: "15.00", received: false }]);
+  expect(records.get(focData)![0].lines).toEqual([
+    expect.objectContaining({ id: "received", quantityMC: 10, received: true, salesManager: "A" }),
+    expect.objectContaining({ id: "planned", quantityMC: 5, originalQuantityMC: 20, received: false, salesManager: "B" }),
+  ]);
+});
 const paid = (value = "100.00") => [{ skuId: 1, periodId: 9, value }];
 const free = (patch = {}) => [{ skuId: 1, periodId: 9, value: "12.34", received: false, ...patch }];
 

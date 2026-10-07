@@ -92,11 +92,13 @@ DialogOverlay.displayName = "DialogOverlay";
 function DialogContent({
   className,
   children,
+  overlayClassName,
   showCloseButton = true,
   onEscapeKeyDown,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean;
+  overlayClassName?: string;
 }) {
   const { isComposing } = useDialogComposition();
 
@@ -120,7 +122,7 @@ function DialogContent({
 
   return (
     <DialogPortal data-slot="dialog-portal">
-      <DialogOverlay />
+      <DialogOverlay className={overlayClassName} />
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(

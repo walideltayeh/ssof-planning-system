@@ -13,6 +13,7 @@ export interface FocReceiptDataset {
 export type FocReceiptEntry = {
   skuId: number; periodId: number; sku: string; planMonth: string; receiptPeriodId: number | null; receiptMonth: string;
   quantity: number; received: boolean; decision: string;
+  lineId?: string;
   matches: { source: string; quantity: number; date: string }[]; reviewKey: string; needsReview: boolean;
   added: number; receivedQuantity: number; awaiting: number; excluded: number;
 };
@@ -45,7 +46,10 @@ export function evaluateFocReceipts(ds: FocReceiptDataset, includeFoc = true): F
   if (!supportsFoc(ds.country)) return [];
   const skus = new Map(ds.skus.filter(s => s.isActive !== false && (!s.country || s.country === ds.country)).map(s => [s.id, s]));
   const periods = new Map(ds.periods.filter(p => !p.country || p.country === ds.country).map(p => [p.id, p]));
-  const cells = (ds.foc ?? []).filter(c => c.value !== null && Number.isFinite(Number(c.value)) &&
+  const cells = (ds.foc ?? []).flatMap<FocCell & { lineId?: string }>(c => c.lines?.length && c.value !== null
+    ? c.lines.map(l => ({ ...c, value: l.quantityMC, received: l.received, receiptDecision: l.receiptDecision ?? "pending",
+      receiptReviewKey: l.receiptReviewKey, lineId: l.id }))
+    : [{ ...c, lineId: undefined }]).filter(c => c.value !== null && Number.isFinite(Number(c.value)) &&
     n(c.value) >= 0 && skus.has(c.skuId) && periods.has(c.periodId) && (!c.country || c.country === ds.country));
   return cells.map(c => {
     const s = skus.get(c.skuId)!, origin = periods.get(c.periodId)!;
@@ -72,25 +76,28 @@ export function evaluateFocReceipts(ds: FocReceiptDataset, includeFoc = true): F
       if (clearances.length > 1) evidence.push({ source: "Monthly clearance total", date: receiptMonthKey(target),
         quantity: mcPrecision(clearances.reduce((sum, e) => sum + e.quantity, 0)) });
       for (const other of cells) {
-        if (other === c || other.skuId !== c.skuId || !other.received || n(other.value) <= 0) continue;
+        if (other === c || other.skuId !== c.skuId || (other.periodId === c.periodId && (other.lineId || c.lineId)) || !other.received || n(other.value) <= 0) continue;
         const op = periods.get(other.periodId)!;
         const month = receiptMonthKey(op);
         if (month === receiptMonthKey(target)) evidence.push({ source: `Other received FOC (${op.label ?? receiptMonthKey(op)})`, date: month, quantity: mcPrecision(n(other.value)) });
       }
     }
-    const matches = evidence.filter(e => near(e.quantity, quantity)).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+    const bundle = c.lineId ? mcPrecision(cells.filter(other => other.skuId === c.skuId && other.periodId === c.periodId && other.received).reduce((sum, other) => sum + n(other.value), 0)) : quantity;
+    const bundleMatches = !!c.received && bundle > quantity && evidence.some(e => near(e.quantity, bundle));
+    const matches = evidence.filter(e => near(e.quantity, quantity) || (bundleMatches && near(e.quantity, bundle))).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
     const reviewKey = JSON.stringify({ skuId: c.skuId, periodId: c.periodId, quantity, target: target?.id ?? null,
-      evidence: evidence.slice().sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))), matches });
+      evidence: evidence.slice().sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))), matches, ...(bundleMatches ? { bundle } : {}) });
     // Legacy reviews remain valid only if the month, quantity and evidence still
     // match. Removing a date must not silently approve a different month's receipt.
     const sameReview = equivalentReviewKey(c.receiptReviewKey, reviewKey);
     const reviewed = sameReview && ["separate", "included"].includes(c.receiptDecision ?? "");
     const staleReview = !!c.receiptReviewKey && !sameReview;
-    const needsReview = !!c.received && (!target || (matches.length > 0 && !reviewed) || staleReview);
+    const needsReview = quantity > 0 && !!c.received && (!target || (matches.length > 0 && !reviewed) || staleReview);
     const eligible = !!c.received && !needsReview;
     const included = reviewed && c.receiptDecision === "included";
     return {
       skuId: c.skuId, periodId: c.periodId, sku: `${s.name ?? s.id} ${s.weight ?? ""}`.trim(),
+      ...(c.lineId ? { lineId: c.lineId } : {}),
       planMonth: origin.label ?? receiptMonthKey(origin), receiptPeriodId: target?.id ?? null,
       receiptMonth: target?.label ?? "Missing planning month", quantity,
       received: c.received ?? false, decision: c.receiptDecision ?? "pending",

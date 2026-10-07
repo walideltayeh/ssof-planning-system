@@ -9,3 +9,5 @@ Use isolated browser API fixtures when visual verification needs signed-in conte
 **Why:** Temporary public login helpers can accidentally ship. Browser-scoped request interception checks the real rendered components without exposing accounts or mutating live records.
 
 **How to apply:** Intercept every API request in an isolated browser session and use synthetic users/data only. Drive the bundled Chromium via CDP, keeping authentication intact in app code. State explicitly that signed-in visual checks used fixtures rather than a live account.
+
+Keep the fixture-controlling CDP connection alive through capture. Closing it releases request interception and subsequent authentication requests can sign the synthetic session out; reconnecting does not restore the rendered signed-in state.

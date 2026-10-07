@@ -81,6 +81,7 @@ export const focData = pgTable("foc_data", {
   received: boolean("received").default(false).notNull(),
   receiptDecision: varchar("receiptDecision", { length: 16 }).default("pending").notNull(),
   receiptReviewKey: text("receiptReviewKey"),
+  lines: json("lines").$type<import("../shared/focEntry").FocRecordedLine[]>().default([]).notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),
 }, t => [unique("foc_data_cell_unique").on(t.country, t.skuId, t.periodId)]);
 

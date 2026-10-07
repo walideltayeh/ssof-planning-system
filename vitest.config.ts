@@ -20,6 +20,7 @@ export default defineConfig({
       ["client/**", "jsdom"],
     ],
     include: [
+      "shared/**/*.test.ts",
       "server/**/*.test.ts",
       "server/**/*.spec.ts",
       "client/**/*.test.ts",
