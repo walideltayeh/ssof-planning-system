@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import { RecordFocDialog } from "@/components/forecast/RecordFocDialog";
+import { MoveFocDialog } from "@/components/forecast/MoveFocDialog";
 import { FocImpactConfirmation } from "@/components/forecast/FocImpactConfirmation";
 import { trpc } from "@/lib/trpc";
 import { exactDisplayValue, fromMastercases, toMastercases } from "@/lib/forecastUnits";
@@ -49,6 +50,7 @@ export default function FocRecordPage() {
   const [collapsedYears, setCollapsedYears] = useState<Set<number>>(new Set());
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
   const [collapsedWeights, setCollapsedWeights] = useState<Set<string>>(new Set());
+  const [moveRequest, setMoveRequest] = useState<{ sourceSkuId: number; periodId?: number } | null>(null);
   const invalidate = async () => Promise.all([
     utils.focPlanning.list.invalidate({ country: focCountry }),
     utils.country.data.invalidate({ country: focCountry }),
@@ -225,7 +227,12 @@ export default function FocRecordPage() {
                         </div>
                       </td>
                       <td title={`${sku.name} · ${sku.packagingType ?? "New"}`} className={`group/sku sticky left-[50px] ${index % 2 ? "bg-slate-50" : "bg-background"} z-10 px-2 py-1.5 font-medium whitespace-nowrap`}>
-                        <span>{sku.name}</span>
+                         <span>{sku.name}</span>
+                         {canEdit && <button type="button" aria-label={`Move FOC for ${sku.name} ${sku.weight} ${sku.packagingType ?? "New"} to another SKU`}
+                           onClick={() => setMoveRequest({ sourceSkuId: sku.id })}
+                           className="ml-2 rounded border border-primary/30 px-1.5 py-0.5 text-[9px] font-semibold text-primary opacity-100 transition-opacity hover:bg-primary/10 sm:opacity-0 group-hover/sku:opacity-100 focus:opacity-100">
+                           Move to another SKU
+                         </button>}
                       </td>
                       {years.map(group => <Fragment key={`${sku.id}-${group.year}`}>
                         {!collapsedYears.has(group.year) && group.periods.map(period => (
@@ -233,7 +240,8 @@ export default function FocRecordPage() {
                             cell={bySkuCell.get(`${sku.id}-${period.id}`)}
                             reviewEntries={receiptEntries.filter(entry => entry.skuId === sku.id && entry.periodId === period.id && entry.needsReview)}
                             rowBg={index % 2 ? "bg-slate-50" : "bg-background"}
-                            canEdit={canEdit} unit={unit} onSaved={invalidate} />
+                             canEdit={canEdit} unit={unit} onSaved={invalidate}
+                             onMove={() => setMoveRequest({ sourceSkuId: sku.id, periodId: period.id })} />
                         ))}
                         <td className="px-1 py-1.5 text-right tabular-nums font-bold border-l-2 border-amber-400 bg-amber-50 text-amber-900">{showMonth(group.periods.reduce((sum, period) => sum + (Number(bySkuCell.get(`${sku.id}-${period.id}`)?.value ?? 0) || 0), 0))}</td>
                       </Fragment>)}
@@ -279,6 +287,9 @@ export default function FocRecordPage() {
       </table>
       </div>
     </CardContent></Card>}
+    {canEdit && moveRequest && <MoveFocDialog key={`${focCountry}-${moveRequest.sourceSkuId}-${moveRequest.periodId ?? "all"}`}
+      country={focCountry} periods={periods} skus={skus} sourceSkuId={moveRequest.sourceSkuId} initialPeriodId={moveRequest.periodId}
+      open onOpenChange={open => { if (!open) setMoveRequest(null); }} onSaved={invalidate} />}
     {skus.length > 0 && <div className="flex flex-wrap justify-end gap-x-5 gap-y-1 text-[10px] text-muted-foreground">
       <span>All periods received: <strong className="text-primary">{showMonth(receiptTotals(skus, periods).received) || "0"} {unit}</strong></span>
       <span>All periods not received: <strong className="text-amber-900">{showMonth(receiptTotals(skus, periods).unreceived) || "0"} {unit}</strong></span>
@@ -286,8 +297,8 @@ export default function FocRecordPage() {
   </div>;
 }
 
-function FocRecordCell({ country, sku, period, cell, reviewEntries, rowBg, canEdit, unit, onSaved }: {
-  country: FocCountry; sku: Sku; period: Period; cell?: FocCell; reviewEntries: FocReceiptEntry[]; rowBg: string; canEdit: boolean; unit: "MC" | "KG" | "Tons"; onSaved: () => Promise<unknown>;
+function FocRecordCell({ country, sku, period, cell, reviewEntries, rowBg, canEdit, unit, onSaved, onMove }: {
+  country: FocCountry; sku: Sku; period: Period; cell?: FocCell; reviewEntries: FocReceiptEntry[]; rowBg: string; canEdit: boolean; unit: "MC" | "KG" | "Tons"; onSaved: () => Promise<unknown>; onMove: () => void;
 }) {
   const { formatVal } = useUnit();
   const previewMutation = trpc.focPlanning.previewCell.useMutation();
@@ -372,6 +383,7 @@ function FocRecordCell({ country, sku, period, cell, reviewEntries, rowBg, canEd
         </button></PopoverTrigger>
         <PopoverContent align="end" side="bottom" className="z-[55] w-[min(25rem,85vw)] max-h-[70vh] overflow-y-auto border-[#d7cec9] bg-[#fcfaf7] p-3 text-left shadow-md">
           <p className="mb-1 text-[10px] font-semibold">{skuLabel} · {period.label} <span className="font-normal text-muted-foreground">Recorded lines · MC stored</span></p>
+          {canEdit && <button type="button" onClick={onMove} className="mb-2 rounded border border-primary/30 px-2 py-1 text-[10px] font-medium text-primary hover:bg-primary/10">Move this month to another SKU</button>}
           {lines.map(line => <FocRecordLine key={line.id} country={country} sku={sku} period={period} line={line} canEdit={canEdit} unit={unit} onSaved={onSaved} />)}
           {reviewEntries.map(entry => <div key={entry.reviewKey} className="border-t border-amber-300 py-1.5 text-[10px] text-amber-950">
             <strong>Possible duplicate receipt · {entry.quantity} MC · {entry.receiptMonth}</strong>

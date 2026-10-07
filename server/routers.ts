@@ -310,8 +310,24 @@ const focReceiptScope = {
   skuId: z.number().int().positive().optional(), periodId: z.number().int().positive().optional(),
   received: z.boolean(),
 };
+const focMoveInput = z.object({
+  country: z.enum(["Libya", "Syria"]), sourceSkuId: z.number().int().positive(), targetSkuId: z.number().int().positive(),
+  periodIds: z.array(z.number().int().positive()).min(1).max(1200).optional(),
+});
 export const appRouter = router({
   focPlanning: router({
+    previewMove: adminProcedure.input(focMoveInput.strict()).mutation(async ({ ctx, input }) => {
+      await requireCountryAdmin(ctx, input.country);
+      const { country, ...move } = input;
+      return previewFocEntry(country, { move }, true);
+    }),
+    commitMove: adminProcedure.input(focMoveInput.extend({ token: z.string().length(64) }).strict()).mutation(async ({ ctx, input }) => {
+      await requireCountryAdmin(ctx, input.country);
+      const { country, token, ...move } = input;
+      const result = await commitFocEntry(country, { move }, true, getAuditActor(ctx), token);
+      invalidateCountryPerformanceCache(country);
+      return result;
+    }),
     previewEntries: adminProcedure.input(z.object({
       country: z.enum(["Libya", "Syria"]), includeFoc: z.boolean(),
       lines: z.array(z.object({ skuId: z.number().int().positive().optional(), date: z.string().max(100), flavor: z.string().max(150), weight: z.string().max(30),

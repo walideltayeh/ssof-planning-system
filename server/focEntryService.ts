@@ -8,10 +8,11 @@ import { changeFocCell, matchFocDrafts, recordedFocLines, receivedFocMC, type Fo
 import { mcPrecision, type FocCountry, type FocCell } from "../shared/performance/foc";
 import { evaluateFocReceipts } from "../shared/performance/focReceipts";
 import { buildStockLedger, type StockDataset } from "../shared/performance/stock";
+import { reassignFocCells, type FocMove } from "../shared/focReassignment";
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 export type CellChange = { skuId: number; periodId: number; value?: number | null; received?: boolean; lineId?: string; remove?: boolean; decision?: "separate" | "included"; reviewKey?: string };
-export type FocOperation = { lines: FocDraft[] } | { cell: CellChange };
+export type FocOperation = { lines: FocDraft[] } | { cell: CellChange } | { move: FocMove };
 async function database() {
   const db = await getDb();
   if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Database unavailable" });
@@ -45,7 +46,17 @@ async function previewWith(db: Db, country: FocCountry, operation: FocOperation,
   const rows = "lines" in operation ? matchFocDrafts(operation.lines, matchSkus, ds.periods, country) : [];
   const next = new Map(ds.foc.map(c => [`${c.skuId}-${c.periodId}`, c as FocCell]));
   const affected = new Map<number, number>();
-  if ("lines" in operation) {
+  let move: ReturnType<typeof reassignFocCells>["move"] | undefined;
+  if ("move" in operation) {
+    let reassigned;
+    try { reassigned = reassignFocCells(country, ds.skus, ds.periods, ds.foc, operation.move); }
+    catch (error) { bad(error instanceof Error ? error.message : "Invalid FOC reassignment."); }
+    move = reassigned.move;
+    for (const [key, cell] of reassigned.next) next.set(key, cell);
+    const first = Math.min(...move.months.map(m => ds.periods.find(p => p.id === m.periodId)!.sortOrder));
+    affected.set(operation.move.sourceSkuId, first);
+    affected.set(operation.move.targetSkuId, first);
+  } else if ("lines" in operation) {
     for (const r of rows) {
       if (r.errors.length || r.skuId === null || r.periodId === null) continue;
       const key = `${r.skuId}-${r.periodId}`;
@@ -84,10 +95,10 @@ async function previewWith(db: Db, country: FocCountry, operation: FocOperation,
   const warnings = evaluateFocReceipts(after, includeFoc).filter(e => affected.has(e.skuId) && e.needsReview);
   // Bind confirmation to every source used by the preview, the exact operation and the display basis.
   const token = createHash("sha256").update(JSON.stringify({ country, operation, includeFoc, ds, ims, forecast, impact, warnings })).digest("hex");
-  return { token, canSave: rows.every(r => !r.errors.length) && ("cell" in operation || rows.length > 0),
-    rows, impact, warnings, next, original: ds };
+  return { token, canSave: rows.every(r => !r.errors.length) && ("cell" in operation || "move" in operation || rows.length > 0),
+    rows, impact, warnings, move, next, original: ds };
 }
-const publicPreview = (p: Awaited<ReturnType<typeof previewWith>>) => ({ token: p.token, canSave: p.canSave, rows: p.rows, impact: p.impact, warnings: p.warnings });
+const publicPreview = (p: Awaited<ReturnType<typeof previewWith>>) => ({ token: p.token, canSave: p.canSave, rows: p.rows, impact: p.impact, warnings: p.warnings, move: p.move });
 export async function previewFocEntry(country: FocCountry, operation: FocOperation, includeFoc: boolean) {
   return publicPreview(await previewWith(await database(), country, operation, includeFoc));
 }
@@ -131,10 +142,10 @@ export async function commitFocEntry(country: FocCountry, operation: FocOperatio
       const sku = result.original.skus.find(s => s.id === cell.skuId)!;
       const period = result.original.periods.find(p => p.id === cell.periodId)!;
       await tx.insert(auditTrail).values({ country, username: actor, action: "edit_cell", sheet: "FOC",
-        skuName: `${sku.name} ${sku.weight} (${sku.packagingType})`, periodLabel: period.label, field: "FOC recorded lines",
+        skuName: `${sku.name} ${sku.weight} (${sku.packagingType})`, periodLabel: period.label, field: result.move ? "FOC SKU reassignment" : "FOC recorded lines",
         oldValue: JSON.stringify({ value: original?.value ?? null, received: original?.received ?? false, lines: original?.lines ?? [] }),
         newValue: JSON.stringify({ value: cell.value, received: cell.received, lines }),
-        details: JSON.stringify({ versionId, includeFoc, impact: result.impact.filter(r => r.skuId === cell.skuId), warnings: warnings.filter(r => r.skuId === cell.skuId),
+        details: JSON.stringify({ versionId, includeFoc, reassignment: result.move, impact: result.impact.filter(r => r.skuId === cell.skuId), warnings: warnings.filter(r => r.skuId === cell.skuId),
           note: "Received, duplicate-checked FOC changes arrivals in its own month and carries into every following closing stock. Paid sell-out is unchanged." }) });
     }
     return { success: true as const, versionId, warnings };

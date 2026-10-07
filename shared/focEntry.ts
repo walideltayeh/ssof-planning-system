@@ -75,9 +75,10 @@ export function matchFocDrafts(lines: FocDraft[], skus: FocMatchSku[], periods: 
     const month = focMonth(line.date);
     const ps = periods.filter(p => (!p.country || p.country === country) && p.year === month?.year && p.month === month?.month);
     const candidates = skus.filter(s => (!s.country || s.country === country) &&
-      (line.skuId !== undefined ? s.id === line.skuId :
-        focFlavor(s.name) === focFlavor(line.flavor) && focWeight(s.weight) === focWeight(line.weight) &&
-        focPackaging(s.packagingType ?? "New") === focPackaging(line.packaging)));
+      (line.skuId === undefined || s.id === line.skuId) &&
+      focFlavor(s.name) === focFlavor(line.flavor) && focWeight(s.weight) === focWeight(line.weight) &&
+      ["old", "new"].includes(focPackaging(line.packaging)) &&
+      focPackaging(s.packagingType ?? "") === focPackaging(line.packaging));
     const ss = candidates.filter(s => s.isActive !== false);
     if (ss.length !== 1) errors.push(ss.length ? "More than one SKU matches. Choose an unambiguous SKU." :
       candidates.some(s => s.isActive === false) ? "This SKU is inactive. Select an active SKU for this country." : "No matching SKU in this country.");
@@ -86,9 +87,7 @@ export function matchFocDrafts(lines: FocDraft[], skus: FocMatchSku[], periods: 
     const quantity = Number(text);
     if (!/^(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{1,2})?$/.test(line.quantityMC.trim()) || !Number.isFinite(quantity) || quantity <= 0 || quantity > 9999999999.99)
       errors.push("Enter a positive MC quantity, with at most two decimals.");
-    const identity = line.skuId !== undefined && ss.length === 1
-      ? { flavor: ss[0].name, weight: ss[0].weight, packaging: ss[0].packagingType ?? "New" } : {};
-    return { ...line, ...identity, row: index + 1, skuId: ss.length === 1 ? ss[0].id : null, periodId: ps.length === 1 ? ps[0].id : null,
+    return { ...line, row: index + 1, skuId: ss.length === 1 ? ss[0].id : null, periodId: ps.length === 1 ? ps[0].id : null,
       sku: ss.length === 1 ? `${ss[0].name} · ${ss[0].weight} · ${ss[0].packagingType ?? "New"}` : null,
       month: ps.length === 1 ? ps[0].label : null, quantity: mcPrecision(quantity || 0), errors };
   });

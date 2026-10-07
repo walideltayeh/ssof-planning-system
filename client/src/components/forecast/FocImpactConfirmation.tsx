@@ -46,8 +46,8 @@ export function FocImpactConfirmation({ open, onOpenChange, title = "Review FOC 
         {!!warnings.length && <div className="rounded border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">
           <strong>Possible duplicate receipts are held out of stock until review.</strong>
           <ul className="mt-1 space-y-2">{warnings.map((warning, i) => <li key={`${warning.reviewKey}-${warning.lineId ?? i}`} className="border-t border-amber-200 pt-1">
-            <div className="font-medium">{warning.sku} · {warning.receiptMonth} · {warning.quantity} MC{warning.lineId ? ` · line ${warning.lineId.slice(0, 8)}` : ""}</div>
-            {warning.matches.map((match, index) => <div key={`${match.source}-${match.date}-${index}`} className="text-amber-900/80">{match.source} · {match.quantity} MC · {match.date}</div>)}
+            <div className="font-medium">{warning.sku} · {warning.receiptMonth} · {exactDisplayValue(warning.quantity, unit)} {unit}{warning.lineId ? ` · line ${warning.lineId.slice(0, 8)}` : ""}</div>
+            {warning.matches.map((match, index) => <div key={`${match.source}-${match.date}-${index}`} className="text-amber-900/80">{match.source} · {exactDisplayValue(match.quantity, unit)} {unit} · {match.date}</div>)}
           </li>)}</ul>
         </div>}
       </>}

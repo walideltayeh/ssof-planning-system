@@ -9,12 +9,26 @@ const periods = [{ id: 6, country: "Libya", year: 2026, month: 6, label: "Jun 26
   { id: 7, country: "Libya", year: 2026, month: 7, label: "Jul 26", sortOrder: 7 }];
 const header = "Date\tAcc Type\tSales Manager\tFlavor\tWeight\tPackaging\tQuantity in MC";
 describe("FOC sheet parsing and exact country matching", () => {
-  it("resolves selected IDs to canonical registered identities and allows repeated selections", () => {
+  it("matches selected IDs only when name, weight and packaging agree, and allows repeated selections", () => {
     const selected = { ...blankFocDraft(), skuId: 2, date: "2026-06", quantityMC: "10",
-      flavor: "Mistyped", weight: "Wrong", packaging: "Wrong" };
+      flavor: "Mint", weight: "50g", packaging: "New" };
     const rows = matchFocDrafts([selected, { ...selected, quantityMC: "20" }], skus, periods, "Libya");
     expect(rows.map(r => [r.skuId, r.periodId, r.quantity])).toEqual([[2, 6, 10], [2, 6, 20]]);
     expect(rows[0]).toMatchObject({ flavor: "Mint", weight: "50g", packaging: "New", errors: [] });
+  });
+  it.each(["Old", "", "Unknown"])("never falls back to a packaging-blind match for packaging %s, even with a selected ID", packaging => {
+    for (const skuId of [undefined, 2]) {
+      const [row] = matchFocDrafts([{ ...blankFocDraft(), skuId, date: "Jun-26", quantityMC: "10",
+        flavor: "Mint", weight: "50g", packaging }], skus, periods, "Libya");
+      expect(row.skuId).toBeNull();
+      expect(row.packaging).toBe(packaging);
+      expect(row.errors).toContain("No matching SKU in this country.");
+    }
+  });
+  it("does not place an Old line on New when only the New variant exists, but matches the Old variant when present", () => {
+    const line = { ...blankFocDraft(), date: "Jun-26", quantityMC: "10", flavor: "Mint", weight: "50g", packaging: "Old Packaging" };
+    const [row] = matchFocDrafts([line], [...skus, { ...skus[1], id: 4, packagingType: "Old" }], periods, "Libya");
+    expect(row).toMatchObject({ skuId: 4, packaging: "Old Packaging", errors: [] });
   });
   it("rejects foreign, inactive and missing selected IDs without falling back to text", () => {
     const inactive = { ...skus[1], id: 4, isActive: false };

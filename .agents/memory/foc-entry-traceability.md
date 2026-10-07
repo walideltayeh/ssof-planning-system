@@ -31,3 +31,21 @@ FOC entry rollback should restore only that country's FOC ledger, not unrelated 
 **Why:** A full-board rollback after a small FOC correction can overwrite subsequent work unrelated to the correction.
 
 **How to apply:** Save the FOC-only backup, changes and authenticated audit together in one transaction; require a fresh preview when source data changes. Restore still requires country-admin authorization and country-scoped SKU/month validation.
+
+Administrators must be able to reassign FOC without retyping it: whole SKU row by default, selected months, a month range, or a single monthly cell. Merge source and target lines without replacing either set, preserving original details, line quantities and individual Received states. Preview both full SKU identities, monthly and overall totals, arrivals and future closing-stock effects before saving.
+
+**Why:** The user needs to correct a wrong registered SKU while retaining the original evidence and receipt eligibility, with an audited FOC-only rollback.
+
+**How to apply:** Operational stock follows eligible received FOC on the destination SKU. Duplicate receipt reviews are SKU-specific and must be rechecked at the target; do not transfer unrelated paid forecasts or clearance records.
+
+FOC matching requires name, weight and packaging together, even when an explicit SKU ID is provided. Preserve the original pasted identity text after normalization-based matching; never silently rewrite it to the selected SKU.
+
+**Why:** Canonicalizing a conflicting explicit-ID entry destroys evidence of the intended original packaging and makes historical wrong-SKU loads impossible to certify from the saved record alone.
+
+**How to apply:** Reject conflicting or missing identity fields as unmatched, with no packaging-blind fallback. Manual selection supplies the registered identity; past records must only be investigated read-only, never auto-reassigned.
+
+The user's Libya June 2026 source expectations are Double Apple 50g Old, Mint 50g Old and Mint 1kg New. The September–December 2026 PO FOC source is all New packaging.
+
+**Why:** The user explicitly distinguished the earlier June load from the later PO load.
+
+**How to apply:** Use these as investigation checks, not permission to move records or infer missing source evidence.

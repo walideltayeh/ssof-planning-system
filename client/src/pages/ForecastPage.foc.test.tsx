@@ -8,6 +8,7 @@ const m = vi.hoisted(() => ({
   country: "Libya", admin: true, unit: "MC" as "MC" | "KG" | "Tons",
   paid: vi.fn(), production: vi.fn(), invalidate: vi.fn(), query: vi.fn(),
   preview: vi.fn(), commit: vi.fn(), entriesCommit: vi.fn(),
+  movePreview: vi.fn(), moveCommit: vi.fn(),
   value: "12.00" as string | null, received: false, lines: [] as any[], entries: [] as any[],
 }));
 vi.mock("@/contexts/CountryContext", () => ({ useCountry: () => ({ country: m.country, config: { terms: { forecast: "Forecast Production" } } }) }));
@@ -21,6 +22,7 @@ vi.mock("@/lib/trpc", () => {
   const skus = [
     { id: 1, name: "Mint", weight: "50g", packagingType: "New", isActive: true, category: "Core" },
     { id: 2, name: "Inactive", weight: "50g", packagingType: "New", isActive: false, category: "Core" },
+    { id: 3, name: "Mint", weight: "50g", packagingType: "Old", isActive: true, category: "Core" },
   ], periods = [{ id: 9, label: "Sep 26", year: 2026, month: 9, sortOrder: 1 }];
   const forecast = [{ skuId: 1, periodId: 9, value: "100.00" }];
   const useMutation = (spy: any) => ({ useMutation: (options: any) => ({
@@ -38,6 +40,18 @@ vi.mock("@/lib/trpc", () => {
       updateForecast: useMutation(m.paid), updateProduction: useMutation(m.production), updateForecastWeek: useMutation(vi.fn()),
     },
     focPlanning: {
+      previewMove: { useMutation: () => ({ isPending: false, mutateAsync: async (input: any) => {
+        m.movePreview(input); return { token: "b".repeat(64), canSave: true, rows: [], impact: [
+          { sku: "Mint · 50g · New", month: "Sep 26", before: 112, after: 100, beforeArrivals: 12, afterArrivals: 0 },
+          { sku: "Mint · 50g · Old", month: "Sep 26", before: 100, after: 112, beforeArrivals: 0, afterArrivals: 12 },
+        ], warnings: [], move: { sourceSku: "Mint · 50g · New", targetSku: "Mint · 50g · Old",
+          sourceTotalBefore: 12, sourceTotalAfter: 0, targetTotalBefore: 5, targetTotalAfter: 17,
+          months: [{ periodId: 9, month: "Sep 26", quantityMC: 12, receivedMC: 12, sourceBefore: 12,
+            sourceAfter: 0, targetBefore: 5, targetAfter: 17, sourceLineCount: 1, targetLineCount: 1, resultLineCount: 2 }] } };
+      } }) },
+      commitMove: { useMutation: () => ({ isPending: false, mutateAsync: async (input: any) => {
+        m.moveCommit(input); return { success: true, versionId: 43, warnings: [] };
+      } }) },
       list: { useQuery: (input: any, options: any) => { m.query(input, options); return {
         data: { skus, periods, cells: [{ skuId: 1, periodId: 9, value: m.value, received: m.received, lines: m.lines }], receipts: { entries: m.entries } },
         refetch: vi.fn(), error: null,
@@ -59,6 +73,7 @@ vi.mock("@/lib/trpc", () => {
   } };
 });
 beforeEach(() => {
+  Element.prototype.scrollIntoView = vi.fn();
   vi.clearAllMocks(); localStorage.clear(); m.country = "Libya"; m.admin = true; m.unit = "MC";
   m.value = "12.00"; m.received = false; m.entries = []; m.lines = [];
 });
@@ -96,12 +111,70 @@ describe("Forecast Production is independent of FOC", () => {
   it("keeps viewers from editing the paid forecast or importing", () => {
     m.admin = false; render(<ForecastPage />);
     expect(screen.queryByText("Import Forecast")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByText("Mint").closest("tr")!.cells[2]);
+    fireEvent.click(screen.getAllByText("Mint")[0].closest("tr")!.cells[2]);
     expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
     expect(m.paid).not.toHaveBeenCalled();
   });
 });
 describe("separate FOC Record", () => {
+  it("previews a whole-row reassignment, explains the merge and stock impact, then commits only after confirmation", async () => {
+    render(<FocRecordPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Move FOC for Mint 50g New to another SKU" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "SKU" }));
+    fireEvent.click(screen.getByRole("option", { name: /Mint.*50g.*Old/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Preview move" }));
+    await screen.findByRole("button", { name: "Confirm and save" });
+    expect(m.movePreview).toHaveBeenCalledWith({ country: "Libya", sourceSkuId: 1, targetSkuId: 3 });
+    expect(m.moveCommit).not.toHaveBeenCalled();
+    expect(screen.getByText("Lines before → after")).toBeInTheDocument();
+    expect(screen.getByText("Arrivals (MC)")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm and save" }));
+    await waitFor(() => expect(m.moveCommit).toHaveBeenCalledWith({ country: "Libya", sourceSkuId: 1, targetSkuId: 3, token: "b".repeat(64) }));
+    expect(m.invalidate).toHaveBeenCalled();
+  });
+  it("starts a cell reassignment with only that month's scope", async () => {
+    render(<FocRecordPage />);
+    fireEvent.click(screen.getByRole("button", { name: `View recorded FOC lines ${label}` }));
+    fireEvent.click(screen.getByRole("button", { name: "Move this month to another SKU" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "SKU" }));
+    fireEvent.click(screen.getByRole("option", { name: /Mint.*50g.*Old/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Preview move" }));
+    await screen.findByRole("button", { name: "Confirm and save" });
+    expect(m.movePreview).toHaveBeenCalledWith({ country: "Libya", sourceSkuId: 1, targetSkuId: 3, periodIds: [9] });
+  });
+  it.each(["Selected months", "Month range"])("previews %s with explicit month IDs and keeps KG display separate from stored MC", async mode => {
+    m.unit = "KG"; render(<FocRecordPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Move FOC for Mint 50g New to another SKU" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "SKU" }));
+    fireEvent.click(screen.getByRole("option", { name: /Mint.*50g.*Old/ }));
+    fireEvent.click(screen.getByRole("radio", { name: mode }));
+    if (mode === "Selected months") fireEvent.click(screen.getByRole("checkbox", { name: "Sep 26" }));
+    fireEvent.click(screen.getByRole("button", { name: "Preview move" }));
+    await screen.findByRole("button", { name: "Confirm and save" });
+    expect(m.movePreview).toHaveBeenCalledWith({ country: "Libya", sourceSkuId: 1, targetSkuId: 3, periodIds: [9] });
+    expect(screen.getByText("Moving quantity (KG)")).toBeInTheDocument();
+    expect(screen.getByText("Source before → after (KG)")).toBeInTheDocument();
+    expect(screen.getAllByText("72").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Confirm and save" }));
+    await waitFor(() => expect(m.moveCommit).toHaveBeenCalledWith({ country: "Libya", sourceSkuId: 1, targetSkuId: 3, periodIds: [9], token: "b".repeat(64) }));
+  });
+  it("discards a preview when the unit context changes instead of confirming stale move data", async () => {
+    const view = render(<FocRecordPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Move FOC for Mint 50g New to another SKU" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "SKU" }));
+    fireEvent.click(screen.getByRole("option", { name: /Mint.*50g.*Old/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Preview move" }));
+    await screen.findByRole("button", { name: "Confirm and save" });
+    m.unit = "Tons"; view.rerender(<FocRecordPage />);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Confirm and save" })).not.toBeInTheDocument());
+    expect(m.moveCommit).not.toHaveBeenCalled();
+  });
+  it("does not expose reassignment to viewers", () => {
+    m.admin = false; render(<FocRecordPage />);
+    expect(screen.queryByRole("button", { name: /Move FOC/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: `View recorded FOC lines ${label}` }));
+    expect(screen.queryByRole("button", { name: "Move this month to another SKU" })).not.toBeInTheDocument();
+  });
   it("uses exactly the same restored header and column layout as Forecast Production", () => {
     const forecast = render(<ForecastPage />);
     const originalHeader = document.querySelector("thead")!.outerHTML;

@@ -67,6 +67,61 @@ beforeEach(() => {
   vi.mocked(dbModule.getDb).mockResolvedValue(connection as any);
 });
 describe("past FOC preview, atomic commit, audit and rollback", () => {
+  it.each(["Libya", "Syria"] as const)("moves a whole SKU's quantities, receipt states and original lines, and transfers arrivals and closing stock in %s", async country => {
+    records.set(skus, [
+      { id: 1, country, name: "Mint", weight: "50g", packagingType: "New", isActive: true },
+      { id: 3, country, name: "Mint", weight: "50g", packagingType: "Old", isActive: true },
+    ]);
+    records.get(periods)!.forEach(p => { p.country = country; });
+    records.set(planningFgData, [{ skuId: 1, periodId: 6, openingStock: "100" }, { skuId: 3, periodId: 6, openingStock: "200" }]);
+    const sourceLine = { id: "source-june", quantityMC: 10, received: true, source: "Recorded FOC",
+      date: "Jun-26", flavor: "Mint", weight: "50gr", packaging: "Old Packaging", accType: "Export",
+      salesManager: "Original manager", actor: "Original creator", recordedAt: "2026-06-01T10:00:00Z" };
+    const julyLine = { ...sourceLine, id: "source-july", quantityMC: 20, received: false, date: "Jul-26" };
+    const targetLine = { ...sourceLine, id: "target-june", quantityMC: 5, received: false };
+    const original = [
+      { country, skuId: 1, periodId: 6, value: "10.00", received: true, lines: [sourceLine] },
+      { country, skuId: 1, periodId: 7, value: "20.00", received: false, lines: [julyLine] },
+      { country, skuId: 3, periodId: 6, value: "5.00", received: false, lines: [targetLine] },
+    ];
+    records.set(focData, structuredClone(original));
+    const move = { move: { sourceSkuId: 1, targetSkuId: 3 } };
+    const preview = await service.previewFocEntry(country, move, true);
+    expect(preview.move).toMatchObject({ sourceTotalBefore: 30, sourceTotalAfter: 0, targetTotalBefore: 5, targetTotalAfter: 35 });
+    expect(preview.move!.months[0]).toMatchObject({ targetBefore: 5, targetAfter: 15, resultLineCount: 2, receivedMC: 10 });
+    expect(preview.impact.find(r => r.skuId === 1 && r.periodId === 6)).toMatchObject({ before: 110, after: 100, beforeArrivals: 10, afterArrivals: 0 });
+    expect(preview.impact.find(r => r.skuId === 3 && r.periodId === 6)).toMatchObject({ before: 200, after: 210, beforeArrivals: 0, afterArrivals: 10 });
+    await service.commitFocEntry(country, move, true, "Moving admin", preview.token);
+    expect(records.get(focData)!.filter(c => c.skuId === 1)).toEqual([]);
+    expect(records.get(focData)!.find(c => c.skuId === 3 && c.periodId === 6)).toMatchObject({ value: "15.00", received: false, lines: [targetLine, sourceLine] });
+    expect(records.get(focData)!.find(c => c.skuId === 3 && c.periodId === 7)).toMatchObject({ value: "20.00", received: false, lines: [julyLine] });
+    const ds = await loadFocReceiptData(country);
+    const ledger = buildStockLedger({ ...ds, ims: [], forecast: [], includeFoc: true, now: new Date(2026, 9, 7) });
+    expect([...ledger.bySku.get(1)!.values()].map(r => [r.arrivals, r.closing])).toEqual([[0, 100], [0, 100], [0, 100]]);
+    expect([...ledger.bySku.get(3)!.values()].map(r => [r.arrivals, r.closing])).toEqual([[10, 210], [0, 210], [0, 210]]);
+    expect(records.get(auditTrail)!.every(a => a.field === "FOC SKU reassignment" && a.details.includes("Mint · 50g · New") && a.details.includes("Mint · 50g · Old"))).toBe(true);
+    const version = records.get(ssofVersions)![0];
+    expect(version.snapshotData.foc).toEqual(original);
+    await restoreFocOnlySnapshot(connection as any, version.snapshotData, country);
+    expect(records.get(focData)!.find(c => c.skuId === 1 && c.periodId === 6)?.lines).toEqual([sourceLine]);
+    expect(records.get(clearanceEvents)).toEqual([]);
+  });
+  it("moves only selected months, validates scope, and rejects a stale move confirmation atomically", async () => {
+    records.get(skus)!.push({ id: 3, country: "Libya", name: "Mint", weight: "50g", packagingType: "Old", isActive: true });
+    records.set(focData, [6, 7].map(periodId => ({ country: "Libya", skuId: 1, periodId, value: "10.00", received: true, lines: [] })));
+    await expect(service.previewFocEntry("Libya", { move: { sourceSkuId: 1, targetSkuId: 2 } }, true)).rejects.toThrow("active SKUs");
+    await expect(service.previewFocEntry("Libya", { move: { sourceSkuId: 1, targetSkuId: 3, periodIds: [999] } }, true)).rejects.toThrow("valid month");
+    const operation = { move: { sourceSkuId: 1, targetSkuId: 3, periodIds: [7] } };
+    const preview = await service.previewFocEntry("Libya", operation, true);
+    records.get(focData)![1].value = "20.00";
+    await expect(service.commitFocEntry("Libya", operation, true, "Admin", preview.token)).rejects.toThrow("changed since preview");
+    expect(records.get(ssofVersions)).toEqual([]);
+    const fresh = await service.previewFocEntry("Libya", operation, true);
+    await service.commitFocEntry("Libya", operation, true, "Admin", fresh.token);
+    expect(records.get(focData)!.find(c => c.skuId === 1 && c.periodId === 6)?.value).toBe("10.00");
+    expect(records.get(focData)!.some(c => c.skuId === 1 && c.periodId === 7)).toBe(false);
+    expect(records.get(focData)!.find(c => c.skuId === 3 && c.periodId === 7)).toMatchObject({ value: "20.00", received: true });
+  });
   it.each(["Libya", "Syria"] as const)("reverses operational arrivals and every closing stock exactly for %s, independently of tracker rebuilds", async country => {
     const skuId = country === "Libya" ? 1 : 2;
     records.get(periods)!.forEach(p => { p.country = country; });
@@ -138,15 +193,21 @@ describe("past FOC preview, atomic commit, audit and rollback", () => {
     expect(records.get(auditTrail)![3]).toMatchObject({ country: "Libya", username: "Editor", sheet: "FOC" });
     expect(JSON.parse(records.get(auditTrail)![3].newValue)).toMatchObject({ value: null, received: false, lines: [] });
   });
-  it("records repeated selected SKU IDs using the registered identity, not supplied text", async () => {
-    const operation = { lines: [{ ...draft("10"), skuId: 1, flavor: "Wrong", weight: "Wrong", packaging: "Wrong" },
+  it("rejects conflicting selected-SKU identity instead of silently replacing the original source details", async () => {
+    const invalid = { lines: [{ ...draft("10"), skuId: 1, packaging: "Old" }] };
+    const invalidPreview = await service.previewFocEntry("Libya", invalid, true);
+    expect(invalidPreview.canSave).toBe(false);
+    await expect(service.commitFocEntry("Libya", invalid, true, "Admin", invalidPreview.token)).rejects.toThrow("unmatched");
+    expect(records.get(focData)).toEqual([]);
+    expect(records.get(ssofVersions)).toEqual([]);
+    const operation = { lines: [{ ...draft("10"), skuId: 1 },
       { ...draft("20"), skuId: 1 }] };
     const preview = await service.previewFocEntry("Libya", operation, true);
     expect(preview.canSave).toBe(true);
     await service.commitFocEntry("Libya", operation, true, "Admin", preview.token);
     expect(records.get(focData)![0]).toMatchObject({ value: "30.00", lines: [
-      expect.objectContaining({ flavor: "Mint", weight: "50g", packaging: "New", quantityMC: 10 }),
-      expect.objectContaining({ flavor: "Mint", weight: "50g", packaging: "New", quantityMC: 20 }),
+      expect.objectContaining({ flavor: "Mint", weight: "50gr", packaging: "New Packaging", quantityMC: 10 }),
+      expect.objectContaining({ flavor: "Mint", weight: "50gr", packaging: "New Packaging", quantityMC: 20 }),
     ] });
   });
   it("flags an inactive pasted SKU explicitly and never commits it", async () => {
