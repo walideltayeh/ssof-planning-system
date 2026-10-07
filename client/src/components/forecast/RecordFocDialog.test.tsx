@@ -46,11 +46,43 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("FOC manual SKU selection", () => {
+  it("distinguishes Libya Double Apple and Mint variants with full labels and packaging badges", () => {
+    const variants = [
+      { id: 11, name: "Double Apple", weight: "50g", packagingType: "Old" },
+      { id: 12, name: "Double Apple", weight: "50g", packagingType: "New" },
+      { id: 13, name: "Double Apple", weight: "1kg", packagingType: "New" },
+      { id: 14, name: "Mint", weight: "50g", packagingType: "Old" },
+      { id: 15, name: "Mint", weight: "50g", packagingType: "New" },
+    ].map(s => ({ ...s, country: "Libya", isActive: true }));
+    render(<FocSkuCombobox country="Libya" skus={variants} onSelect={vi.fn()} />);
+    fireEvent.click(screen.getByRole("combobox", { name: "SKU" }));
+    for (const sku of variants) {
+      const option = screen.getByRole("option", { name: `${sku.name} · ${sku.weight} · ${sku.packagingType}` });
+      expect(within(option).getByText(sku.name)).toBeVisible();
+      expect(within(option).getByText(sku.weight)).toBeVisible();
+      expect(within(option).getByText(sku.packagingType)).toHaveClass("bg-muted");
+      expect(option.querySelector(".truncate, .text-ellipsis, .line-clamp-1")).toBeNull();
+    }
+    fireEvent.change(screen.getByRole("combobox", { name: "Search SKUs" }), { target: { value: "Double Apple · 50g · New" } });
+    expect(screen.getAllByRole("option")).toHaveLength(1);
+    expect(screen.getByRole("option", { name: "Double Apple · 50g · New" })).toBeVisible();
+  });
+  it("shows every selected variant's complete description without fixed-height truncation", () => {
+    const sku = { id: 11, name: "Double Apple with a particularly long registered description", weight: "50g",
+      packagingType: "Old", country: "Libya", isActive: true };
+    render(<FocSkuCombobox country="Libya" skus={[sku]} selectedSkuId={11} onSelect={vi.fn()} />);
+    const trigger = screen.getByRole("combobox", { name: "SKU" });
+    expect(within(trigger).getByText(sku.name)).toBeVisible();
+    expect(within(trigger).getByText("50g")).toBeVisible();
+    expect(within(trigger).getByText("Old")).toHaveClass("bg-muted");
+    expect(trigger).toHaveClass("h-auto", "whitespace-normal");
+    expect(trigger.querySelector(".truncate, .text-ellipsis, .line-clamp-1")).toBeNull();
+  });
   it("defensively hides inactive and foreign SKUs without changing supplied order", () => {
     render(<FocSkuCombobox country="Libya" skus={skuFixtures} onSelect={vi.fn()} />);
     fireEvent.click(screen.getByRole("combobox", { name: "SKU" }));
     const options = screen.getAllByRole("option");
-    expect(options.map(option => option.textContent)).toEqual([
+    expect(options.map(option => option.getAttribute("aria-label"))).toEqual([
       "Mint · 50g · Old",
       "Apple · 250g · New",
     ]);

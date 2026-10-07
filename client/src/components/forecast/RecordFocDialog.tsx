@@ -73,7 +73,7 @@ export function RecordFocDialog({ country, periods, skus, includeFoc, onSaved }:
           <button onClick={acceptPaste} disabled={!paste.trim()} className="self-end rounded border bg-background px-3 py-2 text-xs disabled:opacity-50"><Upload className="mr-1 inline h-3 w-3" />Use pasted rows</button>
         </div>
         <div className="max-h-[45vh] space-y-2 overflow-auto pr-1">
-          {drafts.map((line, index) => <div key={index} className="grid grid-cols-2 gap-2 rounded border p-2 md:grid-cols-6">
+          {drafts.map((line, index) => <div key={index} className="grid grid-cols-2 gap-2 rounded border p-2 md:grid-cols-[1.1fr_1.8fr_0.8fr_1fr_1.3fr_0.8fr]">
             <label className="text-[10px] text-muted-foreground">Month<select aria-label="Month" value={periodValue(line.date)} onChange={e => edit(index, "date", e.target.value)} className="mt-1 h-7 w-full rounded border bg-background px-1 text-xs"><option value="">Select month</option>
               {sortedPeriods.filter(p => !p.country || p.country === country).map(p => <option key={p.id} value={`${p.year}-${String(monthNumber(p)).padStart(2, "0")}`}>{p.label}</option>)}</select>
               {line.date && !periodValue(line.date) && <span className="mt-1 block truncate text-[9px] text-amber-800" title={line.date}>Pasted month: {line.date}</span>}
