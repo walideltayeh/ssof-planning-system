@@ -7,19 +7,19 @@ Monthly FOC is planned free product for Libya and Syria only. Include FOC defaul
 
 **Why:** The user explicitly corrected the receipt model to "just Received or no, no need for receipt date."
 
-**How to apply:** Keep a separate receipt layer that tracker/clearance replacement cannot erase. Recheck similar existing inbound before adding it; an administrator must resolve possible duplicates explicitly, with visible warnings and audit actor/time. Turning Received back to No removes the exact additive receipt. Carry the country-specific inclusion switch through stock views, projections and exports. Missing FOC remains distinct from explicit zero internally; show a dash, not placeholder wording. Administration is country-specific, and viewers cannot edit.
+**How to apply:** Keep a separate receipt layer that tracker/clearance replacement cannot erase. Recheck similar existing inbound before adding it; an administrator must resolve possible duplicates explicitly, with visible warnings and audit actor/time. Turning Received back to No removes the exact additive receipt. Carry the country-specific inclusion switch through stock views, projections and exports. Missing FOC remains distinct from explicit zero internally; empty grid cells are blank, with no dashes or placeholder wording. Administration is country-specific, and viewers cannot edit.
 
-Forecast Production is the only dedicated FOC surface for Libya and Syria. Ordered rows must be larger and heavier than compact, muted FOC sub-rows. No standalone FOC section in Analysis, its slide order, PDF or Excel; keep Include FOC and its effects on arrivals, stock and derived totals. Do not introduce FOC in Lebanon/KSA.
+Forecast Production is the only dedicated FOC surface for Libya and Syria. Retain the pre-FOC compact spreadsheet appearance, original type scale and dark red accent. FOC sub-rows appear only for SKUs with positive FOC quantities in the displayed periods and use the same compact row height. No standalone FOC section in Analysis, its slide order, PDF or Excel; keep Include FOC and its effects on arrivals, stock and derived totals. Do not introduce FOC in Lebanon/KSA.
 
-**Why:** The user said the dedicated Analysis section belongs on Forecast Production and that Order must read first, not as two equal rows.
+**Why:** The user reversed the tall ordered-row hierarchy and oversized totals, explicitly asking for the pre-FOC spreadsheet design rather than new styling.
 
 **How to apply:** Reuse the same FOC ledger and country inclusion setting on all surfaces. Excel round-trips may preserve existing duplicate decisions, but must never treat spreadsheet metadata as a new duplicate approval.
 
-Forecast's primary figure must follow Include FOC. Do not repeat Ordered/FOC/Combined stacks. Show a tiny secondary FOC quantity only when positive, and keep the editable FOC sub-row compact. Larger totals must not increase the FOC row's type or height. All frozen panels and their row backgrounds must remain completely opaque, including excluded rows.
+Forecast's primary figure must follow Include FOC. Do not repeat Ordered/FOC/Combined stacks or duplicate the FOC quantity under the main number when the FOC sub-row already supplies it. Totals are only slightly larger/heavier than data rows, with Grand Total strongest but restrained. All frozen panels and their row backgrounds must remain completely opaque, including excluded rows. Display whole quantities consistently in the active unit with en-US separators; keep exact values on hover and in storage/edits.
 
 **Why:** The user repeated that the grid was unreadable, especially when scrolling toward totals, and explicitly required zero transparency.
 
-**How to apply:** Preserve the selected-basis display versus paid-only editing distinction. Keep headers frozen, totals pinned inside the grid, and Grand Total largest. Verify both scroll directions at narrow laptop width across all units, including long names and large numbers.
+**How to apply:** Preserve the selected-basis display versus paid-only editing distinction. Keep headers frozen and totals pinned inside the grid. Preserve first-time FOC entry through an explicit admin editing action without permanent empty sub-rows. Show target-week badges only on hover/focus. Verify density and both scroll directions at laptop width across all units, including long names and large numbers.
 
 Do not display purchase-order reference documents or the Domestic / Export split on Forecast Production, in any country. Keep the load traceable through its existing Audit Trail entry and Version history snapshot instead.
 

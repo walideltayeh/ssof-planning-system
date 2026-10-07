@@ -122,7 +122,7 @@ browser.call("Page.enable")
 browser.call("Runtime.enable")
 browser.call("Fetch.enable", {"patterns": [{"urlPattern": "*/api/*"}]})
 browser.call("Emulation.setDeviceMetricsOverride", {
-    "width": 1024, "height": 768, "deviceScaleFactor": 1, "mobile": False,
+    "width": 1280, "height": 800, "deviceScaleFactor": 1, "mobile": False,
 })
 session = {"user": {
     "id": 999001, "username": "browser-fixture", "displayName": "Browser fixture",
@@ -143,7 +143,7 @@ for unit in ["MC", "KG", "Tons"]:
         browser.call("Page.reload")
         time.sleep(1)
     for attempt in range(60):
-        if browser.js("!!document.querySelector('tfoot') && document.querySelectorAll('tbody tr[aria-label]').length >= 32"):
+        if browser.js("!!document.querySelector('tfoot') && document.querySelectorAll('tbody tr[aria-label^=\"FOC \"]').length === 16"):
             break
         time.sleep(.25)
     else:
@@ -160,8 +160,8 @@ for unit in ["MC", "KG", "Tons"]:
                 await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
                 const box = scroller.getBoundingClientRect();
                 const rows = [...table.querySelectorAll('tbody tr')].filter(r => r.cells.length > 2);
-                const row = rows.find(r => r.getBoundingClientRect().top > box.top + 85 &&
-                    r.getBoundingClientRect().bottom < box.bottom - 85) || rows[0];
+                const row = rows.find(r => r.getBoundingClientRect().top > box.top + 70 &&
+                    r.getBoundingClientRect().bottom < box.bottom - 45) || rows[0];
                 const sku = row.cells[1], skuBox = sku.getBoundingClientRect();
                 const footer = table.querySelector('tfoot tr'), footerBox = footer.getBoundingClientRect();
                 const header = table.querySelector('thead tr'), headerBox = header.getBoundingClientRect();
@@ -174,6 +174,7 @@ for unit in ["MC", "KG", "Tons"]:
                 return {
                     scrollWidth: scroller.scrollWidth, clientWidth: scroller.clientWidth,
                     panelOffset: skuBox.left - box.left,
+                    weightWidth: table.querySelector('col').getBoundingClientRect().width,
                     panelBg: getComputedStyle(sku).backgroundColor,
                     panelOpacity: getComputedStyle(sku).opacity,
                     footerBottom: box.bottom - footerBox.bottom,
@@ -189,24 +190,35 @@ for unit in ["MC", "KG", "Tons"]:
                     cornerOpaque: cornerStyle.backgroundColor.startsWith('rgb('),
                     cornerAbovePanel: Number(cornerStyle.zIndex) > Number(getComputedStyle(sku).zIndex),
                     footerHeight: footerBox.height,
+                    dataRowHeights: [...table.querySelectorAll('tbody tr')].filter(r =>
+                        r.querySelector('[aria-label="Selected-basis forecast total"]') &&
+                        !r.textContent.includes('Subtotal')).map(r => r.getBoundingClientRect().height),
+                    focRowHeights: [...table.querySelectorAll('tbody tr[aria-label^="FOC "]')].map(r => r.getBoundingClientRect().height),
+                    wholeFigures: numberSpans.every(n => !n.textContent.trim() ||
+                        /^\\d{1,3}(,\\d{3})*$/.test(n.textContent.trim())),
+                    placeholders: /(?:^|\\s)[—–](?:\\s|$)/.test(table.innerText),
                     missingText: /Not set|0 entered|Combined\\s+\\d/.test(table.innerText),
                 };
             })()""".replace("* H", f"* {horizontal}").replace("* V", f"* {vertical}"))
             assert metrics["scrollWidth"] > metrics["clientWidth"], metrics
-            assert abs(metrics["panelOffset"] - 76) <= 2, metrics
+            assert abs(metrics["panelOffset"] - metrics["weightWidth"]) <= 2, metrics
             assert metrics["panelBg"] != "rgba(0, 0, 0, 0)", metrics
             assert not metrics["panelBg"].startswith("rgba("), metrics
             assert metrics["panelOpacity"] == "1", metrics
             assert abs(metrics["headerTop"]) <= 2, metrics
             assert abs(metrics["headerGap"]) <= 2, metrics
             assert 0 <= metrics["footerBottom"] <= 20, metrics
-            assert metrics["footerFont"] >= 22, metrics
+            assert 12 <= metrics["footerFont"] <= 16, metrics
             assert metrics["safeClipping"] and not metrics["missingText"], metrics
             assert metrics["containedNumbers"], metrics
             assert metrics["cornerOpaque"] and metrics["cornerAbovePanel"], metrics
-            assert metrics["footerHeight"] >= 80, metrics
+            assert metrics["footerHeight"] <= 44, metrics
+            assert metrics["wholeFigures"] and not metrics["placeholders"], metrics
+            assert max(metrics["dataRowHeights"]) <= 34, metrics
+            assert max(metrics["focRowHeights"]) <= 34, metrics
+            assert len(set(metrics["dataRowHeights"] + metrics["focRowHeights"])) == 1, metrics
     snapshot = browser.call("Page.captureScreenshot", {"format": "png"})
     with open(f"/tmp/forecast-grid-{unit}.png", "wb") as output:
         output.write(base64.b64decode(snapshot["data"]))
-    print(f"{unit}: 1024px, 32 SKUs, 24 months; horizontal extremes and 3 vertical positions passed.")
+    print(f"{unit}: 1280px, 32 SKUs, 24 months, only 16 FOC rows; compact rows and scrolling passed.")
 print("Browser fixtures only; no live data read or written.")

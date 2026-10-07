@@ -3,8 +3,10 @@ import { trpc } from "@/lib/trpc";
 import { useUnit } from "@/contexts/UnitContext";
 import { useIncludeFoc } from "@/hooks/useIncludeFoc";
 import { supportsFoc, summarizeFoc, type FocCountry, type FocCell } from "@shared/performance/foc";
-import { displayValue, fromMastercases, toMastercases } from "@/lib/forecastUnits";
+import { displayValue, exactDisplayValue, fromMastercases, toMastercases } from "@/lib/forecastUnits";
 import { toast } from "sonner";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 export function useForecastFoc(country: string | null) {
   const supported = supportsFoc(country ?? "");
@@ -37,7 +39,8 @@ export function ForecastFocTotals({ skus, periods, ordered, model, prominent = f
   const { unit } = useUnit();
   const totals = summarizeFoc(skus.map(s => ({ ...s, isExcludedFromTotal: false })), periods, ordered, model.cells, model.includeFoc).total;
   const primary = compact ? totals.enteredFoc : model.includeFoc ? totals.knownPhysical : totals.ordered;
-  const figure = compact && totals.foc === null && totals.enteredFoc === 0 ? "—" : displayValue(primary, unit);
+  const figure = primary === 0 ? "" : displayValue(primary, unit);
+  const exactFigure = exactDisplayValue(primary, unit);
   const warning = model.includeFoc && totals.missing > 0
     ? `${totals.missing} FOC ${totals.missing === 1 ? "quantity" : "quantities"} not entered; showing the known subtotal.`
     : undefined;
@@ -46,14 +49,9 @@ export function ForecastFocTotals({ skus, periods, ordered, model, prominent = f
     aria-label={compact ? "FOC quantity total" : "Selected-basis forecast total"}
     title={warning}
   >
-    <span className={`max-w-full truncate font-bold tracking-tight ${muted || compact ? "text-muted-foreground" : "text-foreground"} ${compact ? "text-[10px]" : grand ? "text-[26px]" : prominent ? "text-[22px]" : "text-[17px]"}`} title={figure}>
+    <span className={`max-w-full truncate font-semibold tracking-tight ${muted || compact ? "text-muted-foreground" : grand ? "text-amber-900" : prominent ? "text-white" : "text-foreground"} ${compact ? "text-[10px]" : grand ? "text-[14px]" : prominent ? "text-[13px]" : "text-[12px]"}`} title={exactFigure}>
       {figure}
     </span>
-    {!compact && totals.enteredFoc > 0 && (
-      <span className={`mt-1 max-w-full truncate font-medium ${compact ? "text-[8px]" : "text-[9px]"} ${compact ? "text-muted-foreground" : "text-emerald-800"}`} title={`FOC ${displayValue(totals.enteredFoc, unit)}`}>
-        +{displayValue(totals.enteredFoc, unit)} FOC
-      </span>
-    )}
   </div>;
 }
 export function ForecastFocBanner({ model, canEdit }: { model: Model; canEdit: boolean }) {
@@ -73,6 +71,7 @@ function FocCellEditor({ sku, period, model, canEdit }: { sku: Sku; period: Peri
   const ready = !!model.query.data && !model.query.error;
   const disabled = !canEdit || model.busy || !ready;
   const entered = cell?.value != null;
+  const positive = entered && Number(cell!.value) > 0;
   useEffect(() => { setEditing(false); setDraft(""); }, [model.country, unit]);
   const save = async () => {
     if (disabled) return;
@@ -82,38 +81,72 @@ function FocCellEditor({ sku, period, model, canEdit }: { sku: Sku; period: Peri
     }
     try { await model.quantity.mutateAsync({ country: model.country, skuId: sku.id, periodId: period.id, value: value === null ? null : toMastercases(value, unit) }); setEditing(false); } catch { /* Error remains visible via toast; retain draft. */ }
   };
-  return <td className="border-b border-border/60 bg-[#f1f4f2] px-1.5 py-1 align-top text-right text-[10px] text-muted-foreground" data-testid={`foc-${sku.id}-${period.id}`}>
+  return <td className="border-b border-border/60 bg-[#f1f4f2] px-1.5 py-0.5 align-middle text-right text-[10px] text-muted-foreground" data-testid={`foc-${sku.id}-${period.id}`}>
+    <div className="flex items-center justify-end gap-1">
     {editing ? <input autoFocus aria-label={`FOC quantity ${name} (${unit})`} type="number" min="0" step={unit === "Tons" ? "0.00001" : "0.01"}
-      className="w-full rounded border border-emerald-400 bg-background p-1 text-right" value={draft} disabled={model.busy}
+      className="h-5 min-w-0 flex-1 rounded border border-emerald-400 bg-background px-1 text-right" value={draft} disabled={model.busy}
       onChange={e => setDraft(e.target.value)} onBlur={save}
       onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); } if (e.key === "Escape") { e.preventDefault(); setEditing(false); } }} />
-      : <button type="button" aria-label={`Edit FOC ${name}`} title={entered ? displayValue(Number(cell!.value), unit) : "No FOC quantity"} disabled={disabled} className="w-full truncate rounded px-1 text-right font-normal text-muted-foreground disabled:cursor-default"
+       : <button type="button" aria-label={`Edit FOC ${name}`} title={entered ? exactDisplayValue(Number(cell!.value), unit) : "No FOC quantity"} disabled={disabled} className="min-w-0 flex-1 truncate rounded px-1 text-right font-normal text-muted-foreground disabled:cursor-default"
         onClick={() => { setDraft(entered ? String(fromMastercases(Number(cell!.value), unit)) : ""); setEditing(true); }}>
-        {!ready ? "—" : entered ? displayValue(Number(cell!.value), unit) : "—"}
+         {ready && positive ? displayValue(Number(cell!.value), unit) : ""}
       </button>}
-    {entered && <label className="mt-1 flex items-center justify-end gap-1 text-[10px] text-muted-foreground">
-      <input type="checkbox" aria-label={`Received FOC ${name}`} checked={cell?.received ?? false} disabled={disabled || !entered}
+    {positive && <label title="Received FOC" className="inline-flex shrink-0 items-center justify-end gap-1 text-[9px] text-muted-foreground">
+      <input type="checkbox" aria-label={`Received FOC ${name}`} checked={cell?.received ?? false} disabled={disabled}
         onChange={e => model.receipt.mutate({ country: model.country, skuId: sku.id, periodId: period.id, received: e.target.checked })} />
-      Received {cell?.received ? "Yes" : "No"}
+       {cell?.received ? "Yes" : "No"}
     </label>}
-    {entry?.needsReview && <div className="mt-1 rounded border border-amber-300 bg-amber-50 p-1 text-left text-[10px] text-amber-900" role="status">
+    {entry?.needsReview && <Popover>
+      <PopoverTrigger asChild><button type="button" aria-label={`Review FOC receipt ${name}`} title="Possible duplicate — not added to stock." className="shrink-0 text-[9px] font-semibold text-amber-800 underline">Review</button></PopoverTrigger>
+      <PopoverContent align="end" className="w-72 border-amber-300 bg-amber-50 p-3">
+      <div className="text-left text-xs text-amber-900" role="status">
       Possible duplicate — not added to stock.
       <details><summary className="cursor-pointer underline">Receipt evidence</summary>{entry.matches.map((m, i) => <div key={i}>{m.source}: {m.quantity} MC · {m.date}</div>)}</details>
       {canEdit && <div className="mt-1 space-y-1">
         <button disabled={model.busy} className="block underline" onClick={() => model.review.mutate({ country: model.country, skuId: sku.id, periodId: period.id, decision: "separate", reviewKey: entry.reviewKey })}>Confirm separate shipment</button>
         {entry.matches.some(m => m.source.includes("clearance") || m.source === "Clearance arrival") && <button disabled={model.busy} className="block underline" onClick={() => model.review.mutate({ country: model.country, skuId: sku.id, periodId: period.id, decision: "included", reviewKey: entry.reviewKey })}>Already included in arrival</button>}
       </div>}
-    </div>}
-    {cell?.received && entry && !entry.needsReview && <div className="mt-1 text-[9px] text-muted-foreground">{entry.receiptMonth} · {model.includeFoc ? entry.added > 0 ? "Stock included" : "No additional FOC stock" : "FOC excluded"}</div>}
+      </div>
+      </PopoverContent>
+    </Popover>}
+    </div>
   </td>;
 }
 export function ForecastFocRow({ sku, years, collapsedYears, model, canEdit, ordered }: { sku: Sku; years: Years; collapsedYears: Set<number>; model: Model; canEdit: boolean; ordered: FocCell[] }) {
-  return <tr aria-label={`FOC ${sku.name} ${sku.weight} ${sku.packagingType ?? "New"}`} className="border-b bg-[#f1f4f2] text-[10px] font-normal text-muted-foreground">
-    <td className="sticky left-0 z-20 w-[76px] bg-[#f1f4f2] px-2 py-1 text-[10px]">{sku.weight}</td>
-    <td title={`FOC ${sku.name} · ${sku.packagingType ?? "New"}`} className="sticky left-[76px] z-20 w-[232px] border-r border-[#c9d2ce] bg-[#f1f4f2] px-2 py-1 shadow-[5px_0_8px_-7px_rgba(22,44,35,0.7)]"><span>FOC</span><span className="ml-2 inline-block max-w-[174px] truncate align-middle">{sku.name} · {sku.packagingType ?? "New"}</span></td>
+  const hasPositive = years.some(y => y.periods.some(p => {
+    const value = model.cells.find(c => c.skuId === sku.id && c.periodId === p.id)?.value;
+    return value != null && Number(value) > 0;
+  }));
+  if (!hasPositive) return <Fragment />;
+  return <tr aria-label={`FOC ${sku.name} ${sku.weight} ${sku.packagingType ?? "New"}`} className="h-7 border-b bg-[#f1f4f2] text-[10px] font-normal text-muted-foreground">
+    <td className="sticky left-0 z-20 w-[50px] border-r border-[#d7dfda] bg-[#f1f4f2] px-1 py-1 text-[10px]">{sku.weight}</td>
+    <td title={`FOC ${sku.name} · ${sku.packagingType ?? "New"}`} className="sticky left-[50px] z-20 w-[180px] border-r border-[#c9d2ce] bg-[#f1f4f2] px-2 py-1 shadow-[5px_0_8px_-7px_rgba(22,44,35,0.7)]">
+      <span className="mr-1 text-[9px] font-semibold uppercase tracking-wide text-emerald-800">FOC</span>
+      <span className="inline-block max-w-[90px] truncate align-middle">{sku.name} · {sku.packagingType ?? "New"}</span>
+      <ForecastFocEditButton sku={sku} years={years} model={model} canEdit={canEdit} />
+    </td>
     {years.map(y => <Fragment key={y.year}>
       {!collapsedYears.has(y.year) && y.periods.map(p => <FocCellEditor key={`${model.country}:${sku.id}:${p.id}`} sku={sku} period={p} model={model} canEdit={canEdit} />)}
       <td className="border-l-2 border-amber-400 bg-[#f1f4f2] px-1 py-1 text-right"><ForecastFocTotals skus={[sku]} periods={y.periods} ordered={ordered} model={model} compact /></td>
     </Fragment>)}
   </tr>;
+}
+
+export function ForecastFocEditButton({ sku, years, model, canEdit }: { sku: Sku; years: Years; model: Model; canEdit: boolean }) {
+  const [open, setOpen] = useState(false);
+  if (!canEdit) return null;
+  return <Dialog open={open} onOpenChange={setOpen}>
+    <DialogTrigger asChild><button type="button" aria-label={`Edit FOC quantities for ${sku.name}`} title="Edit monthly FOC quantities" className="ml-1 shrink-0 whitespace-nowrap text-[9px] font-medium text-primary opacity-0 group-hover/sku:opacity-100 focus:opacity-100">FOC</button></DialogTrigger>
+    <DialogContent className="max-w-3xl">
+      <DialogHeader><DialogTitle>FOC quantities · {sku.name}</DialogTitle></DialogHeader>
+      <DialogDescription className="text-xs">Enter a monthly quantity, or leave it blank. Received quantities are audited before affecting stock.</DialogDescription>
+      <div className="max-h-[55vh] overflow-auto rounded border border-border">
+        <table className="w-full border-separate border-spacing-0 text-xs"><thead><tr className="bg-muted text-muted-foreground">
+          {years.flatMap(y => y.periods).map(p => <th key={p.id} className="min-w-24 border-b px-2 py-2 text-left font-medium">{p.label}</th>)}
+        </tr></thead><tbody><tr>
+          {years.flatMap(y => y.periods).map(p => <FocCellEditor key={`${model.country}:${sku.id}:${p.id}:edit`} sku={sku} period={p} model={model} canEdit={canEdit} />)}
+        </tr></tbody></table>
+      </div>
+    </DialogContent>
+  </Dialog>;
 }

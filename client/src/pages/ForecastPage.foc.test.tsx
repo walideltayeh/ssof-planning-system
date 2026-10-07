@@ -51,15 +51,14 @@ describe("Forecast Production paired FOC surface", () => {
   it.each(["Libya", "Syria"])("pairs active SKU rows only in %s and shows monthly and SKU totals", country => {
     m.country = country; render(<ForecastPage />);
     const foc = screen.getByRole("row", { name: "FOC Mint 50g New" });
-    expect(foc.previousElementSibling?.textContent).toContain("Ordered");
-    expect(foc.previousElementSibling).toHaveClass("h-16", "text-base", "font-bold", "text-foreground");
+    expect(foc.previousElementSibling).not.toHaveClass("h-16", "text-base");
     expect(foc).toHaveClass("text-[10px]", "font-normal", "text-muted-foreground");
     expect(screen.queryByText("Inactive")).not.toBeInTheDocument();
     expect(within(foc).getByLabelText("FOC quantity total")).toHaveTextContent("12");
     const grand = screen.getByText("Grand Total").closest("tr")!;
     const total = within(grand).getAllByLabelText("Selected-basis forecast total")[0];
     expect(total.firstElementChild).toHaveTextContent("112");
-    expect(total).toHaveTextContent("+12 FOC");
+    expect(total.children).toHaveLength(1);
     expect(total).not.toHaveTextContent("Ordered");
     expect(total).not.toHaveTextContent("Combined");
   });
@@ -100,13 +99,16 @@ describe("Forecast Production paired FOC surface", () => {
     fireEvent.click(screen.getByText("→W1"));
     expect(screen.queryByRole("button", { name: "W3" })).not.toBeInTheDocument();
   });
-  it("distinguishes missing FOC from explicitly entered zero and clears quantities to not set", async () => {
+  it("omits missing and zero FOC rows, but still allows first entry and clearing through the editor", async () => {
     m.value = null;
     const view = render(<ForecastPage />);
-    expect(screen.getByRole("button", { name: "Edit FOC Mint 50g New Sep 26" })).toHaveTextContent("—");
+    expect(screen.queryByRole("row", { name: "FOC Mint 50g New" })).not.toBeInTheDocument();
     expect(screen.queryByRole("checkbox", { name: "Received FOC Mint 50g New Sep 26" })).not.toBeInTheDocument();
     m.value = "0.00"; view.rerender(<ForecastPage />);
-    expect(screen.getByRole("button", { name: "Edit FOC Mint 50g New Sep 26" })).toHaveTextContent("0");
+    expect(screen.queryByRole("row", { name: "FOC Mint 50g New" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit FOC quantities for Mint" }));
+    expect(screen.getByRole("dialog", { name: "FOC quantities · Mint" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit FOC Mint 50g New Sep 26" })).toBeEmptyDOMElement();
     fireEvent.click(screen.getByRole("button", { name: "Edit FOC Mint 50g New Sep 26" }));
     fireEvent.change(screen.getByRole("spinbutton"), { target: { value: "" } });
     fireEvent.blur(screen.getByRole("spinbutton"));
@@ -114,8 +116,8 @@ describe("Forecast Production paired FOC surface", () => {
   });
   it.each([null, "0.00"])("does not invent a secondary FOC line for quantity %s", value => {
     m.value = value; render(<ForecastPage />);
-    const foc = screen.getByRole("row", { name: "FOC Mint 50g New" });
-    const ordered = foc.previousElementSibling as HTMLTableRowElement;
+    expect(screen.queryByRole("row", { name: "FOC Mint 50g New" })).not.toBeInTheDocument();
+    const ordered = document.querySelector('tbody [aria-label="Selected-basis forecast total"]')!.closest("tr")!;
     const total = within(ordered).getAllByLabelText("Selected-basis forecast total")[0];
     expect(total.firstElementChild).toHaveTextContent("100");
     expect(total.children).toHaveLength(1);
@@ -123,7 +125,21 @@ describe("Forecast Production paired FOC surface", () => {
     const grand = screen.getByText("Grand Total").closest("tr")!;
     expect(within(grand).getAllByLabelText("Selected-basis forecast total")[0].firstElementChild).toHaveTextContent("100");
   });
-  it.each([["MC", "112", "100"], ["KG", "672", "600"], ["Tons", "0.672", "0.6"]] as const)(
+  it.each([["MC", "112", "112.34", "12"], ["KG", "674", "674.04", "74"], ["Tons", "1", "0.67404", "0"]] as const)(
+    "rounds all %s grid figures consistently while keeping exact hover values", (unit, primary, exact, free) => {
+      m.unit = unit; m.value = "12.34"; render(<ForecastPage />);
+      const foc = screen.getByRole("row", { name: "FOC Mint 50g New" });
+      const ordered = foc.previousElementSibling as HTMLTableRowElement;
+      const month = within(ordered).getAllByLabelText("Selected-basis forecast total")[0].firstElementChild!;
+      expect(month).toHaveTextContent(primary);
+      expect(month).toHaveAttribute("title", exact);
+      expect(within(foc).getByRole("button", { name: "Edit FOC Mint 50g New Sep 26" })).toHaveTextContent(free);
+      const grand = screen.getByText("Grand Total").closest("tr")!;
+      expect(within(grand).getAllByLabelText("Selected-basis forecast total")[0].firstElementChild).toHaveTextContent(primary);
+      expect(within(grand).getAllByLabelText("Selected-basis forecast total")[0].firstElementChild).toHaveAttribute("title", exact);
+    },
+  );
+  it.each([["MC", "112", "100"], ["KG", "672", "600"], ["Tons", "1", "0.6"]] as const)(
     "uses the selected basis in %s while editing only the ordered quantity", (unit, visible, editable) => {
       m.unit = unit; render(<ForecastPage />);
       const ordered = screen.getByRole("row", { name: "FOC Mint 50g New" }).previousElementSibling as HTMLTableRowElement;
@@ -140,16 +156,16 @@ describe("Forecast Production paired FOC surface", () => {
     const grand = screen.getByText("Grand Total").closest("tr")!;
     expect(grand.closest("tfoot")).not.toBeNull();
     expect(grand).toHaveClass("sticky", "bottom-0");
-    expect(grand.cells[0]).toHaveClass("sticky", "left-0", "bg-[#e5ece7]");
-    expect(grand.cells[1]).toHaveClass("sticky", "left-[76px]", "bg-[#e5ece7]");
-    expect(within(grand).getAllByLabelText("Selected-basis forecast total")[0].firstElementChild).toHaveClass("text-[22px]", "truncate");
-    expect(within(grand).getAllByLabelText("Selected-basis forecast total")[1].firstElementChild).toHaveClass("text-[26px]", "truncate");
+    expect(grand.cells[0]).toHaveClass("sticky", "left-0", "bg-[#7f1d1d]");
+    expect(grand.cells[1]).toHaveClass("sticky", "left-[50px]", "bg-[#7f1d1d]");
+    expect(within(grand).getAllByLabelText("Selected-basis forecast total")[0].firstElementChild).toHaveClass("text-[13px]", "truncate");
+    expect(within(grand).getAllByLabelText("Selected-basis forecast total")[1].firstElementChild).toHaveClass("text-[14px]", "truncate");
     expect(screen.getByText("Grand Total")).toHaveAttribute("title", "Grand Total");
     const columns = [...document.querySelectorAll("col")];
-    expect(columns.map(c => c.style.width)).toEqual(["76px", "232px", "156px", "208px"]);
+    expect(columns.map(c => c.style.width)).toEqual(["50px", "180px", "100px", "112px"]);
     const headerRows = [...document.querySelectorAll("thead tr")];
     expect(headerRows[0]).toHaveClass("sticky", "top-0");
-    expect(headerRows[1]).toHaveClass("sticky", "top-[34px]");
+    expect(headerRows[1]).toHaveClass("sticky", "top-[30px]");
   });
   it("resets a pending draft on country and unit switches", () => {
     const view = render(<ForecastPage />);
@@ -167,6 +183,7 @@ describe("Forecast Production paired FOC surface", () => {
     m.entries = [{ skuId: 1, periodId: 9, needsReview: true, reviewKey: "current evidence",
       matches: [{ source: "Clearance arrival", quantity: 12, date: "2026-09-20" }] }];
     render(<ForecastPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Review FOC receipt Mint 50g New Sep 26" }));
     expect(screen.getByText("Possible duplicate — not added to stock.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Already included in arrival" }));
     expect(m.review).toHaveBeenCalledWith({ country: "Libya", skuId: 1, periodId: 9, decision: "included", reviewKey: "current evidence" });
