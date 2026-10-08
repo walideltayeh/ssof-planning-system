@@ -40,6 +40,18 @@ async function exportWorkbook(country: "Libya" | "Syria" | "KSA" = "Libya", shee
 }
 
 describe("international Arrival Excel download", () => {
+  it("exports reported in-transit batches without inventing actual production or clearance", async () => {
+    const data = fixture();
+    data.clearanceEvents = [];
+    data.shipment[0] = { ...data.shipment[0], week1: "0", arrivalStatus: "In Transit" };
+    vi.mocked(db.getFullPlanningDataForCountry).mockResolvedValue(data as never);
+    const wb = await exportWorkbook();
+    const ws = wb.getWorksheet("Arrival")!;
+    expect(ws.getCell("G2").value).toBe(0);
+    expect(ws.getCell("J2").value).toBe("In Transit");
+    expect(ws.getCell("K2").value).toBe(0);
+    expect(wb.getWorksheet("Clearance Events")!.rowCount).toBe(1);
+  });
   it("exports a readable Libya workbook with an Arrival worksheet", async () => {
     const wb = await exportWorkbook();
     expect(wb.worksheets.map((s) => s.name)).toEqual(["Arrival", "Clearance Events"]);

@@ -30,7 +30,7 @@ export function buildInternationalArrivalSheets(wb: ExcelJS.Workbook, data: Arri
       country: data.country, sku: b.sku.name, weight: b.sku.weight, packaging: b.sku.packagingType ?? "New",
       period: b.period.label, planned: b.plannedMc, actual: b.actualMc, quantity: b.producedMc,
       expected: isoDate(b.expectedArrival) ?? "",
-      status: b.producedMc <= 0 && b.eventCount > 0 ? "No production — events" : b.actualMc <= 0 ? "Awaiting Actual" : b.status,
+      status: b.producedMc <= 0 && b.eventCount > 0 ? "No production — events" : b.actualMc <= 0 && b.status !== "In Transit" ? "Awaiting Actual" : b.status,
       cleared: b.clearedMc, pending: b.pendingMc, clearedDate: isoDate(b.lastClearedDate) ?? "",
       invoice: b.invoiceRef ?? "", container: b.containerRef ?? "", notes: b.note ?? "",
     });

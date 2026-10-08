@@ -783,7 +783,7 @@ export default function ArrivalPage() {
           // counted as "confirmed" production or as expected arrivals.
           const productionBatches = filteredBatches.filter(b => !b.isOrphan);
           const confirmedBatches = productionBatches.filter(b => !b.isAwaitingActual);
-          const awaitingBatches = productionBatches.filter(b => b.isAwaitingActual);
+          const awaitingBatches = productionBatches.filter(b => b.isAwaitingActual && b.arrivalStatus !== "In Transit");
           const totalActual = confirmedBatches.reduce((s, b) => s + b.actualTotal, 0);
           const confirmedPlanned = confirmedBatches.reduce((s, b) => s + b.plannedTotal, 0);
           const variance = totalActual - confirmedPlanned;
@@ -906,7 +906,7 @@ export default function ArrivalPage() {
               const periodProduction = periodBatches.filter(b => !b.isOrphan);
               const periodOrphanCount = periodBatches.length - periodProduction.length;
               const periodConfirmed = periodProduction.filter(b => !b.isAwaitingActual);
-              const periodAwaitingCount = periodProduction.length - periodConfirmed.length;
+              const periodAwaitingCount = periodProduction.filter(b => b.isAwaitingActual && b.arrivalStatus !== "In Transit").length;
               const periodPlanned = periodBatches.reduce((s, b) => s + b.plannedTotal, 0);
               const periodActual = periodConfirmed.reduce((s, b) => s + b.actualTotal, 0);
               const periodConfirmedPlanned = periodConfirmed.reduce((s, b) => s + b.plannedTotal, 0);
@@ -1009,6 +1009,10 @@ export default function ArrivalPage() {
                             title="No production is recorded for this batch, but clearance events are attached to it. Planning FG counts them as arrivals in their cleared month."
                           >
                             ⚠ No production — events still count in FG
+                          </span>
+                        ) : batch.isAwaitingActual && batch.arrivalStatus === "In Transit" ? (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-800 border border-blue-300">
+                            Reported in transit
                           </span>
                         ) : batch.isAwaitingActual ? (
                           <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-700 border border-slate-400">

@@ -117,6 +117,22 @@ describe("ArrivalPage — orphaned clearance events (no production)", () => {
     selectedEvents = clearanceEvents;
   });
 
+  it("shows Libya's reported transit status without claiming actual production or warehouse clearance", () => {
+    selectedCountry = "Libya";
+    selectedEvents = [];
+    selectedData = {
+      ...intlData,
+      skus: [{ ...SKU, country: "Libya" }],
+      shipment: [{ ...intlData.shipment[1], week1: "0", clearedQty: "0", arrivalStatus: "In Transit" }],
+      periods: [{ ...P_APR, country: "Libya" }],
+    };
+    render(<ArrivalPage />);
+    expect(screen.getByText("Reported in transit")).toBeInTheDocument();
+    expect(screen.queryByText("Actual confirmed")).not.toBeInTheDocument();
+    expect(screen.queryByText("Awaiting Actual")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("orphan-clearance-banner")).not.toBeInTheDocument();
+  });
+
   it("surfaces the Mar-26 batch even though it has no production, with a warning banner", () => {
     render(<ArrivalPage />);
 

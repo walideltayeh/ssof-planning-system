@@ -3,6 +3,7 @@ import { fileURLToPath } from "url";
 import fs from "fs";
 import * as db from "./db";
 import { runSyriaClearanceDedup } from "./data-repairs/syriaClearanceDedup";
+import { runLibyaSupplierReceipts } from "./data-repairs/libyaSupplierReceipts";
 
 // __dirname shim for ESM (used in production build)
 const __filename = fileURLToPath(import.meta.url);
@@ -192,6 +193,13 @@ export async function runStartupMigration() {
     await normalizeUsernames(dbInstance);
 
     // One-off, idempotent data repairs (each is a no-op once applied).
+    try {
+      const report = await runLibyaSupplierReceipts(dbInstance);
+      if (report.status === "applied") console.log("[DataRepair] Libya: reconciled 189222 MC to supplier warehouse dates and references; September onward remains in transit.");
+      else if (report.status === "inconsistent") console.warn("[DataRepair] Libya supplier receipts skipped:", report.reason);
+    } catch (error) {
+      console.error("[DataRepair] Libya supplier receipts rolled back; startup continues.", error);
+    }
     await runDataRepairs(dbInstance);
 
     const { getSkusForCountry, restoreSnapshot, importClearanceEvent } = db;
