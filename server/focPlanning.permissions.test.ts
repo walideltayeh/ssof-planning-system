@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+vi.mock("./countryVisibility", async original => ({ ...await original<typeof import("./countryVisibility")>(),
+  assertCountryVisible: vi.fn(async () => {}), hiddenCountries: vi.fn(async () => new Set()) }));
 import type { TrpcContext } from "./_core/context";
 
 vi.mock("./db", async importOriginal => ({

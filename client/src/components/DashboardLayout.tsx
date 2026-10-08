@@ -39,6 +39,7 @@ import type { Country } from "@/contexts/CountryContext";
 import CountryAccessDenied from "./CountryAccessDenied";
 import { useDeniedCountry } from "@/lib/countryAccessStore";
 import { checkPasswordStrength, PASSWORD_MIN_LENGTH, PASSWORD_REQUIREMENTS_MESSAGE } from "@shared/passwordStrength";
+import { useCountryVisibility } from "@/hooks/useCountryVisibility";
 
 // Routes that don't depend on the currently-selected country (admin/global
 // tooling). Visiting these is fine even if the user's selected country was
@@ -137,7 +138,7 @@ export default function DashboardLayout({
     return saved ? parseInt(saved, 10) : DEFAULT_WIDTH;
   });
   const { loading, user } = useAuth();
-  const { isAdmin, user: appUser, isAuthenticated: isAppAuthenticated } = useAppAuth();
+  const { isAdmin, isAdminFor, user: appUser, isAuthenticated: isAppAuthenticated } = useAppAuth();
   const { country } = useCountry();
 
   useEffect(() => {
@@ -188,6 +189,13 @@ export default function DashboardLayout({
     if (item.adminOnly && !isAdmin) return false;
     return true;
   });
+  const canManageSomeCountry = !!appUser && (
+    appUser.isOwner ||
+    appUser.countries.some(c => isAdminFor(c as Country))
+  );
+  if (canManageSomeCountry) {
+    menuItems.push({ label: "Country Management", path: "/country-management", adminOnly: true });
+  }
 
   return (
     <SidebarProvider
@@ -214,6 +222,7 @@ function DashboardLayoutContent({
   const { user, logout: oauthLogout } = useAuth();
   const { user: appUser, logout: appLogout, canAccessCountry } = useAppAuth();
   const { country, setCountry, clearCountry } = useCountry();
+  const countryVisibility = useCountryVisibility(!!appUser || !!user);
   const deniedCountry = useDeniedCountry();
   const { unit, setUnit } = useUnit();
   const [location, setLocation] = useLocation();
@@ -261,7 +270,8 @@ function DashboardLayoutContent({
   const displayInitial = displayName.charAt(0).toUpperCase();
 
   const accessibleCountries = (["Lebanon", "Syria", "Libya", "KSA"] as Country[]).filter(c =>
-    canAccessCountry(c)
+    canAccessCountry(c) &&
+    countryVisibility.data?.some(item => item.country === c && !item.isHidden)
   );
 
   useEffect(() => {

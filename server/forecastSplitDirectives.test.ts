@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+vi.mock("./countryVisibility", async original => ({ ...await original<typeof import("./countryVisibility")>(),
+  assertCountryVisible: vi.fn(async () => {}), hiddenCountries: vi.fn(async () => new Set()) }));
 
 // Set the LLM env key BEFORE importing routers so the mutation's
 // `process.env.BUILT_IN_FORGE_API_KEY` check evaluates true at call time.

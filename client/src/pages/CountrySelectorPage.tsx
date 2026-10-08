@@ -4,6 +4,7 @@ import type { Country } from "@/contexts/AuthContext";
 import { COUNTRY_CONFIG } from "@/contexts/CountryContext";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
+import { useCountryVisibility } from "@/hooks/useCountryVisibility";
 
 const ALL_COUNTRIES: Country[] = ["Lebanon", "Syria", "Libya", "KSA"];
 
@@ -73,11 +74,23 @@ export default function CountrySelectorPage() {
       : ALL_COUNTRIES.filter(c => user.countries.includes(c));
   }, [user]);
 
+  const visibility = useCountryVisibility(!!user);
+  const visibleCountries = useMemo(() => {
+    if (!visibility.data) return [];
+    return userCountries.filter(country =>
+      visibility.data?.some(item => item.country === country && !item.isHidden),
+    );
+  }, [userCountries, visibility.data]);
+  const canManageVisibility = !!visibility.data?.some(item => item.canManage);
+
   // Only fetch owner contact info when we're actually about to show the empty
   // state (signed-in user with zero countries). Skipping the query for owners
   // and users with country access avoids an unnecessary round-trip on every
   // landing.
-  const shouldFetchOwners = !!user && userCountries.length === 0;
+  const shouldFetchOwners = !!user && (
+    userCountries.length === 0 ||
+    (!visibility.isLoading && !visibility.isError && visibleCountries.length === 0)
+  );
   const { data: ownersData } = trpc.appUsers.listOwners.useQuery(undefined, {
     enabled: shouldFetchOwners,
   });
@@ -92,7 +105,7 @@ export default function CountrySelectorPage() {
     navigate("/");
   };
 
-  const gridCols = userCountries.length === 2 ? "md:grid-cols-2" : userCountries.length >= 3 ? "md:grid-cols-3" : "";
+  const gridCols = visibleCountries.length === 2 ? "md:grid-cols-2" : visibleCountries.length >= 3 ? "md:grid-cols-3" : "";
 
   return (
     <div className="min-h-screen flex flex-col bg-gradient-to-br from-emerald-50 via-white to-teal-50 overflow-hidden">
@@ -158,11 +171,28 @@ export default function CountrySelectorPage() {
           >
             {userCountries.length === 0
               ? "No countries are available for your account"
-              : "Select a country to continue"}
+              : visibility.isLoading || visibility.isError
+                ? "Checking country availability"
+                : "Select a country to continue"}
           </p>
         </div>
 
-        {userCountries.length === 0 ? (
+        {visibility.isLoading ? (
+          <div className="w-full max-w-3xl space-y-3" aria-label="Loading available countries">
+            {[0, 1].map(item => <div key={item} className="h-32 animate-pulse rounded-2xl border border-emerald-100 bg-white/70" />)}
+          </div>
+        ) : visibility.isError ? (
+          <div className="w-full max-w-md rounded-2xl border border-destructive/30 bg-card p-6 text-center" role="alert">
+            <h2 className="font-semibold text-foreground">Country availability could not be checked</h2>
+            <p className="mt-2 text-sm text-muted-foreground">Access is not assumed while this check is unavailable.</p>
+            <button
+              onClick={() => visibility.refetch()}
+              className="mt-4 rounded-md border px-3 py-2 text-sm font-medium hover:bg-accent"
+            >
+              Retry
+            </button>
+          </div>
+        ) : userCountries.length === 0 ? (
           <div
             className={`landing-scale-in ${mounted ? "visible" : ""} w-full max-w-md rounded-2xl border border-amber-200 bg-amber-50/80 backdrop-blur-sm shadow-lg p-7 text-center`}
             style={{ transitionDelay: "300ms" }}
@@ -221,9 +251,26 @@ export default function CountrySelectorPage() {
               </p>
             )}
           </div>
+        ) : visibleCountries.length === 0 ? (
+          <div className="w-full max-w-md rounded-2xl border border-amber-200 bg-amber-50/80 p-7 text-center shadow-lg" role="status" data-testid="all-countries-hidden-empty-state">
+            <h2 className="text-lg font-semibold text-gray-800">All your countries are currently hidden</h2>
+            <p className="mt-2 text-sm text-gray-600">Your data and history are safe. A country administrator can restore access.</p>
+            {canManageVisibility ? (
+              <button
+                onClick={() => navigate("/country-management")}
+                className="mt-4 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-semibold text-emerald-800 hover:bg-emerald-100"
+              >
+                Manage country visibility
+              </button>
+            ) : contactHref ? (
+              <a href={contactHref} className="mt-4 inline-flex rounded-full border border-amber-200 bg-amber-100 px-4 py-2 text-xs font-semibold text-amber-800 hover:bg-amber-200">
+                Contact the workspace owner
+              </a>
+            ) : null}
+          </div>
         ) : (
         <div className={`grid grid-cols-1 ${gridCols} gap-5 w-full max-w-3xl`}>
-          {userCountries.map((country, idx) => {
+          {visibleCountries.map((country, idx) => {
             const config = COUNTRY_CONFIG[country];
             const styles = CARD_STYLES[country];
             return (
@@ -252,6 +299,15 @@ export default function CountrySelectorPage() {
             );
           })}
         </div>
+        )}
+
+        {canManageVisibility && visibleCountries.length > 0 && (
+          <button
+            onClick={() => navigate("/country-management")}
+            className="mt-5 rounded-full border border-emerald-200 bg-white/80 px-4 py-2 text-xs font-semibold text-emerald-800 transition-colors hover:bg-emerald-50"
+          >
+            Manage country visibility
+          </button>
         )}
 
         <div

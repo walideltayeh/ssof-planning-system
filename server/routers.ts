@@ -17,6 +17,7 @@ import * as wsTracker from "./wsTracker";
 import { analyzePosmItems } from "./posmAnalysis";
 import { COUNTRIES } from "../drizzle/schema";
 import type { Country, User } from "../drizzle/schema";
+import { assertCountryVisible, hiddenCountries, canManageCountry, setCountryHidden } from "./countryVisibility";
 
 /**
  * Bridges an AppUser (username/password login) into a server session that
@@ -110,7 +111,8 @@ async function accessibleCountries(ctx: { user: User }): Promise<Array<(typeof P
   if (!username) return [];
   const requester = await db.getAppUserByUsername(username);
   if (!requester) return [];
-  if (requester.isOwner) return [...PERFORMANCE_COUNTRIES];
+  const hidden = await hiddenCountries();
+  if (requester.isOwner) return PERFORMANCE_COUNTRIES.filter(c => !hidden.has(c));
   let allowed: string[] = [];
   try {
     const parsed: unknown = JSON.parse(requester.countries);
@@ -118,7 +120,7 @@ async function accessibleCountries(ctx: { user: User }): Promise<Array<(typeof P
   } catch {
     allowed = [];
   }
-  return PERFORMANCE_COUNTRIES.filter(c => allowed.some(a => a.toLowerCase() === c.toLowerCase()));
+  return PERFORMANCE_COUNTRIES.filter(c => !hidden.has(c) && allowed.some(a => a.toLowerCase() === c.toLowerCase()));
 }
 
 function getAuditActor(ctx: { user: User | null }): string {
@@ -178,6 +180,7 @@ export async function requireCountryAccess(
       message: "No country access configured for this account",
     });
   }
+  await assertCountryVisible(country);
   if (requester.isOwner) return;
   let allowed: string[] = [];
   try {
@@ -224,6 +227,7 @@ export async function requireCountryAdmin(
       message: "No country access configured for this account",
     });
   }
+  await assertCountryVisible(country);
   if (requester.isOwner) return;
   let allowed: string[] = [];
   try {
@@ -314,7 +318,29 @@ const focMoveInput = z.object({
   country: z.enum(["Libya", "Syria"]), sourceSkuId: z.number().int().positive(), targetSkuId: z.number().int().positive(),
   periodIds: z.array(z.number().int().positive()).min(1).max(1200).optional(),
 });
+// These legacy analysis endpoints read Lebanon data without a country input.
+const visibleLebanonProcedure = protectedProcedure.use(async ({ next }) => {
+  await assertCountryVisible("Lebanon");
+  return next();
+});
 export const appRouter = router({
+  countryVisibility: router({
+    list: protectedProcedure.query(async ({ ctx }) => {
+      const requester = ctx.user.name ? await db.getAppUserByUsername(ctx.user.name) : null;
+      if (!requester) throw new TRPCError({ code: "FORBIDDEN", message: "No country access configured for this account" });
+      const hidden = await hiddenCountries();
+      return COUNTRIES.map(country => ({ country, isHidden: hidden.has(country), canManage: canManageCountry(requester, country) }));
+    }),
+    setHidden: protectedProcedure.input(z.object({ country: countrySchema, hidden: z.boolean() }).strict())
+      .mutation(async ({ ctx, input }) => {
+        const requester = ctx.user.name ? await db.getAppUserByUsername(ctx.user.name) : null;
+        if (!requester || !canManageCountry(requester, input.country))
+          throw new TRPCError({ code: "FORBIDDEN", message: `Admin role required for ${input.country}` });
+        const result = await setCountryHidden(input.country, input.hidden, getAuditActor(ctx));
+        invalidateCountryPerformanceCache(input.country);
+        return result;
+      }),
+  }),
   focPlanning: router({
     previewMove: adminProcedure.input(focMoveInput.strict()).mutation(async ({ ctx, input }) => {
       await requireCountryAdmin(ctx, input.country);
@@ -1290,8 +1316,11 @@ export const appRouter = router({
   versions: router({
     list: protectedProcedure
       .input(z.object({ country: z.enum(['Lebanon', 'Syria', 'Libya', 'KSA']).optional() }).optional())
-      .query(async ({ input }) => {
-        return db.listVersions(input?.country as any);
+      .query(async ({ ctx, input }) => {
+        if (input?.country) await requireCountryAccess(ctx, input.country);
+        const hidden = await hiddenCountries();
+        const versions = await db.listVersions(input?.country as any);
+        return versions.filter(version => !hidden.has(version.country as Country));
       }),
 
     save: protectedProcedure
@@ -1303,6 +1332,7 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const actor = getAuditActor(ctx);
         const country = (input.country || 'Lebanon') as import('../drizzle/schema').Country;
+        await requireCountryAccess(ctx, country);
         // 1. Take country-scoped snapshot of current data
         const snapshot = await db.getFullSnapshot(country);
 
@@ -1409,9 +1439,10 @@ export const appRouter = router({
 
     export: protectedProcedure
       .input(z.object({ id: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
         const version = await db.getVersionById(input.id);
         if (!version) throw new Error('Version not found');
+        await requireCountryAccess(ctx, version.country);
         return {
           name: version.name,
           description: version.description,
@@ -1446,10 +1477,12 @@ export const appRouter = router({
     // ---- Version Comparison ----
     compare: protectedProcedure
       .input(z.object({ versionAId: z.number(), versionBId: z.number() }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
         const vA = await db.getVersionById(input.versionAId);
         const vB = await db.getVersionById(input.versionBId);
         if (!vA || !vB) throw new Error('One or both versions not found');
+        await requireCountryAccess(ctx, vA.country);
+        await requireCountryAccess(ctx, vB.country);
         return {
           versionA: { id: vA.id, name: vA.name, savedBy: vA.savedBy, createdAt: vA.createdAt, snapshot: vA.snapshotData },
           versionB: { id: vB.id, name: vB.name, savedBy: vB.savedBy, createdAt: vB.createdAt, snapshot: vB.snapshotData },
@@ -1484,35 +1517,36 @@ export const appRouter = router({
     // ---- Edit Count (for auto-save reminders) ----
     editCount: protectedProcedure
       .input(z.object({ country: z.string().optional() }))
-      .query(async ({ input }) => {
+      .query(async ({ ctx, input }) => {
+        if (input.country) await requireCountryAccess(ctx, input.country);
         return { count: await db.getEditCountSinceVersion(input.country) };
       }),
   }),
 
   // ==================== ANALYSIS ====================
   analysis: router({
-    overview: protectedProcedure.query(async () => {
+    overview: visibleLebanonProcedure.query(async () => {
       return db.getAnalysisOverview();
     }),
-    bySku: protectedProcedure.query(async () => {
+    bySku: visibleLebanonProcedure.query(async () => {
       return db.getAnalysisBySku();
     }),
-    byWeight: protectedProcedure.query(async () => {
+    byWeight: visibleLebanonProcedure.query(async () => {
       return db.getAnalysisByWeight();
     }),
-    byCategory: protectedProcedure.query(async () => {
+    byCategory: visibleLebanonProcedure.query(async () => {
       return db.getAnalysisByCategory();
     }),
-    byFlavor: protectedProcedure.query(async () => {
+    byFlavor: visibleLebanonProcedure.query(async () => {
       return db.getAnalysisByFlavor();
     }),
-    production: protectedProcedure.query(async () => {
+    production: visibleLebanonProcedure.query(async () => {
       return db.getAnalysisProduction();
     }),
-    stockHealth: protectedProcedure.query(async () => {
+    stockHealth: visibleLebanonProcedure.query(async () => {
       return db.getAnalysisStockHealth();
     }),
-     stockSnapshot: protectedProcedure.query(async () => {
+     stockSnapshot: visibleLebanonProcedure.query(async () => {
       return db.getStockSnapshot();
     }),
   }),

@@ -14,3 +14,4 @@
 - [FOC entry traceability](foc-entry-traceability.md) — past-period admin entry, per-line receipt eligibility, original sheet details and FOC-only rollback.
 - [Command input accessibility](command-input-accessibility.md) — generated aria-labelledby can override input aria-label; use the primitive's root label and role-based tests.
 - [Analysis working tabs](analysis-working-tabs.md) — working tabs are separate from the full saved board/PDF order; remember selection per user, with Summary as the first-use default.
+- [Country hiding](country-visibility.md) — hiding blocks everyone but preserves all records; Admin restoration must remain reachable even with every country hidden.

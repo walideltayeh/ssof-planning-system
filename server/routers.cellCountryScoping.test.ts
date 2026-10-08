@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+vi.mock("./countryVisibility", async original => ({ ...await original<typeof import("./countryVisibility")>(),
+  assertCountryVisible: vi.fn(async () => {}), hiddenCountries: vi.fn(async () => new Set()) }));
 
 // ---------------------------------------------------------------------------
 // Guards the country-scoping safety net on the PER-CELL edit mutations in

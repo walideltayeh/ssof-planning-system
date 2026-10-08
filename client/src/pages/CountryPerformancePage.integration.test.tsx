@@ -20,6 +20,7 @@ vi.mock("@/contexts/AuthContext", () => ({
   }),
   useAppAuth: () => ({
     user: H.user,
+    isAdminFor: () => false,
     isAdmin: false,
     isOwner: !!H.user?.isOwner,
     isAuthenticated: !!H.user,
@@ -27,6 +28,10 @@ vi.mock("@/contexts/AuthContext", () => ({
     logout: vi.fn(),
   }),
 }));
+vi.mock("@/hooks/useCountryVisibility", () => ({ useCountryVisibility: () => ({
+  data: ["Lebanon", "Syria", "Libya", "KSA"].map(country => ({ country, isHidden: false, canManage: false })),
+  isLoading: false, isError: false,
+}) }));
 
 vi.mock("@/contexts/CountryContext", () => ({
   COUNTRY_CONFIG: {

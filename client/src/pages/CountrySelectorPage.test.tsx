@@ -16,6 +16,9 @@ type OwnerContact = { displayName: string; email: string | null };
 
 let mockUser: MockUser = null;
 let mockOwners: OwnerContact[] = [];
+let hiddenCountries: string[] = [];
+let visibilityLoading = false;
+let visibilityError = false;
 
 vi.mock("@/contexts/AuthContext", () => ({
   useAppAuth: () => ({
@@ -31,6 +34,12 @@ vi.mock("wouter", () => ({
 
 vi.mock("@/lib/trpc", () => ({
   trpc: {
+    countryVisibility: { list: { useQuery: () => ({
+      data: ["Lebanon", "Syria", "Libya", "KSA"].map(country => ({
+        country, isHidden: hiddenCountries.includes(country), canManage: !!mockUser?.isOwner,
+      })),
+      isLoading: visibilityLoading, isError: visibilityError, refetch: vi.fn(),
+    }) } },
     appUsers: {
       listOwners: {
         useQuery: () => ({ data: mockOwners, isLoading: false }),
@@ -43,6 +52,7 @@ import CountrySelectorPage from "./CountrySelectorPage";
 
 describe("CountrySelectorPage", () => {
   beforeEach(() => {
+    hiddenCountries = []; visibilityLoading = false; visibilityError = false;
     setCountry.mockReset();
     logout.mockReset();
     navigate.mockReset();
@@ -268,6 +278,27 @@ describe("CountrySelectorPage", () => {
     expect(logout).toHaveBeenCalledTimes(1);
   });
 
+  it("omits hidden countries even for the owner and still offers country management", () => {
+    mockUser = { displayName: "Owner", countries: [], isOwner: true };
+    hiddenCountries = ["Libya"];
+    render(<CountrySelectorPage />);
+    expect(screen.queryByRole("button", { name: /Libya/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Manage country visibility" })).toBeInTheDocument();
+  });
+  it("keeps restoration reachable when every country is hidden", () => {
+    mockUser = { displayName: "Owner", countries: [], isOwner: true };
+    hiddenCountries = ["Lebanon", "Syria", "Libya", "KSA"];
+    render(<CountrySelectorPage />);
+    expect(screen.getByRole("button", { name: "Manage country visibility" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Al Fakher Libya/ })).not.toBeInTheDocument();
+  });
+  it("fails closed rather than showing selectable countries if the availability check fails", () => {
+    mockUser = { displayName: "Owner", countries: [], isOwner: true };
+    visibilityError = true;
+    render(<CountrySelectorPage />);
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Al Fakher Libya/ })).not.toBeInTheDocument();
+  });
   it("renders nothing while there is no user yet", () => {
     mockUser = null;
     const { container } = render(<CountrySelectorPage />);

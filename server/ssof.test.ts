@@ -1,4 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+vi.mock("./countryVisibility", async original => ({ ...await original<typeof import("./countryVisibility")>(),
+  assertCountryVisible: vi.fn(async () => {}), hiddenCountries: vi.fn(async () => new Set()) }));
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
 

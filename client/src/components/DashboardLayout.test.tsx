@@ -79,6 +79,8 @@ vi.mock("@/_core/hooks/useAuth", () => ({
 vi.mock("@/contexts/AuthContext", () => ({
   useAppAuth: () => ({
     user: H.appUserMock,
+    isAdminFor: (c: string) => !!H.appUserMock?.isOwner ||
+      (H.appUserMock?.role === "admin" && H.appUserMock.countries.includes(c)),
     isAdmin: H.appUserMock?.role === "admin",
     isOwner: !!H.appUserMock?.isOwner,
     isAuthenticated: !!H.appUserMock,
@@ -87,6 +89,10 @@ vi.mock("@/contexts/AuthContext", () => ({
     logout: H.appLogout,
   }),
 }));
+vi.mock("@/hooks/useCountryVisibility", () => ({ useCountryVisibility: () => ({
+  data: ["Lebanon", "Syria", "Libya", "KSA"].map(country => ({ country, isHidden: false, canManage: false })),
+  isLoading: false, isError: false,
+}) }));
 
 vi.mock("@/contexts/CountryContext", async () => {
   const actual = await vi.importActual<

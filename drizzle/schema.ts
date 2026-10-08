@@ -277,7 +277,9 @@ export type UserPresence = typeof userPresence.$inferSelect;
 // NEVER appear in source-controlled files like .replit. Currently used to
 // auto-provision the JWT signing secret on first boot when JWT_SECRET is
 // not provided as an environment variable. Keep this table tiny and
-// owner-only — never expose it to client routers.
+// private — never expose arbitrary keys or values to client routers.
+// Country availability uses only four allowlisted non-secret keys; the JWT
+// signing secret must never be returned by those endpoints.
 export const appSettings = pgTable("app_settings", {
   key: varchar("key", { length: 64 }).primaryKey(),
   value: text("value").notNull(),

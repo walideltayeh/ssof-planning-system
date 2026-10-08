@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/NotFound";
@@ -32,6 +33,8 @@ import AutoSaveReminder from "./components/AutoSaveReminder";
 import LandingPage from "./pages/LandingPage";
 import CountrySelectorPage from "./pages/CountrySelectorPage";
 import { useNavigationLogger } from "./hooks/useAuditLog";
+import { useCountryVisibility } from "./hooks/useCountryVisibility";
+import CountryManagementPage from "./pages/CountryManagementPage";
 
 function Dashboard() {
   useNavigationLogger();
@@ -83,17 +86,67 @@ function Dashboard() {
   );
 }
 
-function AppContent() {
-  const { isAuthenticated, user, country } = useAppAuth();
-  const [location] = useLocation();
+export function AppContent() {
+  const { isAuthenticated, country } = useAppAuth();
+  const { clearCountry } = useCountry();
+  const [location, setLocation] = useLocation();
+  const visibility = useCountryVisibility(isAuthenticated);
 
   const pathname = location.split("?")[0];
 
+  useEffect(() => {
+    if (!isAuthenticated || pathname === "/country-management" || !country || !visibility.data) return;
+    const current = visibility.data.find(item => item.country === country);
+    if (current?.isHidden) {
+      clearCountry();
+      setLocation("/");
+    }
+  }, [isAuthenticated, pathname, country, visibility.data, clearCountry, setLocation]);
+
   if (!isAuthenticated) return <LandingPage />;
 
-  if (isAuthenticated && !country) return <CountrySelectorPage />;
+  // This global route remains available with no selected country and while
+  // the current selection is hidden, so an administrator can restore access.
+  if (pathname === "/country-management") return <CountryManagementPage />;
+
+  if (!country) return <CountrySelectorPage />;
 
   if (pathname === "/login") return <Redirect to="/" />;
+
+  const current = visibility.data?.find(item => item.country === country);
+  if (current?.isHidden) return <CountrySelectorPage />;
+
+  // Do not mount country-scoped pages (and their data queries) until the
+  // visibility check has succeeded.
+  if (visibility.isLoading && !visibility.data) {
+    return (
+      <div className="min-h-[100dvh] bg-background p-6">
+        <div className="mx-auto mt-16 max-w-lg space-y-3" aria-label="Checking country access">
+          <div className="h-8 w-48 animate-pulse rounded bg-muted" />
+          <div className="h-4 w-72 animate-pulse rounded bg-muted" />
+        </div>
+      </div>
+    );
+  }
+  if (visibility.isError || !current) {
+    return (
+      <div className="flex min-h-[100dvh] items-center justify-center bg-background px-4">
+        <div className="max-w-md rounded-lg border bg-card p-6 text-center" role="alert">
+          <h1 className="font-semibold">Country availability could not be checked</h1>
+          <p className="mt-2 text-sm text-muted-foreground">Country data is unavailable until access can be confirmed.</p>
+          <button onClick={() => visibility.refetch()} className="mt-4 rounded-md border px-3 py-2 text-sm hover:bg-accent">
+            Retry
+          </button>
+          <button
+            onClick={() => { clearCountry(); setLocation("/"); }}
+            className="ml-2 mt-4 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-accent"
+          >
+            Back to countries
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return <Dashboard />;
 }
