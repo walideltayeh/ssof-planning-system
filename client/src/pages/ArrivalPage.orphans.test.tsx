@@ -12,6 +12,7 @@ const P_MAR = { id: 60015, year: 2026, month: 3, label: "Mar-26", sortOrder: 15,
 const P_APR = { id: 60016, year: 2026, month: 4, label: "Apr-26", sortOrder: 16, country: "Syria" };
 
 const intlData = {
+  foc: [] as { skuId: number; periodId: number; country: string; value: string; received: boolean }[],
   skus: [SKU],
   periods: [P_MAR, P_APR],
   arrival: [],
@@ -75,6 +76,10 @@ vi.mock("@/lib/trpc", () => ({
       get: (target, key) => {
         if (key === "useUtils") return (target as any).useUtils;
         if (key === "country") return countryRouter;
+        if (key === "focPlanning") return { list: { useQuery: () => ({
+          data: { cells: selectedData.foc, receipts: { entries: [] }, skus: [], periods: [] },
+          isLoading: false, isFetching: false, isError: false, refetch: vi.fn(),
+        }) } };
         return otherRouter;
       },
     },
@@ -131,6 +136,45 @@ describe("ArrivalPage — orphaned clearance events (no production)", () => {
     expect(screen.queryByText("Actual confirmed")).not.toBeInTheDocument();
     expect(screen.queryByText("Awaiting Actual")).not.toBeInTheDocument();
     expect(screen.queryByTestId("orphan-clearance-banner")).not.toBeInTheDocument();
+  });
+
+  it("adds Syria FOC to expected and actual batch quantities without receiving it or changing clearance events", () => {
+    selectedEvents = [clearanceEvents[2]];
+    selectedData = {
+      ...intlData,
+      foc: [{ skuId: SKU.id, periodId: P_APR.id, country: "Syria", value: "400", received: false }],
+    };
+    render(<ArrivalPage />);
+    const breakdown = screen.getByTestId("arrival-production-foc");
+    expect(breakdown).toHaveTextContent("Production: 3600 + FOC: 400 = Total arriving: 4000 MC");
+    expect(screen.getByText("Expected Arrivals").closest("div")!.parentElement).toHaveTextContent("5400");
+    expect(breakdown.closest("[data-slot=card]") ?? breakdown.closest(".overflow-hidden")).toHaveTextContent("Partially Cleared");
+    expect(selectedData.foc[0].received).toBe(false);
+    expect(selectedEvents[0].clearedQty).toBe("3600.00");
+  });
+
+  it("shows a Syria FOC-only batch with its full pending quantity instead of hiding it", () => {
+    selectedEvents = [];
+    selectedData = {
+      ...intlData, forecast: [], shipment: [],
+      foc: [{ skuId: SKU.id, periodId: P_APR.id, country: "Syria", value: "600", received: false }],
+    };
+    render(<ArrivalPage />);
+    expect(screen.getByTestId("arrival-production-foc")).toHaveTextContent("Total arriving: 600 MC");
+    expect(screen.queryByTestId("orphan-clearance-banner")).not.toBeInTheDocument();
+    expect(screen.queryByText("Actual confirmed")).not.toBeInTheDocument();
+  });
+
+  it("does not change Libya Arrival quantities when that country has separate FOC", () => {
+    selectedCountry = "Libya";
+    selectedEvents = [clearanceEvents[2]];
+    selectedData = {
+      ...intlData,
+      foc: [{ skuId: SKU.id, periodId: P_APR.id, country: "Libya", value: "400", received: false }],
+    };
+    render(<ArrivalPage />);
+    expect(screen.queryByTestId("arrival-production-foc")).not.toBeInTheDocument();
+    expect(screen.getByText("Expected Arrivals").closest("div")!.parentElement).toHaveTextContent("5000");
   });
 
   it("surfaces the Mar-26 batch even though it has no production, with a warning banner", () => {

@@ -12,6 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toast } from "sonner";
 import { computeArrivalDate, formatArrivalDate } from "./ShipmentPage";
 import { decideBatchSurface, summarizeOrphans } from "./arrival.helpers";
+import { arrivalFocMap, combinedArrivalQuantities, arrivalStatusWithFoc } from "@shared/arrivalQuantities";
 import ExportSheetButton from "@/components/ExportSheetButton";
 import WsTrackerSyncCard from "@/components/WsTrackerSyncCard";
 import ImportSheetButton from "@/components/ImportSheetButton";
@@ -90,14 +91,18 @@ export default function ArrivalPage() {
     { country: country as "Syria" | "Libya" | "KSA" },
     { enabled: !isLebanon && (country === "Syria" || country === "Libya" || country === "KSA"), staleTime: 0, refetchOnWindowFocus: true }
   );
+  const { data: focPlanning, isLoading: focLoading, isFetching: focFetching, isError: focError, refetch: refetchFoc } = trpc.focPlanning.list.useQuery(
+    { country: "Syria", includeFoc: true },
+    { enabled: country === "Syria", staleTime: 0, refetchOnWindowFocus: true },
+  );
   const data = isLebanon
     ? lbData
     : intlData
       ? { skus: intlData.skus, periods: intlData.periods, data: intlData.arrival, shipment: intlData.shipment, actualProduction: intlData.actualProduction, forecast: intlData.forecast }
       : undefined;
-  const isLoading = isLebanon ? lbLoading : intlLoading;
-  const isSyncing = isLebanon ? lbFetching : intlFetching;
-  const refetchAll = isLebanon ? lbRefetch : intlRefetch;
+  const isLoading = isLebanon ? lbLoading : intlLoading || (country === "Syria" && focLoading);
+  const isSyncing = isLebanon ? lbFetching : intlFetching || (country === "Syria" && focFetching);
+  const refetchAll = isLebanon ? lbRefetch : () => Promise.all([intlRefetch(), ...(country === "Syria" ? [refetchFoc()] : [])]);
 
   const updateCellLb = trpc.update.arrivalCell.useMutation({
     onSuccess: () => {
@@ -247,6 +252,8 @@ export default function ArrivalPage() {
     }
     return map;
   }, [data]);
+
+  const focMap = useMemo(() => arrivalFocMap(country ?? "", focPlanning?.cells ?? []), [country, focPlanning]);
 
   const actualMap = useMemo(() => {
     const m = new Map<string, number>();
@@ -448,6 +455,12 @@ export default function ArrivalPage() {
   }, [periodsByYear, collapsedYears]);
 
   if (isLoading) return <TableSkeleton title="Arrival" rows={10} cols={12} />;
+  if (country === "Syria" && focError) return (
+    <Card><CardContent className="p-6" role="alert">
+      <p>FOC could not be loaded. Combined arrival quantities cannot be shown safely.</p>
+      <button className="mt-3 underline" onClick={() => void refetchFoc()}>Retry loading FOC</button>
+    </CardContent></Card>
+  );
 
   // ============================================================
   // SYRIA / LIBYA: Arrival driven by production offset
@@ -472,6 +485,8 @@ export default function ArrivalPage() {
         total: number;
         plannedTotal: number;
         actualTotal: number;
+        productionTotal: number;
+        focTotal: number;
         isAwaitingActual: boolean;
         delta: number;
         arrivalOffsetValue: number;
@@ -499,8 +514,9 @@ export default function ArrivalPage() {
         // user direction, entered production automatically counts as
         // actual/confirmed (no separate confirmation step).
         const actualEntered = actualMap.get(key);
-        const plannedTotal = forecastMap.get(key) ?? 0;
-        const actualTotal = actualEntered !== undefined ? actualEntered : 0;
+        const { plannedTotal, actualTotal, total, productionTotal, focTotal } = combinedArrivalQuantities(
+          forecastMap.get(key) ?? 0, actualEntered ?? 0, focMap.get(key) ?? 0,
+        );
         const isAwaitingActual = actualTotal === 0 && plannedTotal > 0;
         // A batch surfaces when an Actual was entered OR a forecast plan
         // exists (so planners can see "awaiting actual" rows) OR clearance
@@ -515,17 +531,17 @@ export default function ArrivalPage() {
         const isOrphan = surface.isOrphan;
         // Downstream sizing (cleared/pending qty) needs a number — fall back
         // to the plan when no actual has been entered yet.
-        const total = actualTotal > 0 ? actualTotal : plannedTotal;
         const delta = actualTotal > 0 && plannedTotal > 0 ? actualTotal - plannedTotal : 0;
         const offVal = shipRow?.arrivalOffsetValue ?? 0;
         const offUnit = shipRow?.arrivalOffsetUnit ?? "days";
         const arrivalDate = offVal > 0 ? computeArrivalDate(period.year, period.month, offVal, offUnit) : null;
-        const arrivalStatus = (shipRow?.arrivalStatus as ArrivalStatus) ?? "Pending";
+        const eventCleared = (clearanceEventsMap.get(key) ?? []).reduce((sum, event) => sum + Number(event.clearedQty ?? 0), 0);
+        const arrivalStatus = arrivalStatusWithFoc(shipRow?.arrivalStatus ?? "Pending", focTotal, total, eventCleared) as ArrivalStatus;
         const clearedQty = shipRow?.clearedQty != null ? parseFloat(shipRow.clearedQty) : null;
         const clearedDate = shipRow?.clearedDate ?? null;
         const pendingClearDate = shipRow?.pendingClearDate ?? null;
         batches.push({
-          sku, period, total, plannedTotal, actualTotal, isAwaitingActual, delta,
+          sku, period, total, plannedTotal, actualTotal, productionTotal, focTotal, isAwaitingActual, delta,
           arrivalOffsetValue: offVal, arrivalOffsetUnit: offUnit, arrivalDate,
           arrivalStatus, clearedQty, clearedDate, pendingClearDate,
           note: shipRow?.note ?? null,
@@ -1026,6 +1042,13 @@ export default function ArrivalPage() {
                       </div>
                       <div className="flex items-center gap-3 mt-0.5 text-[11px] text-muted-foreground flex-wrap">
                         <span>Period: <strong className="text-foreground">{batch.period.label}</strong></span>
+                        {batch.focTotal > 0 && (
+                          <span data-testid="arrival-production-foc">
+                            Production: <strong>{formatNumber(batch.productionTotal)}</strong>
+                            {" + FOC: "}<strong>{formatNumber(batch.focTotal)}</strong>
+                            {" = Total arriving: "}<strong className="text-foreground">{formatNumber(batch.total)}</strong> {unitLabel}
+                          </span>
+                        )}
                         {/* Plan vs Actual production figures */}
                         {batch.plannedTotal > 0 && (
                           <span>Plan: <strong className="text-slate-700">{formatNumber(batch.plannedTotal)}</strong></span>
@@ -1060,7 +1083,7 @@ export default function ArrivalPage() {
                       <div>
                         <div className="text-[10px] text-muted-foreground">Pending</div>
                         <div className={`text-sm font-bold ${pendingQty > 0 && totalCleared > 0 ? "text-amber-700" : "text-muted-foreground"}`}>
-                          {totalCleared > 0 ? formatNumber(pendingQty) : "—"}
+                          {totalCleared > 0 || batch.focTotal > 0 ? formatNumber(pendingQty) : "—"}
                         </div>
                       </div>
                       {/* Status */}
