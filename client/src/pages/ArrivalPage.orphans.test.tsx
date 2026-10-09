@@ -142,14 +142,14 @@ describe("ArrivalPage — orphaned clearance events (no production)", () => {
     selectedEvents = [clearanceEvents[2]];
     selectedData = {
       ...intlData,
-      foc: [{ skuId: SKU.id, periodId: P_APR.id, country: "Syria", value: "400", received: false }],
+      foc: [{ skuId: SKU.id, periodId: P_APR.id, country: "Syria", value: "400", received: true }],
     };
     render(<ArrivalPage />);
     const breakdown = screen.getByTestId("arrival-production-foc");
     expect(breakdown).toHaveTextContent("Production: 3600 + FOC: 400 = Total arriving: 4000 MC");
     expect(screen.getByText("Expected Arrivals").closest("div")!.parentElement).toHaveTextContent("5400");
     expect(breakdown.closest("[data-slot=card]") ?? breakdown.closest(".overflow-hidden")).toHaveTextContent("Partially Cleared");
-    expect(selectedData.foc[0].received).toBe(false);
+    expect(selectedData.foc[0].received).toBe(true);
     expect(selectedEvents[0].clearedQty).toBe("3600.00");
   });
 
@@ -157,12 +157,12 @@ describe("ArrivalPage — orphaned clearance events (no production)", () => {
     selectedEvents = [];
     selectedData = {
       ...intlData, forecast: [], shipment: [],
-      foc: [{ skuId: SKU.id, periodId: P_APR.id, country: "Syria", value: "600", received: false }],
+      foc: [{ skuId: SKU.id, periodId: P_APR.id, country: "Syria", value: "600", received: true }],
     };
     render(<ArrivalPage />);
     expect(screen.getByTestId("arrival-production-foc")).toHaveTextContent("Total arriving: 600 MC");
     expect(screen.queryByTestId("orphan-clearance-banner")).not.toBeInTheDocument();
-    expect(screen.queryByText("Actual confirmed")).not.toBeInTheDocument();
+    expect(screen.getByText("Actual confirmed")).toBeInTheDocument();
   });
 
   it("does not change Libya Arrival quantities when that country has separate FOC", () => {

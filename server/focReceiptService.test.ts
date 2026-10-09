@@ -1,21 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PgDialect } from "drizzle-orm/pg-core";
-import { skus, periods, focData, arrivalData, planningFgData, clearanceEvents, auditTrail, forecastData } from "../drizzle/schema";
+import { skus, periods, focData, arrivalData, planningFgData, clearanceEvents, auditTrail } from "../drizzle/schema";
 import { evaluateFocReceipts } from "../shared/performance/focReceipts";
 vi.mock("./db", async original => ({ ...await original<typeof import("./db")>(), getDb: vi.fn() }));
 const dbModule = await import("./db");
 const service = await import("./focReceiptService");
 const dialect = new PgDialect();
 
-it("loads Syria's paid production evidence so server receipt checks agree with FG combined clearances", async () => {
+it("Syria receipt checks never add warehouse stock before clearance", async () => {
   records.get(skus)![0].country = "Syria";
   records.get(periods)!.forEach(p => { p.country = "Syria"; });
   Object.assign(records.get(focData)![0], { country: "Syria", value: "100", received: true });
-  records.set(forecastData, [{ skuId: 1, periodId: 9, value: "1000" }]);
   records.get(clearanceEvents)!.push({ country: "Syria", skuId: 1, periodId: 9, clearedQty: "1100", clearedDate: "2026-09-20" });
   const ds = await service.loadFocReceiptData("Syria");
-  expect(ds.forecast[0].value).toBe("1000");
-  expect(evaluateFocReceipts(ds)[0]).toMatchObject({ needsReview: true, added: 0 });
+  expect(ds.foc[0].received).toBe(true);
+  expect(evaluateFocReceipts(ds)[0]).toMatchObject({ needsReview: false, added: 0, receivedQuantity: 100 });
 });
 
 /** In-memory Drizzle adapter keeps the service's real scopes, evidence, tokens,

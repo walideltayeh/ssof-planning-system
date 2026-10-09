@@ -89,8 +89,9 @@ describe("past FOC preview, atomic commit, audit and rollback", () => {
     const preview = await service.previewFocEntry(country, move, true);
     expect(preview.move).toMatchObject({ sourceTotalBefore: 30, sourceTotalAfter: 0, targetTotalBefore: 5, targetTotalAfter: 35 });
     expect(preview.move!.months[0]).toMatchObject({ targetBefore: 5, targetAfter: 15, resultLineCount: 2, receivedMC: 10 });
-    expect(preview.impact.find(r => r.skuId === 1 && r.periodId === 6)).toMatchObject({ before: 110, after: 100, beforeArrivals: 10, afterArrivals: 0 });
-    expect(preview.impact.find(r => r.skuId === 3 && r.periodId === 6)).toMatchObject({ before: 200, after: 210, beforeArrivals: 0, afterArrivals: 10 });
+    const receivedStock = country === "Libya" ? 10 : 0;
+    expect(preview.impact.find(r => r.skuId === 1 && r.periodId === 6)).toMatchObject({ before: 100 + receivedStock, after: 100, beforeArrivals: receivedStock, afterArrivals: 0 });
+    expect(preview.impact.find(r => r.skuId === 3 && r.periodId === 6)).toMatchObject({ before: 200, after: 200 + receivedStock, beforeArrivals: 0, afterArrivals: receivedStock });
     await service.commitFocEntry(country, move, true, "Moving admin", preview.token);
     expect(records.get(focData)!.filter(c => c.skuId === 1)).toEqual([]);
     expect(records.get(focData)!.find(c => c.skuId === 3 && c.periodId === 6)).toMatchObject({ value: "15.00", received: false, lines: [targetLine, sourceLine] });
@@ -98,7 +99,7 @@ describe("past FOC preview, atomic commit, audit and rollback", () => {
     const ds = await loadFocReceiptData(country);
     const ledger = buildStockLedger({ ...ds, ims: [], forecast: [], includeFoc: true, now: new Date(2026, 9, 7) });
     expect([...ledger.bySku.get(1)!.values()].map(r => [r.arrivals, r.closing])).toEqual([[0, 100], [0, 100], [0, 100]]);
-    expect([...ledger.bySku.get(3)!.values()].map(r => [r.arrivals, r.closing])).toEqual([[10, 210], [0, 210], [0, 210]]);
+    expect([...ledger.bySku.get(3)!.values()].map(r => [r.arrivals, r.closing])).toEqual([[receivedStock, 200 + receivedStock], [0, 200 + receivedStock], [0, 200 + receivedStock]]);
     expect(records.get(auditTrail)!.every(a => a.field === "FOC SKU reassignment" && a.details.includes("Mint · 50g · New") && a.details.includes("Mint · 50g · Old"))).toBe(true);
     const version = records.get(ssofVersions)![0];
     expect(version.snapshotData.foc).toEqual(original);
@@ -143,19 +144,20 @@ describe("past FOC preview, atomic commit, audit and rollback", () => {
     expect(actual.entries.reduce((sum, e) => sum + e.added, 0)).toBe(0);
     expect([...actual.stock.values()].map(v => v.closing)).toEqual([100, 100, 100]);
     const received = await apply({ skuId, periodId: 6, received: true });
-    expect(received.impact.map(p => [p.before, p.after])).toEqual([[100, 130], [100, 130], [100, 130]]);
+    const receivedStock = country === "Libya" ? 30 : 0;
+    expect(received.impact.map(p => [p.before, p.after])).toEqual([[100, 100 + receivedStock], [100, 100 + receivedStock], [100, 100 + receivedStock]]);
     actual = await read();
-    expect(actual.entries.reduce((sum, e) => sum + e.added, 0)).toBe(30);
-    expect(actual.stock.get(6)).toMatchObject({ arrivals: 30, closing: 130 });
+    expect(actual.entries.reduce((sum, e) => sum + e.added, 0)).toBe(receivedStock);
+    expect(actual.stock.get(6)).toMatchObject({ arrivals: receivedStock, closing: 100 + receivedStock });
     const persisted = structuredClone(records.get(focData));
     // Tracker rebuild owns production/clearance inputs, never the independent FOC record.
     records.set(arrivalData, []);
     records.set(clearanceEvents, []);
     actual = await read();
     expect(records.get(focData)).toEqual(persisted);
-    expect([...actual.stock.values()].map(v => v.closing)).toEqual([130, 130, 130]);
+    expect([...actual.stock.values()].map(v => v.closing)).toEqual([100 + receivedStock, 100 + receivedStock, 100 + receivedStock]);
     const reversed = await apply({ skuId, periodId: 6, received: false });
-    expect(reversed.impact.map(p => [p.before, p.after])).toEqual([[130, 100], [130, 100], [130, 100]]);
+    expect(reversed.impact.map(p => [p.before, p.after])).toEqual([[100 + receivedStock, 100], [100 + receivedStock, 100], [100 + receivedStock, 100]]);
     actual = await read();
     expect(actual.entries.reduce((sum, e) => sum + e.added, 0)).toBe(0);
     expect([...actual.stock.values()].map(v => [v.arrivals, v.closing])).toEqual([[0, 100], [0, 100], [0, 100]]);

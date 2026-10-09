@@ -27,15 +27,37 @@ beforeEach(() => {
     forecast: [{ skuId: 1, periodId: 12, value: "1000" }], actualProduction: [],
     shipment: [{ skuId: 1, periodId: 12, week1: "800" }], arrival: [],
     planningFg: [{ skuId: 1, periodId: 12, openingStock: "100" }], ims: [], clearanceEvents: [],
-    foc: [{ country: "Syria", skuId: 1, periodId: 12, value: "50", received: false }],
+    foc: [{ country: "Syria", skuId: 1, periodId: 12, value: "50", received: true }],
   };
 });
 describe("linked Syria FG pages", () => {
+  it("shows 100 Production + 10 Received FOC = 110 Full Production; only clearance adds 110 to stock", () => {
+    state.data.forecast[0].value = "100"; state.data.shipment[0].week1 = "100";
+    state.data.foc[0].value = "10"; state.data.planningFg[0].openingStock = "0";
+    const view = render(<IntlPlanningFgPage weight="50g" />);
+    expect(within(screen.getAllByText("Production")[0].closest("tr")!).getAllByText("100")).toHaveLength(2);
+    expect(within(screen.getAllByText("FOC")[0].closest("tr")!).getAllByText("10")).toHaveLength(2);
+    expect(within(screen.getAllByText("Full Production")[0].closest("tr")!).getAllByText("110")).toHaveLength(2);
+    expect(within(screen.getAllByText("Closing Stock")[0].closest("tr")!).getAllByText("—")).toHaveLength(2);
+    state.data = { ...state.data, clearanceEvents: [{ country: "Syria", skuId: 1, periodId: 12, clearedQty: "110", clearedDate: "2026-12-10" }] };
+    view.rerender(<IntlPlanningFgPage weight="50g" />);
+    expect(within(screen.getAllByText("Closing Stock")[0].closest("tr")!).getAllByText("110")).toHaveLength(2);
+    expect(within(screen.getAllByText("Actual arrivals / Planned Orders")[0].closest("tr")!).getAllByText("110")).toHaveLength(2);
+  });
+  it("does not include unreceived FOC in Full Production or stock", () => {
+    state.data.foc[0].received = false;
+    render(<IntlPlanningFgPage weight="50g" />);
+    expect(within(screen.getAllByText("Full Production")[0].closest("tr")!).getAllByText("800")).toHaveLength(2);
+    expect(within(screen.getAllByText("FOC")[0].closest("tr")!).getAllByText("—")).toHaveLength(2);
+    expect(within(screen.getAllByText("Closing Stock")[0].closest("tr")!).getAllByText("100")).toHaveLength(2);
+  });
   it.each(["50g", "250g", "1kg"])("renders Production + FOC and keeps pending quantities out of stock in %s", weight => {
     state.data.skus[0].weight = weight;
     render(<IntlPlanningFgPage weight={weight} />);
-    const production = screen.getAllByText("Production + FOC")[0].closest("tr")!;
+    const production = screen.getAllByText("Full Production")[0].closest("tr")!;
     expect(within(production).getAllByText("850")).toHaveLength(2);
+    expect(within(screen.getAllByText("Production")[0].closest("tr")!).getAllByText("800")).toHaveLength(2);
+    expect(within(screen.getAllByText("FOC")[0].closest("tr")!).getAllByText("50")).toHaveLength(2);
     const arrivals = screen.getAllByText("Actual arrivals / Planned Orders")[0].closest("tr")!;
     expect(within(arrivals).queryByText("850")).not.toBeInTheDocument();
     const closing = screen.getAllByText("Closing Stock")[0].closest("tr")!;
@@ -43,8 +65,8 @@ describe("linked Syria FG pages", () => {
   });
   it("edits paid production only, never writing combined FOC back into production", () => {
     render(<IntlPlanningFgPage weight="50g" />);
-    const row = screen.getAllByText("Production + FOC")[0].closest("tr")!;
-    fireEvent.click(within(row).getAllByText("850")[0]);
+    const row = screen.getAllByText("Production")[0].closest("tr")!;
+    fireEvent.click(within(row).getAllByText("800")[0]);
     const input = screen.getByDisplayValue("800");
     fireEvent.change(input, { target: { value: "700" } });
     fireEvent.blur(input);

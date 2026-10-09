@@ -129,7 +129,9 @@ export default function FocRecordPage() {
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h1 className="text-xl font-semibold tracking-tight">FOC Record</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Monthly free-of-charge stock by SKU. Grouped by Core/NPI and sorted by weight.</p>
+        <p className="mt-1 text-sm text-muted-foreground">{country === "Syria"
+          ? "Received FOC joins Full Production and Arrival's quantity to clear. Warehouse stock increases only through clearance."
+          : "Monthly free-of-charge stock by SKU. Grouped by Core/NPI and sorted by weight."}</p>
       </div>
       <div className="flex items-center gap-2">
         <span className="text-[10px] text-muted-foreground">{canEdit ? "Country administrator" : "Read only"} · stored in MC · display {unit}</span>

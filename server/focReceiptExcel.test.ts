@@ -18,11 +18,21 @@ describe("Syria FG quantities linked to Production, FOC and Arrival", () => {
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(await generateSingleSheetBufferForCountry("Syria", `planning-fg-${weight}`) as any);
     const ws = wb.worksheets[0];
-    expect(row(ws, "Production + FOC").getCell(4).value).toBe(850);
+    expect(row(ws, "Production").getCell(4).value).toBe(800);
+    expect(row(ws, "FOC").getCell(4).value).toBeNull();
+    expect(row(ws, "Full Production").getCell(4).value).toBe(800);
     expect(row(ws, "FOC awaiting receipt").getCell(4).value).toBe(50);
     expect(row(ws, "Arrivals / Orders").getCell(4).value).toBe(200);
     expect(row(ws, "Closing Stock").getCell(4).value).toBe(1190);
     expect(row(ws, "Stock Weeks").getCell(4).value).toBe(476);
+    data.foc[0].lines[0].received = true;
+    data.foc[0].lines[1].received = true;
+    const received = new ExcelJS.Workbook();
+    await received.xlsx.load(await generateSingleSheetBufferForCountry("Syria", `planning-fg-${weight}`) as any);
+    expect(row(received.worksheets[0], "Production").getCell(4).value).toBe(800);
+    expect(row(received.worksheets[0], "FOC").getCell(4).value).toBe(50);
+    expect(row(received.worksheets[0], "Full Production").getCell(4).value).toBe(850);
+    expect(row(received.worksheets[0], "Closing Stock").getCell(4).value).toBe(1190);
   });
 });
 beforeEach(() => {

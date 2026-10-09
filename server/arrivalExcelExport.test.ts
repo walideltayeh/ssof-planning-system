@@ -43,7 +43,7 @@ async function exportWorkbook(country: "Libya" | "Syria" | "KSA" = "Libya", shee
 describe("international Arrival Excel download", () => {
   it("includes Syria FOC once in batch quantities and pending clearance, with a separate breakdown", async () => {
     const data = fixture();
-    data.foc = [{ country: "Syria", skuId: 1, periodId: 10, value: "20", received: false }];
+    data.foc = [{ country: "Syria", skuId: 1, periodId: 10, value: "20", received: true }];
     data.shipment[0].arrivalStatus = "Cleared";
     data.clearanceEvents = [{ ...data.clearanceEvents[0], clearedQty: "80" }];
     vi.mocked(db.getFullPlanningDataForCountry).mockResolvedValue(data as never);
@@ -58,18 +58,19 @@ describe("international Arrival Excel download", () => {
     expect(ws.getCell("Q2").value).toBe(80);
     expect(ws.getCell("R2").value).toBe(20);
     expect(wb.getWorksheet("Clearance Events")!.rowCount).toBe(2);
-    expect(data.foc[0].received).toBe(false);
+    expect(data.foc[0].received).toBe(true);
   });
 
-  it("exports FOC-only Syria batches and does not count FOC as confirmed actual or receipt", async () => {
+  it("exports Received FOC-only Syria batches as available to clear, with no paid production or warehouse receipt", async () => {
     const data = fixture();
     data.forecast = []; data.shipment = []; data.clearanceEvents = [];
-    data.foc = [{ country: "Syria", skuId: 1, periodId: 10, value: "20", received: false }];
+    data.foc = [{ country: "Syria", skuId: 1, periodId: 10, value: "20", received: true }];
     vi.mocked(db.getFullPlanningDataForCountry).mockResolvedValue(data as never);
     const ws = (await exportWorkbook("Syria")).getWorksheet("Arrival")!;
     expect(ws.rowCount).toBe(2);
     expect(ws.getCell("H2").value).toBe(20);
-    expect(ws.getCell("G2").value).toBe(0);
+    expect(ws.getCell("G2").value).toBe(20);
+    expect(ws.getCell("Q2").value).toBe(0);
     expect(ws.getCell("K2").value).toBe(0);
     expect(ws.getCell("L2").value).toBe(20);
   });

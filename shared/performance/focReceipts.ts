@@ -9,9 +9,6 @@ export interface FocReceiptDataset {
   arrival?: { skuId: number; periodId: number; week1?: Q; week2?: Q; week3?: Q; week4?: Q }[];
   planningFg?: { skuId: number; periodId: number; arrivals?: Q }[];
   clearanceEvents?: { skuId: number; periodId?: number; clearedQty: Q; clearedDate?: string | Date | null; country?: string }[];
-  forecast?: { skuId: number; periodId: number; value: Q }[];
-  actualProduction?: { skuId: number; periodId: number; value: Q }[];
-  shipment?: { skuId: number; periodId: number; week1?: Q; week2?: Q; week3?: Q; week4?: Q }[];
 }
 export type FocReceiptEntry = {
   skuId: number; periodId: number; sku: string; planMonth: string; receiptPeriodId: number | null; receiptMonth: string;
@@ -58,6 +55,18 @@ export function evaluateFocReceipts(ds: FocReceiptDataset, includeFoc = true): F
     const s = skus.get(c.skuId)!, origin = periods.get(c.periodId)!;
     const target = origin;
     const quantity = mcPrecision(n(c.value));
+    // Syria's Received switch confirms FOC is available for the batch.
+    // Warehouse arrivals are the clearance events only, including any FOC.
+    if (ds.country === "Syria") return {
+      skuId: c.skuId, periodId: c.periodId, sku: `${s.name ?? s.id} ${s.weight ?? ""}`.trim(),
+      ...(c.lineId ? { lineId: c.lineId } : {}),
+      planMonth: origin.label ?? receiptMonthKey(origin), receiptPeriodId: origin.id,
+      receiptMonth: origin.label ?? receiptMonthKey(origin), quantity,
+      received: c.received ?? false, decision: c.receiptDecision ?? "pending",
+      matches: [], reviewKey: JSON.stringify({ country: ds.country, skuId: c.skuId, periodId: c.periodId, quantity }),
+      needsReview: false, added: 0, receivedQuantity: c.received ? quantity : 0,
+      awaiting: c.received ? 0 : quantity, excluded: 0,
+    };
     const evidence: FocReceiptEntry["matches"] = [];
     if (target) {
       for (const e of ds.clearanceEvents ?? []) {
@@ -78,28 +87,6 @@ export function evaluateFocReceipts(ds: FocReceiptDataset, includeFoc = true): F
       const clearances = evidence.filter(e => e.source.includes("clearance") || e.source === "Clearance arrival");
       if (clearances.length > 1) evidence.push({ source: "Monthly clearance total", date: receiptMonthKey(target),
         quantity: mcPrecision(clearances.reduce((sum, e) => sum + e.quantity, 0)) });
-      // Syria Arrival includes paid Production + FOC. A combined clearance can
-      // already contain the FOC even though its total is not near the FOC alone.
-      // Flag possible overlap; never silently approve an additive stock receipt.
-      if (ds.country === "Syria" && c.received) {
-        const sameBatch = (row: { skuId: number; periodId?: number }) => row.skuId === c.skuId && row.periodId === c.periodId;
-        const manual = n(ds.actualProduction?.find(sameBatch)?.value);
-        const shipment = ds.shipment?.find(sameBatch);
-        const weekly = shipment ? n(shipment.week1) + n(shipment.week2) + n(shipment.week3) + n(shipment.week4) : 0;
-        const paid = manual > 0 ? manual : weekly > 0 ? weekly : n(ds.forecast?.find(sameBatch)?.value);
-        const batchEvents = (ds.clearanceEvents ?? []).filter(e => sameBatch(e) && (!e.country || e.country === ds.country) && n(e.clearedQty) > 0);
-        const cleared = mcPrecision(batchEvents.reduce((sum, event) => sum + n(event.clearedQty), 0));
-        const batchFoc = mcPrecision(cells.filter(sameBatch).reduce((sum, cell) => sum + n(cell.value), 0));
-        // A quantity outside this batch's physical range is not proof that its
-        // separately received FOC is included (tracker totals may have another basis).
-        if (paid > 0 && cleared > paid && cleared <= paid + batchFoc + 0.01) {
-          const dates = batchEvents.map(e => e.clearedDate instanceof Date ? e.clearedDate.toISOString().slice(0, 10) : e.clearedDate ?? "").sort();
-          evidence.push({
-            source: `Possible FOC in combined batch clearance (${cleared} MC cleared, ${paid} MC Production; ${mcPrecision(cleared - paid)} MC above Production)`,
-            date: dates.join(", "), quantity,
-          });
-        }
-      }
       for (const other of cells) {
         if (other === c || other.skuId !== c.skuId || (other.periodId === c.periodId && (other.lineId || c.lineId)) || !other.received || n(other.value) <= 0) continue;
         const op = periods.get(other.periodId)!;

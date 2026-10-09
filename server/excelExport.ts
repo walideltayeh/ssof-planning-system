@@ -1323,10 +1323,14 @@ function buildIntlPlanningFgSheet(
   const production = dataset ? fgProductionMap(dataset.country, dataset.forecast, dataset.actualProduction?.map(row => ({
     ...row, value: row.value ?? null,
   })), dataset.foc, dataset.shipment) : new Map<string, number>();
+  const paidProduction = dataset ? fgProductionMap(dataset.country, dataset.forecast, dataset.actualProduction, [], dataset.shipment) : new Map<string, number>();
   if (dataset && (dataset.country === "Libya" || dataset.country === "Syria")) {
-    const basis = dataset.includeFoc !== false ? "Including confirmed, duplicate-checked FOC receipts" : "Excluding FOC receipts";
+    const basis = dataset.country === "Syria" ? "Stock from cleared arrivals only; Received FOC joins Full Production"
+      : dataset.includeFoc !== false ? "Including confirmed, duplicate-checked FOC receipts" : "Excluding FOC receipts";
     ws.headerFooter = { oddHeader: `&L${basis}&RMC · page &P of &N`, evenHeader: `&L${basis}&RMC · page &P of &N` };
-    ws.addRow([basis]); ws.addRow(["Awaiting FOC is not stock. Receipt dates determine arrival month."]);
+    ws.addRow([basis]); ws.addRow([dataset.country === "Syria"
+      ? "Full Production = Production + Received FOC. Clearance dates determine warehouse arrival month."
+      : "Awaiting FOC is not stock. Receipt dates determine arrival month."]);
     ws.pageSetup.printTitlesRow = "1:3";
   }
   ws.views = [{ state: "frozen", xSplit: 2, ySplit: receipts ? 3 : 1 }];
@@ -1347,7 +1351,7 @@ function buildIntlPlanningFgSheet(
     arrMap.set(`${d.skuId}-${d.periodId}`, total);
   }
   const ROWS = ["Opening Stock", "IMS (Consumption)", "Adjustments",
-    ...(dataset?.country === "Syria" ? ["Production + FOC"] : []), "Arrivals / Orders",
+    ...(dataset?.country === "Syria" ? ["Production", "FOC", "Full Production"] : []), "Arrivals / Orders",
     ...(receipts ? ["FOC awaiting receipt"] : []), "Closing Stock", "Stock Weeks"];
   const headerRow = ws.addRow(["SKU Name", "Packaging", "Row", ...sortedPeriods.map(p => p.label)]);
   applyHeaderStyle(headerRow, 3 + sortedPeriods.length);
@@ -1375,7 +1379,9 @@ function buildIntlPlanningFgSheet(
         if (rowLabel === "Opening Stock") return openingStocks[pi] || null;
         if (rowLabel === "IMS (Consumption)") return imsVal || null;
         if (rowLabel === "Adjustments") return pg.adjustments || null;
-        if (rowLabel === "Production + FOC") return production.get(`${sku.id}-${p.id}`) || null;
+        if (rowLabel === "Production") return paidProduction.get(`${sku.id}-${p.id}`) || null;
+        if (rowLabel === "FOC") return (production.get(`${sku.id}-${p.id}`) ?? 0) - (paidProduction.get(`${sku.id}-${p.id}`) ?? 0) || null;
+        if (rowLabel === "Full Production") return production.get(`${sku.id}-${p.id}`) || null;
         if (rowLabel === "Arrivals / Orders") return arrVal || null;
         if (rowLabel === "FOC awaiting receipt") return awaiting.get(`${sku.id}-${p.id}`) ?? "Not set";
         if (rowLabel === "Closing Stock") return closingStocks[pi] || null;

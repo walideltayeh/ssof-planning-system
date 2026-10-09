@@ -34,6 +34,8 @@ const ROW_LABELS = [
   "Opening Stock",
   "Adjustments",
   "Production",
+  "FOC",
+  "Full Production",
   "Actual arrivals / Planned Orders",
   "FOC awaiting receipt",
   "IMS",
@@ -357,7 +359,8 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
         const pg = planningMap.get(key) ?? { openingStock: 0, adjustments: 0, invoiced: 0, arrivals: 0 };
         const forecastProd = forecastMap.get(key) ?? 0;
         const revisedProd = revisedMap.get(key);
-        const production = physicalProduction.get(key) ?? (revisedProd !== undefined ? revisedProd : forecastProd);
+        const production = paidProduction.get(key) ?? (revisedProd !== undefined ? revisedProd : forecastProd);
+        const fullProduction = physicalProduction.get(key) ?? production;
         const balance = stockLedger?.bySku.get(skuId)?.get(p.id);
         const ims = balance?.ims ?? 0;
         const arrivals = balance?.arrivals ?? 0;
@@ -375,6 +378,8 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
         result.get("Opening Stock")!.set(p.id.toString(), openingStock);
         result.get("Adjustments")!.set(p.id.toString(), pg.adjustments);
         result.get("Production")!.set(p.id.toString(), production);
+        result.get("FOC")!.set(p.id.toString(), fullProduction - production);
+        result.get("Full Production")!.set(p.id.toString(), fullProduction);
         result.get("Actual arrivals / Planned Orders")!.set(p.id.toString(), arrivals);
         result.get("FOC awaiting receipt")!.set(p.id.toString(), focAwaitingMap.get(key) ?? 0);
         result.get("IMS")!.set(p.id.toString(), ims);
@@ -383,7 +388,7 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
       }
       return result;
     },
-    [planningMap, forecastMap, revisedMap, physicalProduction, stockLedger, focAwaitingMap]
+    [planningMap, forecastMap, revisedMap, paidProduction, physicalProduction, stockLedger, focAwaitingMap]
   );
 
   // ── Cell editing ──────────────────────────────────────────────────────────
@@ -781,6 +786,8 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
     "Opening Stock": "hover:bg-blue-50/50",
     "Adjustments": "hover:bg-blue-50/50",
     "Production": "bg-blue-50/20",
+    "FOC": "bg-amber-50/30",
+    "Full Production": "bg-blue-50/20",
     "Actual arrivals / Planned Orders": "bg-emerald-50/30",
     "FOC awaiting receipt": "bg-amber-50/30",
     "IMS": "bg-orange-50/30",
@@ -792,6 +799,8 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
     "Opening Stock": "text-blue-700 bg-blue-50",
     "Adjustments": "text-blue-700 bg-blue-50",
     "Production": "text-blue-600 bg-blue-50",
+    "FOC": "text-amber-800 bg-amber-50",
+    "Full Production": "text-blue-600 bg-blue-50",
     "Actual arrivals / Planned Orders": "text-emerald-700 bg-emerald-50",
     "FOC awaiting receipt": "text-amber-800 bg-amber-50",
     "IMS": "text-orange-700 bg-orange-50",
@@ -840,8 +849,9 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
       </div>
 
       {supportedFocCountry && <div className="rounded-lg border border-[#7f1d1d]/15 bg-[#f8f2ed] px-3 py-2 text-xs text-muted-foreground">
-        {country === "Syria" && "Production + FOC matches Arrival batch quantities; editing Production changes paid production only. "}
-        Received FOC from FOC Record is included in arrivals and closing stock after duplicate review. Unreceived FOC does not affect stock. The Analysis Include FOC switch only changes analysis comparisons.
+        {country === "Syria"
+          ? "Full Production = Production + Received FOC, and matches the quantity to clear in Arrival. Received FOC does not add warehouse stock: actual cleared quantities enter arrivals and closing stock once, in their clearance month."
+          : "Received FOC from FOC Record is included in arrivals and closing stock after duplicate review. Unreceived FOC does not affect stock. The Analysis Include FOC switch only changes analysis comparisons."}
       </div>}
       {focWarnings.length > 0 && <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">
         <strong>{focWarnings.length} possible duplicate FOC receipt{focWarnings.length === 1 ? "" : "s"}.</strong>
@@ -1112,7 +1122,7 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
                   </tr>
                 </thead>
                 <tbody>
-                  {ROW_LABELS.filter(label => !supportedFocCountry || label !== "FOC awaiting receipt").map((label) => {
+                  {ROW_LABELS.filter(label => (supportedFocCountry || label !== "FOC awaiting receipt") && (country === "Syria" || (label !== "FOC" && label !== "Full Production"))).map((label) => {
                     const isFutureEditable = FUTURE_EDITABLE_ROWS.has(label);
                     const isStrictlyFutureEditable = STRICTLY_FUTURE_EDITABLE_ROWS.has(label);
                     const isClosingWeeks = label === "Closing Stock - Weeks";
@@ -1130,7 +1140,7 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
                         {/* Row label */}
                         <td className={`sticky left-0 z-10 px-3 py-1.5 font-medium whitespace-nowrap ${labelStyle[label]}`}>
                           <span className="flex items-center gap-1">
-                            {label === "Production" && country === "Syria" ? "Production + FOC" : label}
+                            {label}
                             {isClosingWeeks && (
                               <button
                                 onClick={() => setShowHealthySettings(true)}

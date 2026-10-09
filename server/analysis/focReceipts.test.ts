@@ -43,10 +43,10 @@ describe("Confirmed FOC receipt stock rules", () => {
     ds.foc![0].received = true;
     const after = ledger(ds);
     for (let month = 1; month <= 12; month++) {
-      const delta = month >= 9 ? 12.34 : 0;
+      const delta = country === "Libya" && month >= 9 ? 12.34 : 0;
       expect(after.bySku.get(1)!.get(month)!.closing - before.bySku.get(1)!.get(month)!.closing).toBeCloseTo(delta, 8);
       expect(after.totals.get(month)! - before.totals.get(month)!).toBeCloseTo(delta, 8);
-      expect(after.bySku.get(1)!.get(month)!.arrivals - before.bySku.get(1)!.get(month)!.arrivals).toBe(month === 9 ? 12.34 : 0);
+      expect(after.bySku.get(1)!.get(month)!.arrivals - before.bySku.get(1)!.get(month)!.arrivals).toBe(country === "Libya" && month === 9 ? 12.34 : 0);
     }
     expect(ledger(ds, false)).toEqual(before);
     ds.foc![0].received = false;
@@ -71,7 +71,7 @@ describe("Confirmed FOC receipt stock rules", () => {
     ds.foc![0].receiptDecision = "separate"; ds.foc![0].receiptReviewKey = "stale";
     expect(ledger(ds)).toEqual(ledger({ ...ds, foc: [] }));
   });
-  it.each(["Libya", "Syria"] as const)("detects similar recorded/clearance inbound, blocks addition, and warns in %s confidence", country => {
+  it.each(["Libya"] as const)("detects similar recorded/clearance inbound, blocks addition, and warns in %s confidence", country => {
     const ds = fixture(country); ds.foc![0].received = true;
     ds.clearanceEvents.push({ skuId: 1, periodId: 1, clearedQty: "12.34", clearedDate: "2026-09-20", country });
     const e = evaluateFocReceipts(ds)[0];
@@ -84,24 +84,24 @@ describe("Confirmed FOC receipt stock rules", () => {
     expect(pack.foc!.receipts!.total.reviewPending).toBe(12.34);
   });
   it("checks recorded weekly arrivals and partial clearances, but ignores another SKU/month/country", () => {
-    const ds = fixture("Syria"); ds.foc![0].received = true;
+    const ds = fixture("Libya"); ds.foc![0].received = true;
     ds.arrival = [{ skuId: 1, periodId: 9, week1: "12.34", week2: "100", week3: "0", week4: "0" }];
     expect(evaluateFocReceipts(ds)[0].needsReview).toBe(true);
     ds.arrival = []; ds.clearanceEvents = [
-      { skuId: 1, periodId: 1, clearedQty: "6.17", clearedDate: "2026-09-02", country: "Syria" },
-      { skuId: 1, periodId: 2, clearedQty: "6.17", clearedDate: "2026-09-03", country: "Syria" },
+      { skuId: 1, periodId: 1, clearedQty: "6.17", clearedDate: "2026-09-02", country: "Libya" },
+      { skuId: 1, periodId: 2, clearedQty: "6.17", clearedDate: "2026-09-03", country: "Libya" },
     ];
     expect(evaluateFocReceipts(ds)[0].matches.some(m => m.source === "Monthly clearance total")).toBe(true);
     ds.clearanceEvents = [
-      { skuId: 2, periodId: 9, clearedQty: "12.34", clearedDate: "2026-09-03", country: "Syria" },
-      { skuId: 1, periodId: 8, clearedQty: "12.34", clearedDate: "2026-08-03", country: "Syria" },
-      { skuId: 1, periodId: 9, clearedQty: "12.34", clearedDate: "2026-09-03", country: "Libya" },
+      { skuId: 2, periodId: 9, clearedQty: "12.34", clearedDate: "2026-09-03", country: "Libya" },
+      { skuId: 1, periodId: 8, clearedQty: "12.34", clearedDate: "2026-08-03", country: "Libya" },
+      { skuId: 1, periodId: 9, clearedQty: "12.34", clearedDate: "2026-09-03", country: "Syria" },
     ];
     expect(evaluateFocReceipts(ds)[0].added).toBe(12.34);
   });
   it.each(["included", "separate"])("requires explicit %s review; survives tracker IDs being recreated and reblocks changed quantities", decision => {
-    const ds = fixture("Syria"); ds.foc![0].received = true;
-    ds.clearanceEvents = [{ skuId: 1, periodId: 8, clearedQty: "12.34", clearedDate: "2026-09-05", country: "Syria" }];
+    const ds = fixture("Libya"); ds.foc![0].received = true;
+    ds.clearanceEvents = [{ skuId: 1, periodId: 8, clearedQty: "12.34", clearedDate: "2026-09-05", country: "Libya" }];
     const e = evaluateFocReceipts(ds)[0]; ds.foc![0].receiptDecision = decision; ds.foc![0].receiptReviewKey = e.reviewKey;
     expect(evaluateFocReceipts(ds)[0].added).toBe(decision === "separate" ? 12.34 : 0);
     const before = ledger(ds);
@@ -113,17 +113,17 @@ describe("Confirmed FOC receipt stock rules", () => {
     expect(evaluateFocReceipts(ds)[0].needsReview).toBe(true);
   });
   it("an entirely separate received FOC layer survives tracker clearing/replacing all clearance rows", () => {
-    const ds = fixture("Syria"); ds.foc![0].received = true;
+    const ds = fixture("Libya"); ds.foc![0].received = true;
     expect(focReceiptAdditions(ds).get("1-9")).toBe(12.34);
-    ds.clearanceEvents = [{ skuId: 1, periodId: 9, clearedQty: "700", clearedDate: "2026-09-20", country: "Syria" }];
+    ds.clearanceEvents = [{ skuId: 1, periodId: 9, clearedQty: "700", clearedDate: "2026-09-20", country: "Libya" }];
     expect(focReceiptAdditions(ds).get("1-9")).toBe(12.34);
     ds.clearanceEvents = [];
     expect(focReceiptAdditions(ds).get("1-9")).toBe(12.34);
   });
   it("rechecks after a new tracker inbound creates a duplicate; never adds automatically on top", () => {
-    const ds = fixture("Syria"); ds.foc![0].received = true;
+    const ds = fixture("Libya"); ds.foc![0].received = true;
     expect(evaluateFocReceipts(ds)[0].added).toBe(12.34);
-    ds.clearanceEvents = [{ skuId: 1, periodId: 9, clearedQty: "12.35", clearedDate: "2026-09-20", country: "Syria" }];
+    ds.clearanceEvents = [{ skuId: 1, periodId: 9, clearedQty: "12.35", clearedDate: "2026-09-20", country: "Libya" }];
     expect(evaluateFocReceipts(ds)[0]).toMatchObject({ added: 0, needsReview: true });
   });
   it("similar FOC quantities in different planning months never move into the same month", () => {

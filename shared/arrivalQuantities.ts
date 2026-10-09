@@ -1,13 +1,15 @@
 import { mcPrecision, type FocCell } from "./performance/foc";
+import { receivedFocMC } from "./focEntry";
 
-/** Physical expected quantities, independent of the warehouse Received switch. */
+/** Syria Received FOC is available to clear, not already in warehouse stock. */
 export function arrivalFocMap(country: string, cells: FocCell[] = []): Map<string, number> {
   const result = new Map<string, number>();
   // This change is deliberately Syria-only; other countries keep their basis.
   if (country !== "Syria") return result;
   for (const cell of cells) {
     if (cell.country != null && cell.country !== country) continue;
-    const quantity = Number(cell.value);
+    if (cell.value == null) continue;
+    const quantity = receivedFocMC(cell);
     if (Number.isFinite(quantity) && quantity > 0)
       result.set(`${cell.skuId}-${cell.periodId}`, mcPrecision(quantity));
   }
@@ -16,8 +18,9 @@ export function arrivalFocMap(country: string, cells: FocCell[] = []): Map<strin
 
 export function combinedArrivalQuantities(plannedProduction: number, actualProduction: number, foc: number) {
   const plannedTotal = mcPrecision(plannedProduction + foc);
-  // Do not fabricate paid actuals for a forecast-only or FOC-only batch.
-  const actualTotal = actualProduction > 0 ? mcPrecision(actualProduction + foc) : 0;
+  // Received FOC-only batches are available to clear without fabricating paid
+  // actual production. A paid forecast still awaits its own production entry.
+  const actualTotal = actualProduction > 0 ? mcPrecision(actualProduction + foc) : plannedProduction === 0 ? foc : 0;
   const productionTotal = actualProduction > 0 ? actualProduction : plannedProduction;
   return {
     plannedTotal, actualTotal, productionTotal, focTotal: foc,
