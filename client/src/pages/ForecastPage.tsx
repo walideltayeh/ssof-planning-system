@@ -52,11 +52,12 @@ export default function ForecastPage() {
     onSuccess: () => {
       utils.country.data.invalidate();
       utils.country.planningFg.invalidate();
+      utils.focPlanning.list.invalidate();
     },
     onError: (err: any) => toast.error("Failed to save: " + err.message),
   });
   const updateProductionIntl = trpc.country.updateProduction.useMutation({
-    onSuccess: () => utils.country.data.invalidate(),
+    onSuccess: () => { utils.country.data.invalidate(); utils.country.planningFg.invalidate(); utils.focPlanning.list.invalidate(); },
     onError: (err: any) => toast.error("Failed to sync production: " + err.message),
   });
   const updateForecastWeek = trpc.country.updateForecastWeek.useMutation({

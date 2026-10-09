@@ -29,3 +29,23 @@ export function combinedArrivalQuantities(plannedProduction: number, actualProdu
 export function arrivalStatusWithFoc(status: string, foc: number, total: number, cleared: number): string {
   return foc > 0 && status === "Cleared" && cleared > 0 && cleared < total ? "Partially Cleared" : status;
 }
+
+/** Syria FG and Arrival share the same production priority: manual actual,
+ * entered shipment weeks, then forecast. Other countries retain their FG basis.
+ * The physical quantity is separate from warehouse stock and paid-only editing. */
+export function fgProductionMap(
+  country: string,
+  forecast: { skuId: number; periodId: number; value?: string | number | null }[],
+  actual: { skuId: number; periodId: number; value?: string | number | null }[] = [],
+  foc: FocCell[] = [],
+  shipment: { skuId: number; periodId: number; week1?: string | number | null; week2?: string | number | null; week3?: string | number | null; week4?: string | number | null }[] = [],
+) {
+  const production = new Map(forecast.map(row => [`${row.skuId}-${row.periodId}`, Number(row.value) || 0]));
+  if (country === "Syria") for (const row of shipment) {
+    const quantity = [row.week1, row.week2, row.week3, row.week4].reduce<number>((sum, value) => sum + (Number(value) || 0), 0);
+    if (quantity > 0) production.set(`${row.skuId}-${row.periodId}`, mcPrecision(quantity));
+  }
+  for (const row of actual) if (Number(row.value) > 0) production.set(`${row.skuId}-${row.periodId}`, Number(row.value));
+  for (const [key, quantity] of arrivalFocMap(country, foc)) production.set(key, mcPrecision((production.get(key) ?? 0) + quantity));
+  return production;
+}

@@ -3,6 +3,7 @@ import * as db from "./db";
 import { buildInternationalArrivalSheets } from "./arrivalExcelExport";
 import { buildStockLedger, type StockDataset } from "../shared/performance/stock";
 import { summarizeFocReceipts } from "../shared/performance/focReceipts";
+import { fgProductionMap } from "../shared/arrivalQuantities";
 
 // ==================== TYPES ====================
 interface Sku {
@@ -1314,7 +1315,14 @@ function buildIntlPlanningFgSheet(
   const ledger = dataset && (dataset.country === "Libya" || dataset.country === "Syria") ? buildStockLedger(dataset) : null;
   const receipts = dataset && (dataset.country === "Libya" || dataset.country === "Syria")
     ? summarizeFocReceipts(dataset, dataset.includeFoc !== false) : null;
-  const awaiting = new Map(receipts?.entries.map(e => [`${e.skuId}-${e.periodId}`, e.awaiting]) ?? []);
+  const awaiting = new Map<string, number>();
+  for (const entry of receipts?.entries ?? []) {
+    const key = `${entry.skuId}-${entry.periodId}`;
+    awaiting.set(key, (awaiting.get(key) ?? 0) + entry.awaiting);
+  }
+  const production = dataset ? fgProductionMap(dataset.country, dataset.forecast, dataset.actualProduction?.map(row => ({
+    ...row, value: row.value ?? null,
+  })), dataset.foc, dataset.shipment) : new Map<string, number>();
   if (dataset && (dataset.country === "Libya" || dataset.country === "Syria")) {
     const basis = dataset.includeFoc !== false ? "Including confirmed, duplicate-checked FOC receipts" : "Excluding FOC receipts";
     ws.headerFooter = { oddHeader: `&L${basis}&RMC · page &P of &N`, evenHeader: `&L${basis}&RMC · page &P of &N` };
@@ -1338,7 +1346,8 @@ function buildIntlPlanningFgSheet(
     const total = (parseFloat(d.week1 ?? "0") || 0) + (parseFloat(d.week2 ?? "0") || 0) + (parseFloat(d.week3 ?? "0") || 0) + (parseFloat(d.week4 ?? "0") || 0);
     arrMap.set(`${d.skuId}-${d.periodId}`, total);
   }
-  const ROWS = ["Opening Stock", "IMS (Consumption)", "Adjustments", "Arrivals / Orders",
+  const ROWS = ["Opening Stock", "IMS (Consumption)", "Adjustments",
+    ...(dataset?.country === "Syria" ? ["Production + FOC"] : []), "Arrivals / Orders",
     ...(receipts ? ["FOC awaiting receipt"] : []), "Closing Stock", "Stock Weeks"];
   const headerRow = ws.addRow(["SKU Name", "Packaging", "Row", ...sortedPeriods.map(p => p.label)]);
   applyHeaderStyle(headerRow, 3 + sortedPeriods.length);
@@ -1366,6 +1375,7 @@ function buildIntlPlanningFgSheet(
         if (rowLabel === "Opening Stock") return openingStocks[pi] || null;
         if (rowLabel === "IMS (Consumption)") return imsVal || null;
         if (rowLabel === "Adjustments") return pg.adjustments || null;
+        if (rowLabel === "Production + FOC") return production.get(`${sku.id}-${p.id}`) || null;
         if (rowLabel === "Arrivals / Orders") return arrVal || null;
         if (rowLabel === "FOC awaiting receipt") return awaiting.get(`${sku.id}-${p.id}`) ?? "Not set";
         if (rowLabel === "Closing Stock") return closingStocks[pi] || null;

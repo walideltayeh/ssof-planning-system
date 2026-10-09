@@ -15,6 +15,12 @@ For Syria, Production and FOC are both physically produced and should both be in
 
 **How to apply:** Distinguish combined physical batch quantities from received stock. Warehouse Received and the commercial/stock Include FOC selection must not hide physically expected FOC in Syria Arrival. Do not infer paid actual production from a FOC-only entry, and do not count FOC twice when it is already included in a production or clearance quantity.
 
+All these numbers must link to the FG pages. Syria's physical Production figure uses the same positive manual actual, entered weekly production, then forecast priority as Arrival, plus FOC. Keep paid-only editing separate from the combined display. Warehouse arrivals follow clearance months and eligible FOC receipts, not production months.
+
+**Why:** The user asked to make sure all numbers are linked to FG. Physical production and received stock are different quantities, but must agree on their underlying inputs.
+
+**How to apply:** Preserve independent received FOC when tracker records are replaced. A possible combined-batch duplicate needs explicit review, not automatic stock addition; do not treat unrelated tracker totals above the batch's physical range as proof that separate FOC was already included.
+
 Forecast Production is the only dedicated FOC surface for Libya and Syria. Retain the pre-FOC compact spreadsheet appearance, original type scale and dark red accent. FOC sub-rows appear only for SKUs with positive FOC quantities in the displayed periods and use the same compact row height. No standalone FOC section in Analysis, its slide order, PDF or Excel; keep Include FOC and its effects on arrivals, stock and derived totals. Do not introduce FOC in Lebanon/KSA.
 
 **Why:** The user reversed the tall ordered-row hierarchy and oversized totals, explicitly asking for the pre-FOC spreadsheet design rather than new styling.

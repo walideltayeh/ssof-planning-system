@@ -4,6 +4,27 @@ vi.mock("./db", () => ({ getFullPlanningDataForCountry: vi.fn(), getActualProduc
 const db = await import("./db");
 const { generateSingleSheetBufferForCountry } = await import("./excelExport");
 let data: any;
+describe("Syria FG quantities linked to Production, FOC and Arrival", () => {
+  it.each(["50g", "250g", "1kg"])("exports linked production and all awaiting lines for %s without inflating stock", async weight => {
+    data.skus[0].country = "Syria"; data.skus[0].weight = weight;
+    data.periods.forEach((p: any) => { p.country = "Syria"; });
+    data.forecast = [{ skuId: 1, periodId: 9, value: "1000" }];
+    data.shipment = [{ skuId: 1, periodId: 9, week1: "800" }];
+    data.arrival = [];
+    data.clearanceEvents = [{ country: "Syria", skuId: 1, periodId: 9, clearedQty: "200", clearedDate: "2026-09-20" }];
+    data.foc = [{ country: "Syria", skuId: 1, periodId: 9, value: "50", received: false,
+      lines: [20, 30].map((quantityMC, id) => ({ id: String(id), quantityMC, received: false, source: "Recorded FOC",
+        accType: "Export", salesManager: "", actor: "Test", recordedAt: "2026-09-01T00:00:00Z" })) }];
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(await generateSingleSheetBufferForCountry("Syria", `planning-fg-${weight}`) as any);
+    const ws = wb.worksheets[0];
+    expect(row(ws, "Production + FOC").getCell(4).value).toBe(850);
+    expect(row(ws, "FOC awaiting receipt").getCell(4).value).toBe(50);
+    expect(row(ws, "Arrivals / Orders").getCell(4).value).toBe(200);
+    expect(row(ws, "Closing Stock").getCell(4).value).toBe(1190);
+    expect(row(ws, "Stock Weeks").getCell(4).value).toBe(476);
+  });
+});
 beforeEach(() => {
   data = {
     skus: [{ id: 1, country: "Libya", name: "Mint", weight: "50g", isActive: true, isExcludedFromTotal: false }],

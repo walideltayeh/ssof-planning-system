@@ -20,6 +20,7 @@ import { buildStockLedger } from "@shared/performance/stock";
 import { Link } from "wouter";
 import { evaluateFocReceipts } from "@shared/performance/focReceipts";
 import { supportsFoc } from "@shared/performance/foc";
+import { fgProductionMap } from "@shared/arrivalQuantities";
 import {
   pushEntry as pushUndoStackEntry,
   clearStackForSku,
@@ -135,6 +136,7 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
     onSuccess: () => {
       utils.country.planningFg.invalidate();
       utils.country.data.invalidate();
+      utils.focPlanning.list.invalidate();
     },
     onError: (err: any) => toast.error("Failed to save Production: " + err.message),
   });
@@ -269,6 +271,9 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
     return m;
   }, [data]);
 
+  const physicalProduction = useMemo(() => fgProductionMap(country ?? "", data?.forecast ?? [], data?.actualProduction ?? [], data?.foc ?? [], data?.shipment ?? []), [country, data]);
+  const paidProduction = useMemo(() => fgProductionMap(country ?? "", data?.forecast ?? [], data?.actualProduction ?? [], [], data?.shipment ?? []), [country, data]);
+
   const revisedMap = useMemo(() => {
     const m = new Map<string, number>();
     for (const d of (data as any)?.actualProduction ?? []) {
@@ -352,7 +357,7 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
         const pg = planningMap.get(key) ?? { openingStock: 0, adjustments: 0, invoiced: 0, arrivals: 0 };
         const forecastProd = forecastMap.get(key) ?? 0;
         const revisedProd = revisedMap.get(key);
-        const production = revisedProd !== undefined ? revisedProd : forecastProd;
+        const production = physicalProduction.get(key) ?? (revisedProd !== undefined ? revisedProd : forecastProd);
         const balance = stockLedger?.bySku.get(skuId)?.get(p.id);
         const ims = balance?.ims ?? 0;
         const arrivals = balance?.arrivals ?? 0;
@@ -378,11 +383,12 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
       }
       return result;
     },
-    [planningMap, forecastMap, revisedMap, stockLedger, focAwaitingMap]
+    [planningMap, forecastMap, revisedMap, physicalProduction, stockLedger, focAwaitingMap]
   );
 
   // ── Cell editing ──────────────────────────────────────────────────────────
   const handleCellClick = (skuId: number, period: Period, label: RowLabel, currentValue: number) => {
+    if (label === "Production") currentValue = paidProduction.get(`${skuId}-${period.id}`) ?? 0;
     if (FUTURE_EDITABLE_ROWS.has(label) && isFuturePeriod(period)) {
       setEditingCell({ skuId, periodId: period.id, label });
       setEditValue(currentValue === 0 ? "" : currentValue.toString());
@@ -409,8 +415,7 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
     if (label === "IMS") {
       oldNum = imsMap.get(key) ?? 0;
     } else if (label === "Production") {
-      const revised = revisedMap.get(key);
-      oldNum = revised !== undefined ? revised : (forecastMap.get(key) ?? 0);
+      oldNum = paidProduction.get(key) ?? 0;
     } else if (label === "Adjustments") {
       oldNum = planningMap.get(key)?.adjustments ?? 0;
     } else if (label === "Opening Stock") {
@@ -720,8 +725,7 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
       if (label === "Adjustments") val = planData?.adjustments ?? 0;
       else if (label === "IMS") val = imsMap.get(`${skuId}-${periodId}`) ?? 0;
       else if (label === "Production") {
-        const revised = revisedMap.get(`${skuId}-${periodId}`);
-        val = revised !== undefined ? revised : (forecastMap.get(`${skuId}-${periodId}`) ?? 0);
+        val = paidProduction.get(`${skuId}-${periodId}`) ?? 0;
       }
       setEditingCell({ skuId, periodId, label });
       setEditValue(val === 0 ? "" : val.toString());
@@ -836,6 +840,7 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
       </div>
 
       {supportedFocCountry && <div className="rounded-lg border border-[#7f1d1d]/15 bg-[#f8f2ed] px-3 py-2 text-xs text-muted-foreground">
+        {country === "Syria" && "Production + FOC matches Arrival batch quantities; editing Production changes paid production only. "}
         Received FOC from FOC Record is included in arrivals and closing stock after duplicate review. Unreceived FOC does not affect stock. The Analysis Include FOC switch only changes analysis comparisons.
       </div>}
       {focWarnings.length > 0 && <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">
@@ -1125,7 +1130,7 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
                         {/* Row label */}
                         <td className={`sticky left-0 z-10 px-3 py-1.5 font-medium whitespace-nowrap ${labelStyle[label]}`}>
                           <span className="flex items-center gap-1">
-                            {label}
+                            {label === "Production" && country === "Syria" ? "Production + FOC" : label}
                             {isClosingWeeks && (
                               <button
                                 onClick={() => setShowHealthySettings(true)}
@@ -1139,7 +1144,7 @@ export default function IntlPlanningFgPage({ weight }: IntlPlanningFgPageProps) 
                               <span className="text-[9px] text-blue-400">(editable: current+future)</span>
                             )}
                             {isStrictlyFutureEditable && (
-                              <span className="text-[9px] text-blue-400">(revised if available, else forecast)</span>
+                              <span className="text-[9px] text-blue-400">{country === "Syria" ? "(edit paid Production only)" : "(revised if available, else forecast)"}</span>
                             )}
                             {label === "Opening Stock" && (
                               <span className="text-[9px] text-gray-400">(auto)</span>

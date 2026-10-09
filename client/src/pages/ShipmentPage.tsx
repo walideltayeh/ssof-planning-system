@@ -60,7 +60,7 @@ export default function ShipmentPage() {
     onError: (err) => toast.error("Failed to save: " + err.message),
   });
   const updateCellIntl = trpc.country.updateProduction.useMutation({
-    onSuccess: () => utils.country.data.invalidate(),
+    onSuccess: () => { utils.country.data.invalidate(); utils.country.planningFg.invalidate(); utils.focPlanning.list.invalidate(); },
     onError: (err) => toast.error("Failed to save: " + err.message),
   });
 

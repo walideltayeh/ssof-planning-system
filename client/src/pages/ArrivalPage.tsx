@@ -204,17 +204,17 @@ export default function ArrivalPage() {
   const [addingClearance, setAddingClearance] = useState<Record<string, { qty: string; clearedDate: string; pendingClearDate: string; invoiceRef: string; containerRef: string }>>({});
 
   const addClearanceEvent = trpc.country.addClearanceEvent.useMutation({
-    onSuccess: () => { utils.country.data.invalidate(); utils.country.clearanceEvents.invalidate(); utils.country.planningFg.invalidate(); },
+    onSuccess: () => { utils.country.data.invalidate(); utils.country.clearanceEvents.invalidate(); utils.country.planningFg.invalidate(); utils.focPlanning.list.invalidate(); },
     onError: (err) => toast.error("Failed to add clearance: " + err.message),
   });
 
   const deleteClearanceEvent = trpc.country.deleteClearanceEvent.useMutation({
-    onSuccess: () => { utils.country.data.invalidate(); utils.country.clearanceEvents.invalidate(); utils.country.planningFg.invalidate(); },
+    onSuccess: () => { utils.country.data.invalidate(); utils.country.clearanceEvents.invalidate(); utils.country.planningFg.invalidate(); utils.focPlanning.list.invalidate(); },
     onError: (err) => toast.error("Failed to delete clearance: " + err.message),
   });
 
   const updateClearanceEvent = trpc.country.updateClearanceEvent.useMutation({
-    onSuccess: () => { utils.country.data.invalidate(); utils.country.clearanceEvents.invalidate(); utils.country.planningFg.invalidate(); },
+    onSuccess: () => { utils.country.data.invalidate(); utils.country.clearanceEvents.invalidate(); utils.country.planningFg.invalidate(); utils.focPlanning.list.invalidate(); },
     onError: (err) => toast.error("Failed to update clearance: " + err.message),
   });
 

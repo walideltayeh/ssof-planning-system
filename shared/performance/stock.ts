@@ -17,8 +17,10 @@ export interface StockDataset {
   planningFg: (Cell & { openingStock?: Quantity; adjustments?: Quantity; arrivals?: Quantity })[];
   ims: (Cell & { value: Quantity })[];
   forecast: (Cell & { value: Quantity })[];
+  actualProduction?: (Cell & { value: Quantity })[];
+  shipment?: (Cell & { week1?: Quantity; week2?: Quantity; week3?: Quantity; week4?: Quantity })[];
   arrival: (Cell & { week1?: Quantity; week2?: Quantity; week3?: Quantity; week4?: Quantity })[];
-  clearanceEvents: { skuId: number; clearedQty: Quantity; clearedDate?: string | Date | null; country?: string }[];
+  clearanceEvents: { skuId: number; periodId?: number; clearedQty: Quantity; clearedDate?: string | Date | null; country?: string }[];
 }
 export interface StockBalance {
   opening: number;

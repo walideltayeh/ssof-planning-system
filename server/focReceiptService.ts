@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { getDb } from "./db";
-import { skus, periods, focData, arrivalData, planningFgData, clearanceEvents, auditTrail } from "../drizzle/schema";
+import { skus, periods, focData, arrivalData, planningFgData, clearanceEvents, auditTrail, forecastData, shipmentData, actualProductionData } from "../drizzle/schema";
 import { supportsFoc, type FocCountry } from "../shared/performance/foc";
 import { evaluateFocReceipts } from "../shared/performance/focReceipts";
 
@@ -18,16 +18,20 @@ function fail(message: string): never { throw new TRPCError({ code: "BAD_REQUEST
 export async function loadFocReceiptData(country: FocCountry, connection?: Db) {
   if (!supportsFoc(country)) fail("FOC is available only for Libya and Syria");
   const db = connection ?? await database();
-  const [ss, ps, foc, arrival, planning, clearances] = await Promise.all([
+  const [ss, ps, foc, arrival, planning, clearances, forecast, shipment, actualProduction] = await Promise.all([
     db.select().from(skus).where(and(eq(skus.country, country), eq(skus.isActive, true))).orderBy(skus.sortOrder),
     db.select().from(periods).where(eq(periods.country, country)).orderBy(periods.sortOrder),
     db.select().from(focData).where(eq(focData.country, country)),
     db.select({ row: arrivalData }).from(arrivalData).innerJoin(skus, eq(skus.id, arrivalData.skuId)).where(eq(skus.country, country)),
     db.select({ row: planningFgData }).from(planningFgData).innerJoin(skus, eq(skus.id, planningFgData.skuId)).where(eq(skus.country, country)),
     db.select().from(clearanceEvents).where(eq(clearanceEvents.country, country)),
+    db.select({ row: forecastData }).from(forecastData).innerJoin(skus, eq(skus.id, forecastData.skuId)).where(eq(skus.country, country)),
+    db.select({ row: shipmentData }).from(shipmentData).innerJoin(skus, eq(skus.id, shipmentData.skuId)).where(eq(skus.country, country)),
+    db.select({ row: actualProductionData }).from(actualProductionData).innerJoin(skus, eq(skus.id, actualProductionData.skuId)).where(eq(skus.country, country)),
   ]);
   return { country, skus: ss, periods: ps, foc, arrival: arrival.map(r => r.row),
-    planningFg: planning.map(r => r.row), clearanceEvents: clearances };
+    planningFg: planning.map(r => r.row), clearanceEvents: clearances, forecast: forecast.map(r => r.row),
+    shipment: shipment.map(r => r.row), actualProduction: actualProduction.map(r => r.row) };
 }
 
 function validateScope(ds: Awaited<ReturnType<typeof loadFocReceiptData>>, input: ReceiptChange) {
