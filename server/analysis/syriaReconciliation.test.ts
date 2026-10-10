@@ -151,7 +151,7 @@ describe("Syria read-only tracker reconciliation", () => {
 
   it("assigns unmapped products, inactive SKUs and missing months exactly once", () => {
     const { ds, f } = fixture();
-    ds.skus.push({ id: 2, name: "Grape", weight: "50g", category: "Core", isActive: false });
+    ds.skus.push({ id: 2, name: "Grape", weight: "50g", category: "Core", packagingType: "New", isActive: false });
     f.arrivals.push(
       { flavour: "Unknown", format: "50g", month: "2026-01", qty: 13 },
       { flavour: "Grape", format: "50g", month: "2026-01", qty: 7 },
@@ -182,7 +182,7 @@ describe("Syria read-only tracker reconciliation", () => {
 
   it("reads Syria's inactive master SKUs for comparison without adding them to SSOF totals", async () => {
     const { ds, f } = fixture();
-    const allSkus = [...ds.skus, { id: 2, name: "Grape", weight: "50g", category: "Core", isActive: false }];
+    const allSkus = [...ds.skus, { id: 2, name: "Grape", weight: "50g", category: "Core", packagingType: "New", isActive: false }];
     vi.mocked(getSkusForCountry).mockResolvedValue(allSkus as unknown as Awaited<ReturnType<typeof getSkusForCountry>>);
     f.arrivals.push({ flavour: "Grape", format: "50g", month: "2026-01", qty: 7 });
     vi.mocked(fetchFeed).mockResolvedValue(f);

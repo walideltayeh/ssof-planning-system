@@ -1,0 +1,16 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "QVWXl6P4DDUfrR2Ag4akB"
+uri = "file://generated-artifacts/syria-sync-audit.xlsx"
+type = "table"
+title = "Syria WS Tracker audit — all 24 SKUs"
+description = "11 worksheets: side-by-side IMS, inbound and closing; monthly stock chains; the 3,334 MC explanation; named causes, delivery buckets and history evidence. Unpublished warehouse balances remain explicitly unknown."
+logical_id = "bd6b8ed7-069f-4ca1-aed5-68d8fe1700b5"
+content_hash = "sha256:5459d0ac356374340b836a807bc4d698d8c732bbb4f69158a36413948e5b48ae"
+size = 47232
+mtime_ms = 1791617381376
+storage_uri = "gcs://replit-rams-assets-sisko/rams/assets/repl:3f565c45-73ea-4593-a443-65a4e4a1a13b/bd6b8ed7-069f-4ca1-aed5-68d8fe1700b5/6a4cecf8-3468-421c-b326-2f83346f847a"
+storage_version_token = "1791617636884225"
+content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"

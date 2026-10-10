@@ -35,10 +35,14 @@ type Plan = {
     replacing: number;
     replacingQty: number;
     newQty: number;
+    preserved?: number;
+    preservedQty?: number;
+    beforeProduction?: { skuLabel: string; date: string; qty: number }[];
+    conflicts?: { skuLabel: string; date: string; qty: number; eventId: number }[];
   };
 };
 
-const mc = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: 0 });
+const mc = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: 2 });
 
 export default function WsTrackerSyncCard({ section }: { section: "IMS" | "Arrival" }) {
   const { country } = useCountry();
@@ -97,7 +101,7 @@ export default function WsTrackerSyncCard({ section }: { section: "IMS" | "Arriv
             <Button variant="outline" size="sm" disabled={busy} onClick={() => preview.mutate()}>
               {preview.isPending ? "Checking…" : "Check WS Tracker"}
             </Button>
-            <Button size="sm" disabled={busy || !plan} onClick={() => sync.mutate()}>
+            <Button size="sm" disabled={busy || !plan || !!plan.clearance.overflow.length || !!plan.unmatchedMonths.length || !!plan.clearance.conflicts?.length} onClick={() => sync.mutate()}>
               {sync.isPending ? "Writing…" : "Apply to IMS + Arrival"}
             </Button>
           </div>
@@ -105,6 +109,22 @@ export default function WsTrackerSyncCard({ section }: { section: "IMS" | "Arriv
 
         {plan && (
           <div className="space-y-2 text-xs">
+            <div className="rounded border bg-muted/40 p-2">
+              Syria stock counts dated clearances once, not weekly arrival rows plus clearances. Received FOC is available to clear, not a separate warehouse receipt.
+              {" "}Manual and non-tracker clearances are preserved. Earlier values outside {plan.feed.from}–{plan.feed.to} are not erased.
+            </div>
+            {!!plan.clearance.conflicts?.length && <div role="alert" className="rounded border border-amber-300 p-2">
+              Sync blocked: non-tracker clearances overlap tracker delivery dates. Review these records; none will be deleted.
+              {plan.clearance.conflicts.map(e => <div key={e.eventId}>{e.skuLabel} · {e.date} · {mc(e.qty)} MC · event {e.eventId}</div>)}
+            </div>}
+            {!!plan.clearance.overflow.length && <div role="alert" className="rounded border border-amber-300 p-2">
+              Sync blocked: these deliveries have no arrival-month period.
+              {plan.clearance.overflow.map((e, i) => <div key={i}>{e.skuLabel} · {e.date} · {mc(e.qty)} MC</div>)}
+            </div>}
+            {!!plan.clearance.beforeProduction?.length && <details className="rounded border p-2">
+              <summary>Deliveries before first production or without a production batch (included by delivery date)</summary>
+              {plan.clearance.beforeProduction.map((e, i) => <div key={i}>{e.skuLabel} · {e.date} · {mc(e.qty)} MC</div>)}
+            </details>}
             {plan.unmatchedProducts.length > 0 && (
               <div className="rounded border border-amber-300 bg-amber-50 p-2 text-amber-900">
                 <div className="font-medium">Not written — no matching Syria SKU:</div>
@@ -126,8 +146,9 @@ export default function WsTrackerSyncCard({ section }: { section: "IMS" | "Arriv
                 <div className="font-medium">Arrivals from the WS Tracker → "Cleared" on this page</div>
                 <div>Every warehouse inbound in the WS Tracker is written as a clearance on the same date as in the tracker, under the production month it belongs to: each SKU's deliveries, in date order, are matched to Forecast Production months so that they add up to each month's production.</div>
                 <div>
-                  SSOF holds <b>{mc(plan.clearance.replacingQty)} MC</b> in {plan.clearance.replacing} clearances now.
+                  Tracker-owned records in this feed range hold <b>{mc(plan.clearance.replacingQty)} MC</b> in {plan.clearance.replacing} clearances now.
                   {" "}<b>Apply</b> replaces them with <b>{mc(plan.clearance.newQty)} MC</b> in {plan.clearance.events.length} clearances.
+                  {" "}Preserved: {plan.clearance.preserved ?? 0} other clearances, {mc(plan.clearance.preservedQty ?? 0)} MC.
                 </div>
                 <div className="max-h-64 overflow-auto rounded border bg-background">
                   <table className="w-full">

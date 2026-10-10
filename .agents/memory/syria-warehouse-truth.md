@@ -14,3 +14,9 @@ Distinguish the tracker-mapped product population from the full SSOF stock popul
 **Why:** The user confirmed matching IMS totals, but investigation found additional SSOF sell-out for a product not published by the tracker. Removing it to force a tie would silently overwrite planner data.
 
 **How to apply:** Keep SSOF-only quantities, show the matched subset separately, and explain the stock effect of the wider scope. Production without clearance is not proof of physical delivery; attribute missing arrivals only where a tracker delivery provides evidence.
+
+Until the tracker publishes stable delivery IDs, a manual clearance on the same SKU and date as a tracker delivery requires explicit review, not automatic deletion or addition.
+
+**Why:** The feed supplies aggregate dated quantities. It cannot prove whether a manual record is an independent receipt, part of the tracker total, or a duplicate. Matching quantities alone cannot establish ownership, and older sync summaries cannot reconstruct deleted manual records.
+
+**How to apply:** Keep the manual record intact and block the overlapping sync for review. Preserve outside-coverage and SSOF-only data rather than forcing a numerical tie. Use recoverable before-images for future syncs; investigate historical losses from actual backups, never from deletion counts alone.

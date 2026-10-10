@@ -1,7 +1,7 @@
 import type { SyriaReconciliation, SyriaReconciliationLine, ReconciliationBreakdown, ReconciliationCause, ReconciliationDetail } from "../../shared/performance/syriaReconciliation";
 import { buildStockLedger, stockPrecision as round } from "../../shared/performance/stock";
 import type { PerformanceDataset, DatasetSku } from "./countryPerformance.helpers";
-import { SKU_MAP, fetchFeed, type Feed, type FeedLine } from "../wsTracker";
+import { resolveTrackerSku as strictTrackerSku, fetchFeed, type Feed, type FeedLine } from "../wsTracker";
 import * as db from "../db";
 
 // Optional, explicit feed contract. These balances must be published by the
@@ -54,10 +54,7 @@ export function finishBreakdown(difference: number | null, rows: ReconciliationB
 }
 
 export function resolveTrackerSku(l: { flavour: string; format: string }, skus: DatasetSku[]) {
-  const map = SKU_MAP.find(m => norm(m.flavour) === norm(l.flavour) && norm(m.format).replace(/^1kg$/, "kg") === norm(l.format).replace(/^1kg$/, "kg"));
-  if (!map) return undefined;
-  return skus.find(s => norm(s.name) === norm(map.name) && s.weight === map.weight
-    && (!map.packagingType || (s.packagingType ?? "New") === map.packagingType));
+  return strictTrackerSku(l, skus);
 }
 
 export function buildSyriaReconciliation(ds: PerformanceDataset, f: ReconciliationFeed, requested: { from: string; to: string }): SyriaReconciliation {

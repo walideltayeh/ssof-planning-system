@@ -1827,7 +1827,7 @@ export const appRouter = router({
          ...plan.clearance.events.map(e => ({ skuId: e.skuId, periodId: e.periodId }))],
         "Save",
       );
-      const res = await wsTracker.applyPlan(plan);
+      const res = await wsTracker.applyPlan(plan, getAuditActor(ctx));
       const { invalidateCountryPerformanceCache } = await import("./analysis/countryPerformance");
       invalidateCountryPerformanceCache(wsTracker.WS_TRACKER_COUNTRY);
       await db.logAudit({

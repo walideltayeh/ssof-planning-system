@@ -7,8 +7,17 @@ import { buildPack } from "./countryPerformance";
 import { buildPerformanceWorkbook } from "./countryPerformanceExcel";
 import { applyPlan, type SyncPlan } from "../wsTracker";
 import * as db from "../db";
+import { persistTrackerSync } from "../wsTrackerPersistence";
 
 let ds: PerformanceDataset;
+vi.mock("../wsTrackerPersistence", () => ({
+  persistTrackerSync: vi.fn(async (plan: SyncPlan, ims: PerformanceDataset["ims"]) => {
+    for (const row of ims) ds.ims = [...ds.ims.filter(r => r.skuId !== row.skuId || r.periodId !== row.periodId), row];
+    ds.clearanceEvents.push(...plan.clearance.events.map(e => ({ skuId: e.skuId, periodId: e.periodId,
+      country: "Syria" as const, clearedQty: String(e.qty), clearedDate: e.date })));
+    return 0;
+  }),
+}));
 vi.mock("../db", () => ({
   bulkUpsertIms: vi.fn(async (rows: PerformanceDataset["ims"]) => {
     for (const row of rows) ds.ims = [...ds.ims.filter(r => r.skuId !== row.skuId || r.periodId !== row.periodId), row];
@@ -98,12 +107,13 @@ describe("one country/period closing-stock ledger", () => {
     const plannerStock = structuredClone(ds.planningFg);
     ds.clearanceEvents = [];
     const plan = {
+      feed: { from: "2026-09", to: "2026-09", generatedAt: "", totals: { ims: 70, arrivals: 300 } },
+      unmatchedMonths: [],
       rows: [{ section: "IMS", skuId: 1, periodId: 11, month: "2026-09", next: 70 }],
-      clearance: { events: [{ skuId: 1, periodId: 10, date: "2026-09-09", qty: 300 }] },
+      clearance: { overflow: [], events: [{ skuId: 1, periodId: 10, date: "2026-09-09", qty: 300 }] },
     } as unknown as SyncPlan;
     await applyPlan(plan);
-    expect(db.getClearanceEventsForCountry).toHaveBeenCalledWith("Syria");
-    expect(db.addClearanceEvent).toHaveBeenCalledWith(expect.objectContaining({ country: "Syria", skuId: 1 }));
+    expect(persistTrackerSync).toHaveBeenCalledWith(plan, expect.any(Array), [], "WS Tracker");
     expect(ds.planningFg).toEqual(plannerStock);
     expect(reconcile().headline.closingStock).toBe(190);
   });

@@ -17,6 +17,9 @@
  */
 import * as db from "./db";
 import type { Country } from "../drizzle/schema";
+import { persistTrackerSync } from "./wsTrackerPersistence";
+import { getFocPlanning } from "./focPlanning";
+import { fgProductionMap } from "../shared/arrivalQuantities";
 
 export const WS_TRACKER_COUNTRY: Country = "Syria";
 
@@ -57,6 +60,55 @@ export const SKU_MAP: { flavour: string; format: string; name: string; weight: s
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 const weightKey = (w: string) => norm(w).replace(/^1kg$/, "kg");
 
+/** Never choose a near match or whichever packaging happens to be first. */
+export function resolveTrackerSku<T extends { name: string; weight: string; packagingType?: string | null }>(
+  product: { flavour: string; format: string }, skus: T[],
+): T | undefined {
+  const mapping = SKU_MAP.find(m => norm(m.flavour) === norm(product.flavour) && weightKey(m.format) === weightKey(product.format));
+  if (!mapping) return undefined;
+  const matches = skus.filter(s => norm(s.name) === norm(mapping.name) && weightKey(s.weight) === weightKey(mapping.weight)
+    && norm(s.packagingType ?? "") === norm(mapping.packagingType ?? "New"));
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+export function isTrackerClearance(event: { country?: string; notes?: string | null; containerRef?: string | null }) {
+  return event.country === "Syria" && event.notes === "WS Tracker" && event.containerRef === "WST";
+}
+export const trackerBusinessDate = (value: string | Date | null | undefined) =>
+  value instanceof Date ? value.toISOString().slice(0, 10) : String(value ?? "").slice(0, 10);
+
+export function validateTrackerFeed(f: Feed) {
+  const month = /^\d{4}-(0[1-9]|1[0-2])$/;
+  if (!f?.period || !f.totals || !Array.isArray(f.products) || !Array.isArray(f.ims)
+    || !Array.isArray(f.arrivals) || !Array.isArray(f.arrivalMovements)
+    || !Number.isFinite(f.totals.ims) || !Number.isFinite(f.totals.arrivals))
+    throw new Error("Tracker feed is missing required arrays or finite MC totals");
+  if (f.country !== "Syria" || f.unit !== "MC" || !month.test(f.period.from) || !month.test(f.period.to) || f.period.from > f.period.to)
+    throw new Error("Invalid Syria tracker country, units or date range");
+  const totals = { ims: 0, arrivals: 0 };
+  const weekly = new Map<string, number>(), dated = new Map<string, number>();
+  const key = (l: { flavour: string; format: string }, m: string) => `${norm(l.flavour)}|${weightKey(l.format)}|${m}`;
+  for (const section of ["ims", "arrivals"] as const) for (const l of f[section]) {
+    if (!month.test(l.month) || l.month < f.period.from || l.month > f.period.to || !Number.isFinite(l.qty) || l.qty < 0)
+      throw new Error("Invalid tracker quantity or month; no sync was applied");
+    if (l.week !== undefined && (!Number.isInteger(l.week) || l.week < 1 || l.week > 5))
+      throw new Error("Invalid tracker week; expected 1–5, with weeks 4–5 in the final SSOF bucket");
+    totals[section] += l.qty;
+    if (section === "arrivals") weekly.set(key(l, l.month), (weekly.get(key(l, l.month)) ?? 0) + l.qty);
+  }
+  for (const l of f.arrivalMovements ?? []) {
+    const d = new Date(`${l.date}T00:00:00Z`);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(l.date) || !Number.isFinite(d.getTime()) || d.toISOString().slice(0, 10) !== l.date
+      || l.date.slice(0, 7) < f.period.from || l.date.slice(0, 7) > f.period.to || !Number.isFinite(l.qty) || l.qty < 0)
+      throw new Error("Invalid tracker delivery date or quantity");
+    dated.set(key(l, l.date.slice(0, 7)), (dated.get(key(l, l.date.slice(0, 7))) ?? 0) + l.qty);
+  }
+  for (const section of ["ims", "arrivals"] as const) if (Math.abs(totals[section] - f.totals[section]) > 0.005)
+    throw new Error(`Tracker ${section} line totals do not match its declared total`);
+  for (const k of new Set([...weekly.keys(), ...dated.keys()])) if (Math.abs((weekly.get(k) ?? 0) - (dated.get(k) ?? 0)) > 0.005)
+    throw new Error(`Tracker weekly inbound and dated deliveries disagree for ${k}; sync blocked`);
+}
+
 export type SyncRow = {
   section: "IMS" | "Arrival";
   flavour: string;
@@ -72,6 +124,7 @@ export type SyncRow = {
 };
 
 export type SyncPlan = {
+  managedSkuIds?: number[];
   feed: { generatedAt: string; from: string; to: string; totals: { ims: number; arrivals: number } };
   rows: SyncRow[];
   changed: SyncRow[];
@@ -84,6 +137,10 @@ export type SyncPlan = {
     replacing: number;
     replacingQty: number;
     newQty: number;
+    preserved?: number;
+    preservedQty?: number;
+    beforeProduction?: { skuLabel: string; date: string; qty: number }[];
+    conflicts?: { skuLabel: string; date: string; qty: number; eventId: number }[];
   };
 };
 
@@ -147,28 +204,22 @@ export function matchDeliveriesToProduction(deliveries: { date: string; qty: num
 /** Work out what the feed would change, without writing anything. */
 export async function buildPlan(feed?: Feed): Promise<SyncPlan> {
   const f = feed ?? (await fetchFeed());
+  validateTrackerFeed(f);
   const skus = await db.getSkusForCountry(WS_TRACKER_COUNTRY);
   const periods = await db.getPeriodsForCountry(WS_TRACKER_COUNTRY);
   const ims = await db.getImsDataForCountry(WS_TRACKER_COUNTRY);
   const arrivals = await db.getArrivalDataForCountry(WS_TRACKER_COUNTRY);
 
-  const skuBy = new Map<string, (typeof skus)[number]>();
-  for (const s of skus) {
-    skuBy.set(`${norm(s.name)}|${weightKey(s.weight)}|${norm(s.packagingType ?? "")}`, s);
-    const loose = `${norm(s.name)}|${weightKey(s.weight)}`;
-    if (!skuBy.has(loose)) skuBy.set(loose, s);
-  }
   const findSku = (flavour: string, format: string) => {
-    const m = SKU_MAP.find(x => x.flavour === flavour && x.format === format);
+    const m = SKU_MAP.find(x => norm(x.flavour) === norm(flavour) && weightKey(x.format) === weightKey(format));
     if (!m) return { sku: undefined, expected: `${flavour} ${format} — not in the mapping` };
-    const key = `${norm(m.name)}|${weightKey(m.weight)}`;
-    const sku = (m.packagingType ? skuBy.get(`${key}|${norm(m.packagingType)}`) : undefined) ?? skuBy.get(key);
-    return { sku, expected: `${m.name} ${m.weight}${m.packagingType ? ` (${m.packagingType})` : ""}` };
+    const sku = resolveTrackerSku({ flavour, format }, skus);
+    return { sku, expected: `${m.name} ${m.weight} (${m.packagingType ?? "New"}) — exact, unique packaging match required` };
   };
   const periodBy = new Map(periods.map(p => [`${p.year}-${String(p.month).padStart(2, "0")}`, p]));
   const inFeedRange = (month: string) => month >= f.period.from && month <= f.period.to;
   const mapped = new Map<number, { flavour: string; format: string }>();
-  for (const m of SKU_MAP) {
+  for (const m of [...f.products, ...f.ims, ...f.arrivals, ...(f.arrivalMovements ?? [])]) {
     const { sku } = findSku(m.flavour, m.format);
     if (sku && !mapped.has(sku.id)) mapped.set(sku.id, { flavour: m.flavour, format: m.format });
   }
@@ -184,6 +235,11 @@ export async function buildPlan(feed?: Feed): Promise<SyncPlan> {
   const rows: SyncRow[] = [];
   const unmatchedProducts = new Map<string, { flavour: string; format: string; qty: number; expected: string }>();
   const unmatchedMonths = new Set<string>();
+  // Include unmapped zero-quantity products as well as products with movements.
+  for (const product of f.products) {
+    const { sku, expected } = findSku(product.flavour, product.format);
+    if (!sku) unmatchedProducts.set(`${product.flavour}|${product.format}`, { ...product, qty: 0, expected });
+  }
 
   // IMS: one value per SKU and month.
   const imsByCell = new Map<string, { flavour: string; format: string; month: string; qty: number }>();
@@ -247,7 +303,17 @@ export async function buildPlan(feed?: Feed): Promise<SyncPlan> {
   // Cells inside the feed's months that the tracker no longer has: set them to 0, so the two
   // systems agree. Products SSOF has but the tracker does not (Mint, Grape and Mint 1kg …) are
   // never touched — they simply are not in the mapping.
-  const seen = new Set(rows.map(r => `${r.section}|${r.skuId}|${r.periodId}|${r.week ?? 0}`));
+  // Historical flavour aliases may resolve to the same physical SKU. Sum them
+  // once per destination cell rather than last-write-wins.
+  const combined = new Map<string, SyncRow>();
+  for (const row of rows) {
+    const key = `${row.section}|${row.skuId}|${row.periodId}|${row.week ?? 0}`;
+    const prior = combined.get(key);
+    if (prior) prior.next += row.next;
+    else combined.set(key, { ...row });
+  }
+  rows.splice(0, rows.length, ...combined.values());
+  const seen = new Set(combined.keys());
   for (const [skuId, who] of mapped) {
     const sku = skus.find(x => x.id === skuId)!;
     const label = `${sku.name} ${sku.weight}${sku.packagingType ? ` (${sku.packagingType})` : ""}`;
@@ -256,7 +322,7 @@ export async function buildPlan(feed?: Feed): Promise<SyncPlan> {
       if (!inFeedRange(month)) continue;
       const base = { flavour: who.flavour, format: who.format, month, skuId, skuLabel: label, periodId: period.id, periodLabel: period.label, next: 0 };
       const imsCurrent = imsNow.get(`${skuId}-${period.id}`) ?? 0;
-      if (imsCurrent !== 0 && !seen.has(`IMS|${skuId}|${period.id}|0`)) rows.push({ section: "IMS", ...base, current: imsCurrent });
+      if (!seen.has(`IMS|${skuId}|${period.id}|0`)) rows.push({ section: "IMS", ...base, current: imsCurrent });
       const weeks = arrNow.get(`${skuId}-${period.id}`) ?? [0, 0, 0, 0];
       for (let w = 0; w < 4; w += 1) {
         if (weeks[w] !== 0 && !seen.has(`Arrival|${skuId}|${period.id}|${w + 1}`)) rows.push({ section: "Arrival", ...base, week: w + 1, current: weeks[w] });
@@ -280,17 +346,10 @@ export async function buildPlan(feed?: Feed): Promise<SyncPlan> {
   // otherwise the Forecast Production for that month.
   const forecast = await db.getForecastDataForCountry(WS_TRACKER_COUNTRY);
   const actualOverride = await db.getActualProductionDataForCountry(WS_TRACKER_COUNTRY);
-  const actual = new Map<string, number>();
-  for (const sh of shipment) {
-    const q = (Number(sh.week1) || 0) + (Number(sh.week2) || 0) + (Number(sh.week3) || 0) + (Number(sh.week4) || 0);
-    if (q > 0) actual.set(`${sh.skuId}-${sh.periodId}`, q);
-  }
-  for (const ap of actualOverride) { const v = Number(ap.value) || 0; if (v > 0) actual.set(`${ap.skuId}-${ap.periodId}`, v); }
-  const planned = new Map<string, number>();
-  for (const fc of forecast) planned.set(`${fc.skuId}-${fc.periodId}`, Number(fc.value) || 0);
+  const foc = await getFocPlanning("Syria");
+  const production = fgProductionMap("Syria", forecast, actualOverride, foc.cells, shipment);
   const batchesBySku = new Map<number, { periodId: number; sortOrder: number; label: string; month: string; size: number }[]>();
-  for (const key of new Set([...actual.keys(), ...planned.keys()])) {
-    const size = (actual.get(key) ?? 0) > 0 ? actual.get(key)! : planned.get(key) ?? 0;
+  for (const [key, size] of production) {
     if (size <= 0) continue;
     const [skuId, periodId] = key.split("-").map(Number);
     const per = periodById.get(periodId); if (!per) continue;
@@ -305,7 +364,10 @@ export async function buildPlan(feed?: Feed): Promise<SyncPlan> {
     if (!found.sku) {
       const k = `${mv.flavour}|${mv.format}`;
       const u = unmatchedProducts.get(k) ?? { flavour: mv.flavour, format: mv.format, qty: 0, expected: found.expected };
-      u.qty += mv.qty; unmatchedProducts.set(k, u);
+      // Weekly arrivals already report inbound; dated movements are another
+      // representation of those deliveries, not an additional quantity.
+      if (!unmatchedProducts.has(k)) u.qty += mv.qty;
+      unmatchedProducts.set(k, u);
       continue;
     }
     const list = movesBySku.get(found.sku.id) ?? [];
@@ -314,6 +376,7 @@ export async function buildPlan(feed?: Feed): Promise<SyncPlan> {
   }
   const clearanceEvents: SyncPlan["clearance"]["events"] = [];
   const overflow: SyncPlan["clearance"]["overflow"] = [];
+  const beforeProduction: NonNullable<SyncPlan["clearance"]["beforeProduction"]> = [];
   for (const [skuId, moves] of movesBySku) {
     const sku = skus.find(x => x.id === skuId)!;
     const batches = batchesBySku.get(skuId) ?? [];
@@ -321,11 +384,16 @@ export async function buildPlan(feed?: Feed): Promise<SyncPlan> {
     // One clearance per delivery, full quantity and tracker date, under the production month it
     // belongs to. A delivery before any production month is logged on its own arrival month.
     const first = batches[0]?.month;
+    for (const mv of moves) if (!first || mv.date.slice(0, 7) < first)
+      beforeProduction.push({ skuLabel: label(sku), date: mv.date, qty: mv.qty });
     const matched = first ? moves.filter(mv => mv.date.slice(0, 7) >= first) : [];
     const pick = matched.length ? matchDeliveriesToProduction(matched, batches.map(x => ({ month: x.month, size: x.size }))) : null;
     const onArrivalMonth = pick ? moves.filter(mv => !matched.includes(mv)) : moves;
     matched.forEach((mv, x) => {
       if (!pick) return;
+      if (!periodBy.has(mv.date.slice(0, 7))) {
+        overflow.push({ skuLabel: label(sku), date: mv.date, qty: mv.qty }); return;
+      }
       const bt = batches[pick[x]];
       clearanceEvents.push({ skuId, skuLabel: label(sku), periodId: bt.periodId, periodLabel: bt.label, date: mv.date, qty: mv.qty });
     });
@@ -335,11 +403,17 @@ export async function buildPlan(feed?: Feed): Promise<SyncPlan> {
       else overflow.push({ skuLabel: label(sku), date: mv.date, qty: mv.qty });
     }
   }
-  const replacingQty = existingClearance.reduce((a, e) => a + (Number(e.clearedQty) || 0), 0);
+  const replacing = existingClearance.filter(e => isTrackerClearance(e) && mapped.has(e.skuId)
+    && inFeedRange(trackerBusinessDate(e.clearedDate).slice(0, 7)));
+  const preserved = existingClearance.filter(e => !replacing.some(r => r.id === e.id));
+  const conflicts = preserved.filter(e => !isTrackerClearance(e) && Number(e.clearedQty) > 0
+    && clearanceEvents.some(n => n.skuId === e.skuId && n.date === trackerBusinessDate(e.clearedDate)))
+    .map(e => ({ skuLabel: label(skus.find(s => s.id === e.skuId)!), date: trackerBusinessDate(e.clearedDate), qty: Number(e.clearedQty), eventId: e.id }));
 
 
 
   return {
+    managedSkuIds: [...mapped.keys()],
     feed: { generatedAt: f.generatedAt, from: f.period.from, to: f.period.to, totals: f.totals },
     rows,
     changed: rows.filter(r => r.current !== r.next),
@@ -349,16 +423,21 @@ export async function buildPlan(feed?: Feed): Promise<SyncPlan> {
     clearance: {
       events: clearanceEvents,
       overflow,
-      replacing: existingClearance.length,
-      replacingQty,
+      replacing: replacing.length,
+      replacingQty: replacing.reduce((a, e) => a + Number(e.clearedQty || 0), 0),
       newQty: clearanceEvents.reduce((a, e) => a + e.qty, 0),
+      preserved: preserved.length,
+      preservedQty: preserved.reduce((a, e) => a + Number(e.clearedQty || 0), 0),
+      beforeProduction, conflicts,
     },
   };
 }
 
 /** Write the feed's numbers into Syria's IMS and Arrival tables. */
-export async function applyPlan(plan?: SyncPlan): Promise<{ imsCells: number; arrivalCells: number; clearanceEvents: number; clearanceRemoved: number; plan: SyncPlan }> {
+export async function applyPlan(plan?: SyncPlan, actor = "WS Tracker"): Promise<{ imsCells: number; arrivalCells: number; clearanceEvents: number; clearanceRemoved: number; plan: SyncPlan }> {
   const p = plan ?? (await buildPlan());
+  if (p.clearance.overflow.length || p.unmatchedMonths.length) throw new Error("Sync blocked: tracker months or delivery dates have no Syria period. Review the reported MC first.");
+  if (p.clearance.conflicts?.length) throw new Error("Sync blocked: a non-tracker clearance overlaps a tracker delivery date. Review it first; neither record has been deleted.");
   const now = new Date();
   const imsRecords = p.rows
     .filter(r => r.section === "IMS")
@@ -381,19 +460,6 @@ export async function applyPlan(plan?: SyncPlan): Promise<{ imsCells: number; ar
     week1: String(c.weeks[0]), week2: String(c.weeks[1]), week3: String(c.weeks[2]), week4: String(c.weeks[3]),
   }));
 
-  if (imsRecords.length > 0) await db.bulkUpsertIms(imsRecords);
-  if (arrivalRecords.length > 0) await db.bulkUpsertArrival(arrivalRecords);
-
-  // Clearance: the tracker is the source of truth, so remove the existing Syria
-  // clearance events and re-create them from the tracker's dated inbound.
-  const existing = await db.getClearanceEventsForCountry(WS_TRACKER_COUNTRY);
-  for (const e of existing) await db.deleteClearanceEvent(e.id, e.skuId, e.periodId, WS_TRACKER_COUNTRY);
-  for (const ev of p.clearance.events) {
-    await db.addClearanceEvent({
-      skuId: ev.skuId, periodId: ev.periodId, country: WS_TRACKER_COUNTRY,
-      clearedQty: String(ev.qty), clearedDate: ev.date,
-      notes: "WS Tracker", containerRef: "WST",
-    });
-  }
-  return { imsCells: imsRecords.length, arrivalCells: arrivalRecords.length, clearanceEvents: p.clearance.events.length, clearanceRemoved: existing.length, plan: p };
+  const clearanceRemoved = await persistTrackerSync(p, imsRecords, arrivalRecords, actor);
+  return { imsCells: imsRecords.length, arrivalCells: arrivalRecords.length, clearanceEvents: p.clearance.events.length, clearanceRemoved, plan: p };
 }

@@ -102,6 +102,7 @@ tmp/
 temp/
 
 # Database
+/generated-artifacts/
 *.db
 *.sqlite
 *.sqlite3
