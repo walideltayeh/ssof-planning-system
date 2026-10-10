@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 
-const state = vi.hoisted(() => ({ data: null as any, save: vi.fn(), invalidate: vi.fn() }));
+const state = vi.hoisted(() => ({ data: null as any, country: "Syria", save: vi.fn(), invalidate: vi.fn() }));
 const utilsLeaf = new Proxy({}, { get: () => ({ invalidate: state.invalidate }) });
 const utils = new Proxy({}, { get: () => utilsLeaf });
 const procedures = new Proxy({}, { get: (_target, name) => ({
@@ -11,7 +11,7 @@ const procedures = new Proxy({}, { get: (_target, name) => ({
 vi.mock("@/lib/trpc", () => ({ trpc: new Proxy({ useUtils: () => utils }, {
   get: (target, key) => key === "useUtils" ? target.useUtils : procedures,
 }) }));
-vi.mock("@/contexts/CountryContext", () => ({ useCountry: () => ({ country: "Syria" }) }));
+vi.mock("@/contexts/CountryContext", () => ({ useCountry: () => ({ country: state.country }) }));
 vi.mock("@/contexts/AuthContext", () => ({ useAppAuth: () => ({ user: { id: 1, role: "admin", name: "Test" } }) }));
 vi.mock("@/contexts/UnitContext", () => ({ useUnit: () => ({ unit: "MC", unitLabel: "MC", formatVal: (v: number) => String(v), convertVal: (v: number) => v }) }));
 vi.mock("@/components/ExportSheetButton", () => ({ default: () => null }));
@@ -20,7 +20,7 @@ vi.mock("@/components/ImportSheetButton", () => ({ default: () => null }));
 import IntlPlanningFgPage from "./IntlPlanningFgPage";
 
 beforeEach(() => {
-  cleanup(); state.save.mockClear(); state.invalidate.mockClear();
+  cleanup(); state.save.mockClear(); state.invalidate.mockClear(); state.country = "Syria";
   state.data = {
     skus: [{ id: 1, country: "Syria", name: "Mint", weight: "50g", category: "Core", packagingType: "New", isActive: true, isExcludedFromTotal: false, sortOrder: 1 }],
     periods: [{ id: 12, country: "Syria", year: 2026, month: 12, label: "Dec 2026", sortOrder: 12 }],
@@ -31,6 +31,21 @@ beforeEach(() => {
   };
 });
 describe("linked Syria FG pages", () => {
+  it.each(["Syria", "Libya", "KSA"])("saves negative adjustments with Enter and reduces closing stock in %s", country => {
+    state.country = country;
+    state.data.skus[0].country = country; state.data.periods[0].country = country;
+    state.data.foc = [];
+    const view = render(<IntlPlanningFgPage weight="50g" />);
+    const row = screen.getAllByText("Adjustments")[0].closest("tr")!;
+    fireEvent.click(within(row).getAllByText("—")[0]);
+    const input = screen.getByRole("spinbutton");
+    fireEvent.change(input, { target: { value: "-25" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(state.save).toHaveBeenCalledWith(expect.objectContaining({ country, label: "Adjustments", value: "-25" }));
+    state.data = { ...state.data, planningFg: [{ ...state.data.planningFg[0], adjustments: "-25" }] };
+    view.rerender(<IntlPlanningFgPage weight="50g" />);
+    expect(within(screen.getAllByText("Closing Stock")[0].closest("tr")!).getAllByText("75")).toHaveLength(2);
+  });
   it("shows 100 Production + 10 Received FOC = 110 Full Production; only clearance adds 110 to stock", () => {
     state.data.forecast[0].value = "100"; state.data.shipment[0].week1 = "100";
     state.data.foc[0].value = "10"; state.data.planningFg[0].openingStock = "0";

@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+
+const state = vi.hoisted(() => ({ data: null as any, save: vi.fn() }));
 
 const mutationStub = () => ({
-  mutate: vi.fn(),
+  mutate: state.save,
   mutateAsync: vi.fn().mockResolvedValue(undefined),
   isPending: false,
   isError: false,
@@ -31,8 +33,8 @@ const utils = new Proxy(
 const procLeaf = new Proxy(
   {},
   {
-    get: () => ({
-      useQuery: () => ({ data: undefined, isLoading: true, isPending: true }),
+    get: (_target, name) => ({
+      useQuery: () => ({ data: name === "planningFg" ? state.data : undefined, isLoading: !state.data, isPending: !state.data }),
       useMutation: (_opts?: unknown) => mutationStub(),
     }),
   },
@@ -70,10 +72,15 @@ vi.mock("@/contexts/UnitContext", () => ({
 }));
 
 import PlanningFgPage from "./PlanningFgPage";
+vi.mock("@/components/ExportSheetButton", () => ({ default: () => null }));
+vi.mock("@/components/ImportSheetButton", () => ({ default: () => null }));
+vi.mock("@/components/SmartRecommendations", () => ({ default: () => null }));
+vi.mock("@/components/BestStrategy", () => ({ default: () => null }));
 
 describe("PlanningFgPage smoke render", () => {
   beforeEach(() => {
     cleanup();
+    state.data = null; state.save.mockClear();
   });
 
   it("renders the loading skeleton (with the per-weight title) without crashing", () => {
@@ -87,5 +94,24 @@ describe("PlanningFgPage smoke render", () => {
   it("changes the skeleton title when a different weight is passed in", () => {
     render(<PlanningFgPage weight="1kg" />);
     expect(screen.getByText(/Planning FG 1kg/i)).toBeInTheDocument();
+  });
+  it.each(["50g", "250g", "1kg"])("saves a negative adjustment with Enter and subtracts it from %s closing stock", weight => {
+    state.data = {
+      skus: [{ id: 1, name: "Mint", weight, category: "Core", packagingType: "New", isActive: true, sortOrder: 1 }],
+      periods: [{ id: 12, year: 2026, month: 12, label: "Dec 2026", sortOrder: 12 }],
+      planningFg: [{ skuId: 1, periodId: 12, openingStock: "100" }],
+      forecast: [], ims: [], shipment: [], arrival: [], clearanceEvents: [],
+    };
+    const view = render(<PlanningFgPage weight={weight} />);
+    const row = screen.getAllByText("Adjustments")[0].closest("tr")!;
+    fireEvent.click(within(row).getAllByText("-")[0]);
+    const input = screen.getByRole("spinbutton");
+    fireEvent.change(input, { target: { value: "-25" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(state.save).toHaveBeenCalledWith(expect.objectContaining({ country: "Lebanon", adjustments: "-25" }));
+    state.data = { ...state.data, planningFg: [{ ...state.data.planningFg[0], adjustments: "-25" }] };
+    view.rerender(<PlanningFgPage weight={weight} />);
+    const closingRow = screen.getAllByText("Closing Stock").find(el => el.closest("tr"))!.closest("tr")!;
+    expect(within(closingRow).getAllByText("75").length).toBeGreaterThan(0);
   });
 });

@@ -2372,7 +2372,8 @@ export const appRouter = router({
         };
         const field = fieldMap[input.label];
         if (!field) throw new Error(`Unknown label: ${input.label}`);
-        const clampedValue = Math.max(0, parseFloat(input.value) || 0).toString();
+        const numericValue = parseFloat(input.value) || 0;
+        const clampedValue = (field === "adjustments" ? numericValue : Math.max(0, numericValue)).toString();
         await db.upsertCountryPlanningFgCell(input.skuId, input.periodId, { [field]: clampedValue });
         await db.logAudit({
           country: input.country,

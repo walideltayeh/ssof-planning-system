@@ -571,7 +571,7 @@ export default function PlanningFgPage({ weight }: PlanningFgPageProps) {
 
   const handleCellSave = (skuId: number, periodId: number, label: RowLabel) => {
     let numVal = parseFloat(editValue) || 0;
-    if (label === "IMS" || label === "Opening Stock" || label === "Adjustments" || label === "Actual arrivals / Planned Orders") {
+    if (label === "IMS" || label === "Opening Stock" || label === "Actual arrivals / Planned Orders") {
       numVal = Math.max(0, numVal);
     }
     const oldNum = parseFloat(oldValue) || 0;

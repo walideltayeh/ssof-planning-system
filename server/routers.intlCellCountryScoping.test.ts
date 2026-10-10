@@ -137,6 +137,19 @@ function caller() {
   return appRouter.createCaller(createOwnerContext());
 }
 
+describe("signed FG adjustments", () => {
+  it("persists a negative adjustment and its signed audit value", async () => {
+    await caller().country.updatePlanningFgCell({ skuId: 301, periodId: 401, country: "Syria", label: "Adjustments", value: "-25.5" });
+    expect(writeMocks.planningFg).toHaveBeenCalledWith(301, 401, { adjustments: "-25.5" });
+    expect(dbModule.logAudit).toHaveBeenCalledWith(expect.objectContaining({ newValue: "-25.5", field: "Adjustments" }));
+  });
+  it.each(["Opening Stock", "Invoiced (SHP)", "Actual arrivals / Planned Orders"])("still clamps negative %s to zero", async label => {
+    await caller().country.updatePlanningFgCell({ skuId: 301, periodId: 401, country: "Syria", label, value: "-25" });
+    expect(writeMocks.planningFg).toHaveBeenCalledWith(301, 401, expect.objectContaining(
+      { [label === "Opening Stock" ? "openingStock" : label === "Invoiced (SHP)" ? "invoiced" : "arrivals"]: "0" }));
+  });
+});
+
 type Country = "Lebanon" | "Syria" | "Libya" | "KSA";
 
 // Each entry runs its mutation posting the given ids as a Syria edit.
