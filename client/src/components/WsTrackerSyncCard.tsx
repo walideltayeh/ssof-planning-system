@@ -29,7 +29,7 @@ type Plan = {
   unmatchedProducts: { flavour: string; format: string; qty: number; expected: string }[];
   unmatchedMonths: string[];
   syriaSkus: string[];
-  skuList?: { sent: number; added: string[] } | { error: string };
+  skuList?: { sent: number; added: string[]; skipped?: string } | { error: string };
   clearance: {
     events: { skuLabel: string; periodLabel: string; date: string; qty: number }[];
     overflow: { skuLabel: string; date: string; qty: number }[];
@@ -114,6 +114,8 @@ export default function WsTrackerSyncCard({ section }: { section: "IMS" | "Arriv
               <div role="alert" className="rounded border border-amber-300 p-2">
                 The list of active Syria SKUs was not sent to the WS Tracker: {plan.skuList.error}
               </div>
+            ) : plan.skuList.skipped ? (
+              <div className="text-muted-foreground">The Syria SKU list was not sent to the WS Tracker from here: {plan.skuList.skipped}.</div>
             ) : (
               <div className="text-muted-foreground">
                 Sent {plan.skuList.sent} active Syria SKUs to the WS Tracker (its Entry tab offers the ones it does not have yet)

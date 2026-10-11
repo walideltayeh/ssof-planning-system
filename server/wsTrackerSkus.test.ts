@@ -47,11 +47,25 @@ describe("the Syria SKU list SSOF sends the WS Tracker", () => {
     expect((init.headers as Record<string, string>)["x-ssof-key"]).toBe("k");
     const body = JSON.parse(String(init.body));
     expect(body.country).toBe("Syria");
+    expect(body.source).toBe("published");
     const tracker = (id: number) => body.skus.find((s: { id: number }) => s.id === id).tracker;
     expect(tracker(1)).toEqual({ flavour: "Red", format: "50g" });
     expect(tracker(2)).toEqual({ flavour: "Two Apples Black", format: "50g" });
     expect(tracker(6)).toEqual({ flavour: "Grape", format: "50g" });
     expect(tracker(40)).toBeNull();
+  });
+
+  it("sends nothing from a development workspace", async () => {
+    process.env.WS_TRACKER_FEED_URL = "https://tracker.example/api/ssof";
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("NODE_ENV", "development");
+    try {
+      const res = await pushSkusToTracker();
+      expect(res.sent).toBe(0);
+      expect(res.skipped).toContain("development workspace");
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally { vi.unstubAllEnvs(); }
   });
 
   it("never sends an empty list, and reports a refusal", async () => {
