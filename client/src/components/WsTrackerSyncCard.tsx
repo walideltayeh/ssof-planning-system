@@ -29,6 +29,7 @@ type Plan = {
   unmatchedProducts: { flavour: string; format: string; qty: number; expected: string }[];
   unmatchedMonths: string[];
   syriaSkus: string[];
+  skuList?: { sent: number; added: string[] } | { error: string };
   clearance: {
     events: { skuLabel: string; periodLabel: string; date: string; qty: number }[];
     overflow: { skuLabel: string; date: string; qty: number }[];
@@ -104,6 +105,16 @@ export default function WsTrackerSyncCard({ section }: { section: "IMS" | "Arriv
 
         {plan && (
           <div className="space-y-2 text-xs">
+            {plan.skuList && ("error" in plan.skuList ? (
+              <div className="rounded border border-amber-300 bg-amber-50 p-2 text-amber-900">
+                The list of active Syria SKUs was not sent to the WS Tracker: {plan.skuList.error}
+              </div>
+            ) : (
+              <div className="text-muted-foreground">
+                Sent {plan.skuList.sent} active Syria SKUs to the WS Tracker (its Entry tab offers the ones it does not have yet)
+                {plan.skuList.added.length > 0 ? `. New there: ${plan.skuList.added.join(", ")}.` : "."}
+              </div>
+            ))}
             {plan.unmatchedProducts.length > 0 && (
               <div className="rounded border border-amber-300 bg-amber-50 p-2 text-amber-900">
                 <div className="font-medium">Not written — no matching Syria SKU:</div>
