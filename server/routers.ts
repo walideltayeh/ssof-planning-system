@@ -1815,7 +1815,10 @@ export const appRouter = router({
     // month, in mastercases. Preview shows what would change; sync writes it.
     wsTrackerPreview: protectedProcedure.mutation(async ({ ctx }) => {
       await requireCountryAccess(ctx, wsTracker.WS_TRACKER_COUNTRY);
-      return wsTracker.buildPlan();
+      const plan = await wsTracker.buildPlan();
+      // also send the tracker Syria's active SKUs, so a new SKU shows in its Entry tab
+      const skuList = await wsTracker.pushSkusToTracker().catch((e: unknown) => ({ error: e instanceof Error ? e.message : String(e) }));
+      return { ...plan, skuList };
     }),
     wsTrackerSync: protectedProcedure.mutation(async ({ ctx }) => {
       await requireCountryAdmin(ctx, wsTracker.WS_TRACKER_COUNTRY);

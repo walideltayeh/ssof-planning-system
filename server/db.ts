@@ -128,6 +128,11 @@ export async function getPeriodsForCountry(country: Country) {
   return db.select().from(periods).where(eq(periods.country, country)).orderBy(asc(periods.sortOrder));
 }
 
+// Listeners told after a SKU is created, changed, switched on/off or deleted (the WS Tracker link uses it).
+const skuChangeListeners: (() => void)[] = [];
+export function onSkuChange(fn: () => void) { skuChangeListeners.push(fn); }
+function skuChanged() { for (const fn of skuChangeListeners) { try { fn(); } catch { /* a listener must never break a SKU change */ } } }
+
 export async function getSkusForCountry(country: Country, includeInactive = false) {
   const db = await getDb();
   if (!db) return [];
@@ -160,6 +165,7 @@ export async function getActiveWeightsForCountry(country: Country): Promise<stri
 }
 
 export async function createSkuForCountry(country: Country, data: { name: string; weight: string; category?: "Core" | "NPI"; packagingType?: "Old" | "New"; isExcludedFromTotal?: boolean }) {
+  skuChanged();
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   // Defensive: brand-new countries (e.g. KSA on first SKU creation through any
@@ -207,6 +213,7 @@ export async function getSkuCountry(skuId: number): Promise<Country | null> {
 }
 
 export async function updateSkuPackagingType(skuId: number, packagingType: "Old" | "New") {
+  skuChanged();
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.update(skus).set({ packagingType }).where(eq(skus.id, skuId));
@@ -322,6 +329,7 @@ export async function updateSkuDetails(skuId: number, data: {
   name?: string; weight?: string; category?: "Core" | "NPI"; packagingType?: "Old" | "New";
   priceToWs?: number | null; priceWsToSemiWs?: number | null; priceSemiWsToRetail?: number | null; finalRspPerPack?: number | null;
 }) {
+  skuChanged();
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const updates: Record<string, unknown> = {};
@@ -467,6 +475,7 @@ export async function getAllSkus() {
 }
 
 export async function createSku(data: { name: string; weight: string; category?: "Core" | "NPI"; isExcludedFromTotal?: boolean }) {
+  skuChanged();
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   const allSkus = await getAllSkus();
@@ -501,12 +510,14 @@ export async function updateSkuCategory(skuId: number, category: "Core" | "NPI")
 }
 
 export async function toggleSkuActive(skuId: number, isActive: boolean) {
+  skuChanged();
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.update(skus).set({ isActive }).where(eq(skus.id, skuId));
 }
 
 export async function deleteSku(skuId: number) {
+  skuChanged();
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.delete(forecastData).where(eq(forecastData.skuId, skuId));

@@ -11,6 +11,11 @@
  * We only READ that feed. The tracker never writes into SSOF, and nothing here
  * touches a country other than Syria.
  *
+ * The one thing SSOF sends the tracker is its list of active Syria SKUs
+ * (pushSkusToTracker), so a new SKU can be entered in the tracker's Entry tab
+ * before it exists in the warehouse ledger. Movements entered there for such a
+ * SKU come back in the feed with its SSOF id (ssofSkuId) and are matched by id.
+ *
  * Configuration (Replit secrets / env):
  *   WS_TRACKER_FEED_URL   e.g. https://ws-syria.higgsfield.app/api/ssof
  *   WS_TRACKER_FEED_KEY   the feed key, sent as the x-ssof-key header
@@ -23,16 +28,17 @@ import { fgProductionMap } from "../shared/arrivalQuantities";
 
 export const WS_TRACKER_COUNTRY: Country = "Syria";
 
-export type FeedLine = { flavour: string; format: string; month: string; week?: number; qty: number };
+/** ssofSkuId is set when the tracker product IS an SSOF SKU it was sent (not one of the SKU_MAP products). */
+export type FeedLine = { flavour: string; format: string; month: string; week?: number; qty: number; ssofSkuId?: number };
 export type Feed = {
   country: string;
   unit: string;
   generatedAt: string;
   period: { from: string; to: string; firstMovement: string; lastMovement: string };
-  products: { flavour: string; format: string; trackerProducts: string[] }[];
+  products: { flavour: string; format: string; trackerProducts: string[]; ssofSkuId?: number }[];
   ims: FeedLine[];
   arrivals: FeedLine[];
-  arrivalMovements: { date: string; flavour: string; format: string; qty: number }[];
+  arrivalMovements: { date: string; flavour: string; format: string; qty: number; ssofSkuId?: number }[];
   totals: { ims: number; arrivals: number };
 };
 
@@ -201,6 +207,65 @@ export function matchDeliveriesToProduction(deliveries: { date: string; qty: num
   return out;
 }
 
+/**
+ * Tell the WS Tracker which Syria SKUs are active, so a new SKU can be entered in its Entry tab
+ * before it exists in the warehouse ledger. Posted to the feed URL with the feed key. Each SKU
+ * says which tracker product it already is (SKU_MAP, exact packaging match), or null when the
+ * tracker has none: those are the ones its Entry tab offers as new.
+ */
+export async function pushSkusToTracker(): Promise<{ sent: number; added: string[] }> {
+  const url = process.env.WS_TRACKER_FEED_URL;
+  if (!url) throw new Error("WS_TRACKER_FEED_URL is not set");
+  const skus = await db.getSkusForCountry(WS_TRACKER_COUNTRY);
+  if (!skus.length) return { sent: 0, added: [] }; // never send an empty list: it would hide every SKU there
+  const trackerOf = new Map<number, { flavour: string; format: string }>();
+  for (const m of SKU_MAP) {
+    const sku = resolveTrackerSku({ flavour: m.flavour, format: m.format }, skus);
+    if (sku && !trackerOf.has(sku.id)) trackerOf.set(sku.id, { flavour: m.flavour, format: m.format });
+  }
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-ssof-key": process.env.WS_TRACKER_FEED_KEY ?? "" },
+    body: JSON.stringify({
+      country: WS_TRACKER_COUNTRY,
+      sentAt: new Date().toISOString(),
+      skus: skus.map(s => ({
+        id: s.id, name: s.name, weight: s.weight, packagingType: s.packagingType ?? null,
+        category: s.category, sortOrder: s.sortOrder, tracker: trackerOf.get(s.id) ?? null,
+      })),
+    }),
+  });
+  if (!res.ok) throw new Error(`WS Tracker did not accept the SKU list (${res.status})`);
+  const out = (await res.json().catch(() => ({}))) as { new?: unknown };
+  return { sent: skus.length, added: Array.isArray(out.new) ? out.new.map(String) : [] };
+}
+
+const pushOff = () => !process.env.WS_TRACKER_FEED_URL || !!process.env.VITEST || process.env.NODE_ENV === "test";
+let pushTimer: ReturnType<typeof setTimeout> | null = null;
+/**
+ * Send the SKU list a few seconds from now; calls close together become one send. Never throws:
+ * a tracker outage must not break a SKU change in SSOF.
+ */
+export function pushSkusToTrackerSoon(reason: string, delayMs = 4000) {
+  if (pushOff()) return;
+  if (pushTimer) clearTimeout(pushTimer);
+  pushTimer = setTimeout(() => {
+    pushTimer = null;
+    pushSkusToTracker().then(
+      r => console.log(`[wsTracker] SKU list sent (${reason}): ${r.sent} SKUs${r.added.length ? `, new there: ${r.added.join(", ")}` : ""}`),
+      e => console.warn(`[wsTracker] SKU list not sent (${reason}):`, e instanceof Error ? e.message : e),
+    );
+  }, delayMs);
+  pushTimer.unref?.();
+}
+// After any SKU change, shortly after the server starts, and every six hours as a safety net.
+// (The try/catch is for test doubles of ./db that do not define the hook.)
+try { (db as { onSkuChange?: (fn: () => void) => void }).onSkuChange?.(() => pushSkusToTrackerSoon("SKU change")); } catch { /* no hook */ }
+if (!pushOff()) {
+  pushSkusToTrackerSoon("startup", 20_000);
+  setInterval(() => pushSkusToTrackerSoon("every 6 hours", 0), 6 * 60 * 60 * 1000).unref?.();
+}
+
 /** Work out what the feed would change, without writing anything. */
 export async function buildPlan(feed?: Feed): Promise<SyncPlan> {
   const f = feed ?? (await fetchFeed());
@@ -210,7 +275,10 @@ export async function buildPlan(feed?: Feed): Promise<SyncPlan> {
   const ims = await db.getImsDataForCountry(WS_TRACKER_COUNTRY);
   const arrivals = await db.getArrivalDataForCountry(WS_TRACKER_COUNTRY);
 
-  const findSku = (flavour: string, format: string) => {
+  const skuById = new Map(skus.map(s => [s.id, s]));
+  const findSku = (flavour: string, format: string, ssofSkuId?: number) => {
+    // A line that carries ssofSkuId is a SKU SSOF itself sent to the tracker: matched by id, never by name.
+    if (ssofSkuId != null) return { sku: skuById.get(ssofSkuId), expected: `${flavour} ${format} (SSOF SKU #${ssofSkuId}) — not an active Syria SKU` };
     const m = SKU_MAP.find(x => norm(x.flavour) === norm(flavour) && weightKey(x.format) === weightKey(format));
     if (!m) return { sku: undefined, expected: `${flavour} ${format} — not in the mapping` };
     const sku = resolveTrackerSku({ flavour, format }, skus);
@@ -219,10 +287,22 @@ export async function buildPlan(feed?: Feed): Promise<SyncPlan> {
   const periodBy = new Map(periods.map(p => [`${p.year}-${String(p.month).padStart(2, "0")}`, p]));
   const inFeedRange = (month: string) => month >= f.period.from && month <= f.period.to;
   const mapped = new Map<number, { flavour: string; format: string }>();
+  // SKUs fed by SSOF id are the tracker's only from their first tracker month on: earlier months stay as SSOF has them.
+  const fedById = new Map<number, { flavour: string; format: string; first: string }>();
   for (const m of [...f.products, ...f.ims, ...f.arrivals, ...(f.arrivalMovements ?? [])]) {
-    const { sku } = findSku(m.flavour, m.format);
-    if (sku && !mapped.has(sku.id)) mapped.set(sku.id, { flavour: m.flavour, format: m.format });
+    const { sku } = findSku(m.flavour, m.format, m.ssofSkuId);
+    if (!sku) continue;
+    if (m.ssofSkuId != null) {
+      const month = "month" in m ? m.month : "date" in m ? m.date.slice(0, 7) : "";
+      const cur = fedById.get(sku.id) ?? { flavour: m.flavour, format: m.format, first: "" };
+      if (month && (!cur.first || month < cur.first)) cur.first = month;
+      fedById.set(sku.id, cur);
+      continue;
+    }
+    if (!mapped.has(sku.id)) mapped.set(sku.id, { flavour: m.flavour, format: m.format });
   }
+  for (const id of mapped.keys()) fedById.delete(id);
+  const managed = new Set([...mapped.keys(), ...fedById.keys()]);
 
   const imsNow = new Map(ims.map(r => [`${r.skuId}-${r.periodId}`, Number(r.value ?? 0)]));
   const arrNow = new Map(
@@ -237,20 +317,20 @@ export async function buildPlan(feed?: Feed): Promise<SyncPlan> {
   const unmatchedMonths = new Set<string>();
   // Include unmapped zero-quantity products as well as products with movements.
   for (const product of f.products) {
-    const { sku, expected } = findSku(product.flavour, product.format);
+    const { sku, expected } = findSku(product.flavour, product.format, product.ssofSkuId);
     if (!sku) unmatchedProducts.set(`${product.flavour}|${product.format}`, { ...product, qty: 0, expected });
   }
 
   // IMS: one value per SKU and month.
-  const imsByCell = new Map<string, { flavour: string; format: string; month: string; qty: number }>();
+  const imsByCell = new Map<string, { flavour: string; format: string; month: string; qty: number; ssofSkuId?: number }>();
   for (const l of f.ims) {
-    const k = `${l.flavour}|${l.format}|${l.month}`;
-    const cur = imsByCell.get(k) ?? { flavour: l.flavour, format: l.format, month: l.month, qty: 0 };
+    const k = `${l.flavour}|${l.format}|${l.ssofSkuId ?? ""}|${l.month}`;
+    const cur = imsByCell.get(k) ?? { flavour: l.flavour, format: l.format, month: l.month, qty: 0, ssofSkuId: l.ssofSkuId };
     cur.qty += l.qty;
     imsByCell.set(k, cur);
   }
   for (const cell of imsByCell.values()) {
-    const { sku, expected } = findSku(cell.flavour, cell.format);
+    const { sku, expected } = findSku(cell.flavour, cell.format, cell.ssofSkuId);
     const period = periodBy.get(cell.month);
     if (!sku) {
       const k = `${cell.flavour}|${cell.format}`;
@@ -269,16 +349,16 @@ export async function buildPlan(feed?: Feed): Promise<SyncPlan> {
   }
 
   // Arrivals: four weekly buckets per SKU and month.
-  const arrByCell = new Map<string, { flavour: string; format: string; month: string; weeks: [number, number, number, number] }>();
+  const arrByCell = new Map<string, { flavour: string; format: string; month: string; weeks: [number, number, number, number]; ssofSkuId?: number }>();
   for (const l of f.arrivals) {
-    const k = `${l.flavour}|${l.format}|${l.month}`;
-    const cur = arrByCell.get(k) ?? { flavour: l.flavour, format: l.format, month: l.month, weeks: [0, 0, 0, 0] as [number, number, number, number] };
+    const k = `${l.flavour}|${l.format}|${l.ssofSkuId ?? ""}|${l.month}`;
+    const cur = arrByCell.get(k) ?? { flavour: l.flavour, format: l.format, month: l.month, weeks: [0, 0, 0, 0] as [number, number, number, number], ssofSkuId: l.ssofSkuId };
     const w = Math.min(4, Math.max(1, l.week ?? 1)) - 1;
     cur.weeks[w] += l.qty;
     arrByCell.set(k, cur);
   }
   for (const cell of arrByCell.values()) {
-    const { sku, expected } = findSku(cell.flavour, cell.format);
+    const { sku, expected } = findSku(cell.flavour, cell.format, cell.ssofSkuId);
     const period = periodBy.get(cell.month);
     if (!sku) {
       const k = `${cell.flavour}|${cell.format}`;
@@ -314,12 +394,14 @@ export async function buildPlan(feed?: Feed): Promise<SyncPlan> {
   }
   rows.splice(0, rows.length, ...combined.values());
   const seen = new Set(combined.keys());
-  for (const [skuId, who] of mapped) {
+  const zeroFill: [number, { flavour: string; format: string }, string][] = [...mapped].map(([id, who]) => [id, who, f.period.from]);
+  for (const [id, who] of fedById) if (who.first) zeroFill.push([id, who, who.first]);
+  for (const [skuId, who, since] of zeroFill) {
     const sku = skus.find(x => x.id === skuId)!;
     const label = `${sku.name} ${sku.weight}${sku.packagingType ? ` (${sku.packagingType})` : ""}`;
     for (const period of periods) {
       const month = `${period.year}-${String(period.month).padStart(2, "0")}`;
-      if (!inFeedRange(month)) continue;
+      if (!inFeedRange(month) || month < since) continue;
       const base = { flavour: who.flavour, format: who.format, month, skuId, skuLabel: label, periodId: period.id, periodLabel: period.label, next: 0 };
       const imsCurrent = imsNow.get(`${skuId}-${period.id}`) ?? 0;
       if (!seen.has(`IMS|${skuId}|${period.id}|0`)) rows.push({ section: "IMS", ...base, current: imsCurrent });
@@ -360,7 +442,7 @@ export async function buildPlan(feed?: Feed): Promise<SyncPlan> {
   for (const list of batchesBySku.values()) list.sort((a, b) => a.sortOrder - b.sortOrder);
   const movesBySku = new Map<number, { date: string; qty: number }[]>();
   for (const mv of f.arrivalMovements ?? []) {
-    const found = findSku(mv.flavour, mv.format);
+    const found = findSku(mv.flavour, mv.format, mv.ssofSkuId);
     if (!found.sku) {
       const k = `${mv.flavour}|${mv.format}`;
       const u = unmatchedProducts.get(k) ?? { flavour: mv.flavour, format: mv.format, qty: 0, expected: found.expected };
@@ -403,7 +485,7 @@ export async function buildPlan(feed?: Feed): Promise<SyncPlan> {
       else overflow.push({ skuLabel: label(sku), date: mv.date, qty: mv.qty });
     }
   }
-  const replacing = existingClearance.filter(e => isTrackerClearance(e) && mapped.has(e.skuId)
+  const replacing = existingClearance.filter(e => isTrackerClearance(e) && managed.has(e.skuId)
     && inFeedRange(trackerBusinessDate(e.clearedDate).slice(0, 7)));
   const preserved = existingClearance.filter(e => !replacing.some(r => r.id === e.id));
   const conflicts = preserved.filter(e => !isTrackerClearance(e) && Number(e.clearedQty) > 0
@@ -413,7 +495,7 @@ export async function buildPlan(feed?: Feed): Promise<SyncPlan> {
 
 
   return {
-    managedSkuIds: [...mapped.keys()],
+    managedSkuIds: [...managed],
     feed: { generatedAt: f.generatedAt, from: f.period.from, to: f.period.to, totals: f.totals },
     rows,
     changed: rows.filter(r => r.current !== r.next),
