@@ -207,15 +207,23 @@ export function matchDeliveriesToProduction(deliveries: { date: string; qty: num
   return out;
 }
 
+/** A development workspace (pnpm dev sets NODE_ENV=development) has its own database. */
+const isDevWorkspace = () => process.env.NODE_ENV === "development";
+
 /**
  * Tell the WS Tracker which Syria SKUs are active, so a new SKU can be entered in its Entry tab
  * before it exists in the warehouse ledger. Posted to the feed URL with the feed key. Each SKU
  * says which tracker product it already is (SKU_MAP, exact packaging match), or null when the
  * tracker has none: those are the ones its Entry tab offers as new.
+ *
+ * Only the published app sends it. A development workspace has its own database, and its SKUs
+ * and ids must not replace the published app's list in the tracker; there the call does nothing
+ * and says so. The tracker also refuses a list that is not marked as published.
  */
-export async function pushSkusToTracker(): Promise<{ sent: number; added: string[] }> {
+export async function pushSkusToTracker(): Promise<{ sent: number; added: string[]; skipped?: string }> {
   const url = process.env.WS_TRACKER_FEED_URL;
   if (!url) throw new Error("WS_TRACKER_FEED_URL is not set");
+  if (isDevWorkspace()) return { sent: 0, added: [], skipped: "this is the development workspace; only the published app sends the SKU list" };
   const skus = await db.getSkusForCountry(WS_TRACKER_COUNTRY);
   if (!skus.length) return { sent: 0, added: [] }; // never send an empty list: it would hide every SKU there
   const trackerOf = new Map<number, { flavour: string; format: string }>();
@@ -228,6 +236,7 @@ export async function pushSkusToTracker(): Promise<{ sent: number; added: string
     headers: { "content-type": "application/json", "x-ssof-key": process.env.WS_TRACKER_FEED_KEY ?? "" },
     body: JSON.stringify({
       country: WS_TRACKER_COUNTRY,
+      source: "published",
       sentAt: new Date().toISOString(),
       skus: skus.map(s => ({
         id: s.id, name: s.name, weight: s.weight, packagingType: s.packagingType ?? null,
@@ -240,7 +249,7 @@ export async function pushSkusToTracker(): Promise<{ sent: number; added: string
   return { sent: skus.length, added: Array.isArray(out.new) ? out.new.map(String) : [] };
 }
 
-const pushOff = () => !process.env.WS_TRACKER_FEED_URL || !!process.env.VITEST || process.env.NODE_ENV === "test";
+const pushOff = () => !process.env.WS_TRACKER_FEED_URL || !!process.env.VITEST || process.env.NODE_ENV === "test" || isDevWorkspace();
 let pushTimer: ReturnType<typeof setTimeout> | null = null;
 /**
  * Send the SKU list a few seconds from now; calls close together become one send. Never throws:
