@@ -9,6 +9,7 @@ const H = vi.hoisted(() => ({
   pack: null as any,
   performanceInputs: [] as any[],
   performanceQuery: vi.fn(),
+  monthlyInputs: [] as any[],
 }));
 
 vi.mock("@/contexts/AuthContext", () => ({
@@ -66,6 +67,7 @@ vi.mock("@/lib/trpc", () => ({
           return H.performanceQuery();
         },
       },
+      monthlyAnalysis: { useQuery: (input: unknown) => { H.monthlyInputs.push(input); return { data: undefined, isLoading: false, error: null }; } },
       slideLayout: { useQuery: () => ({ data: H.layout }) },
       weights: { useQuery: () => ({ data: [] }) },
     },
@@ -164,6 +166,7 @@ describe("CountryPerformancePage integration", () => {
     H.layout = { order: defaultOrder, hidden: ["portfolio"] };
     H.pack = makePack();
     H.performanceInputs = [];
+    H.monthlyInputs = [];
     H.performanceQuery.mockReturnValue({ data: H.pack, isFetching: false, isLoading: false, error: null });
     H.setCountry.mockClear();
     window.document.body.classList.remove("perf-printing");
@@ -184,6 +187,17 @@ describe("CountryPerformancePage integration", () => {
     expect(screenSectionIds()).toEqual(["flow", "supply", "stockSituation", "inventory", "forward"]);
     expect(screen.queryByRole("tab", { name: "Demand" })).toHaveAttribute("aria-selected", "false");
     expect(document.querySelector('.perf-screen-tree [data-perf-section="demand"]')).toBeNull();
+  });
+
+  it("mounts Monthly Analysis on demand with the active filter input and keeps it out of presentation", () => {
+    render(<CountryPerformancePage />);
+    expect(H.monthlyInputs).toHaveLength(0);
+    fireEvent.click(screen.getByRole("tab", { name: "Monthly Analysis" }));
+    expect(screen.getByText("No monthly analysis data")).toBeInTheDocument();
+    expect(H.monthlyInputs).toHaveLength(1);
+    expect(H.monthlyInputs[0]).toMatchObject({ country: "Libya", preset: "ytd", compare: "plan", includeFoc: true });
+    fireEvent.click(screen.getByRole("button", { name: "Open presentation" }));
+    expect(screen.getByTestId("presentation-order")).not.toHaveTextContent("monthly");
   });
 
   it("loads and remembers tabs per authenticated user, including when the account changes in place", async () => {

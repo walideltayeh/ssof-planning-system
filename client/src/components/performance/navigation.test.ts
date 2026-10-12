@@ -39,7 +39,8 @@ describe("country performance navigation", () => {
     expect(sectionsForTab(sections, "quality").map((section) => section.id))
       .toEqual(["quality", "anomalies", "confidence"]);
     expect(sectionsForTab(sections, "value").map((section) => section.id)).toEqual(["commercial"]);
-    expect(PERFORMANCE_TABS).toHaveLength(5);
+    expect(PERFORMANCE_TABS).toHaveLength(6);
+    expect(PERFORMANCE_TABS.find((tab) => tab.id === "monthly")?.sectionIds).toEqual([]);
   });
 
   it("keeps the complete saved slide and PDF order independent of selected tab, with no FOC section", () => {
@@ -50,6 +51,7 @@ describe("country performance navigation", () => {
       "changes", "portfolio", "market", "supply", "stockSituation", "inventory", "forward", "quality", "anomalies",
     ]);
     expect(printable.some((section) => section.id === "foc")).toBe(false);
+    expect(printable.some((section) => section.id === "monthly")).toBe(false);
     expect(printable.find((section) => section.id === "portfolio")?.hiddenFromSlides).toBe(true);
   });
 

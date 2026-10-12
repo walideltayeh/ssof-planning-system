@@ -2220,6 +2220,14 @@ export const appRouter = router({
       }),
 
     // Country Performance pack — one cached aggregate per country + period.
+    monthlyAnalysis: protectedProcedure
+      .input(performanceRequestSchema)
+      .query(async ({ ctx, input }) => {
+        await requireCountryAccess(ctx, input.country);
+        const { getMonthlyAnalysis } = await import("./analysis/countryPerformance");
+        return getMonthlyAnalysis(input);
+      }),
+
     performance: protectedProcedure
       .input(performanceRequestSchema)
       .query(async ({ ctx, input }) => {

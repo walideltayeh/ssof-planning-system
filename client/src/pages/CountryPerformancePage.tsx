@@ -3,6 +3,7 @@ import { flushSync } from "react-dom";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import BoardChangesSection from "@/components/performance/BoardChangesSection";
+import MonthlyAnalysis from "@/components/performance/MonthlyAnalysis";
 import DeepDiveDisclosure from "@/components/performance/DeepDiveDisclosure";
 import { PerformanceProvider } from "@/components/performance/PerformanceContext";
 import PerformanceHeader from "@/components/performance/PerformanceHeader";
@@ -263,6 +264,7 @@ export default function CountryPerformancePage() {
           </div>
 
           <div id="analysis-tab-panel" role="tabpanel" aria-labelledby={`analysis-tab-${activeTab}`} className="perf-screen-tree space-y-8 pt-2">
+            {activeTab === "monthly" && <MonthlyAnalysis input={queryInput} />}
             {activeSections.map((section) => (
               <SectionFrame
                 key={section.id}

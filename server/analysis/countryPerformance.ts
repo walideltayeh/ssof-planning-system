@@ -8,6 +8,7 @@
  */
 
 import * as db from "../db";
+import { buildMonthlyAnalysis } from "./monthlyAnalysis.helpers";
 import { loadSyriaReconciliation } from "./syriaReconciliation";
 import { getFocPlanning } from "../focPlanning";
 import { summarizeFoc, supportsFoc } from "../../shared/performance/foc";
@@ -193,6 +194,11 @@ export async function getCountryDataset(country: PerformanceCountry, refresh = f
 }
 
 // ── Public API ───────────────────────────────────────────────────────────────
+
+export async function getMonthlyAnalysis(req: PerformanceRequest & { refresh?: boolean }) {
+  const dataset = await getCountryDataset(req.country, req.refresh);
+  return buildMonthlyAnalysis({ ...dataset, includeFoc: supportsFoc(req.country) ? req.includeFoc !== false : false }, req);
+}
 
 export async function getCountryPerformance(req: PerformanceRequest & { refresh?: boolean }): Promise<PerformancePack> {
   const cacheKey = `${req.country}|${JSON.stringify({ p: req.preset, a: req.anchor ?? null, f: req.from ?? null, t: req.to ?? null, c: req.compare, fl: req.filters ?? {}, foc: supportsFoc(req.country) ? req.includeFoc !== false : undefined })}`;

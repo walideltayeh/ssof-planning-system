@@ -6,6 +6,7 @@ export const PERFORMANCE_TABS = [
   { id: "supply", label: "Supply & Stock", sectionIds: ["flow", "supply", "stockSituation", "inventory", "forward", "syriaReconciliation"] },
   { id: "quality", label: "Quality & Risk", sectionIds: ["quality", "anomalies", "confidence"] },
   { id: "value", label: "Value", sectionIds: ["commercial"] },
+  { id: "monthly", label: "Monthly Analysis", sectionIds: [] },
 ] as const;
 
 export type PerformanceTabId = (typeof PERFORMANCE_TABS)[number]["id"];
