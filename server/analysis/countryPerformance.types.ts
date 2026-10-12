@@ -390,6 +390,7 @@ export interface ChronicSku {
 }
 
 export interface ForecastQualitySection {
+  byPackaging?: AccuracyGroup[];
   overallAccuracyPct: number | null;
   overallBiasPct: number | null;
   byMonth: AccuracyPoint[];
@@ -452,6 +453,7 @@ export interface GapRow {
 }
 
 export interface ForwardSection {
+  byPackaging?: { packaging: string; months: ForwardMonth[] }[];
   horizonMonths: string[];
   total: ForwardMonth[];
   byWeight: ForwardWeight[];
@@ -470,6 +472,7 @@ export interface CommercialRow {
 }
 
 export interface CommercialSection {
+  byPackaging?: CommercialRow[];
   hasPrices: boolean;
   selloutUsd: number | null;
   selloutLyUsd: number | null;
@@ -538,6 +541,7 @@ export interface PerformanceMeta {
 }
 
 export interface PerformancePack {
+  packaging?: import("../../shared/performance/packaging").PackagingAnalysis;
   foc?: import("../../shared/performance/foc").FocSummary;
   /** Read-only live tracker comparison. Never present for other countries. */
   syriaReconciliation?: import("../../shared/performance/syriaReconciliation").SyriaReconciliation;
@@ -608,6 +612,7 @@ export interface RunningRateChartPoint {
 }
 
 export interface RunningRateSection {
+  byPackaging?: RunningRateTile[];
   /** Month the rate is measured at, e.g. "May 2026" (latest month with actual IMS inside the period). */
   asOf: string | null;
   headline: RateFigure;
@@ -666,6 +671,7 @@ export interface OutlookBaseline {
 }
 
 export interface OutlookSection {
+  byPackaging?: OutlookGroup[];
   year: number;
   ytdThrough: string | null;
   monthsElapsed: number;
@@ -690,6 +696,7 @@ export interface BridgeStep {
 }
 
 export interface VolumeBridge {
+  byPackaging?: BridgeStep[];
   available: boolean;
   fromLabel: string;
   toLabel: string;
@@ -801,6 +808,7 @@ export interface VariabilityRow {
 }
 
 export interface InventoryEfficiency {
+  byPackaging?: EfficiencyGroup[];
   total: EfficiencyGroup;
   byWeight: EfficiencyGroup[];
   variability: VariabilityRow[];

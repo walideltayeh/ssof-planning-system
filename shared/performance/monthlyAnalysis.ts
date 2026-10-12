@@ -19,6 +19,7 @@ export interface MonthlySuggestion {
 }
 export interface MonthlyRow {
   id: string; sku: string; weight: string; category: string; flavour: string; total: boolean;
+  packaging?: string;
   rates: MonthlyRate; stock: { closing: number; weeks: number | null; zone: string };
   ims: (number | null)[]; imsTotal: number;
   volatility: { months: number; mean: number; stdDev: number; cvPct: number | null; label: string };
@@ -27,6 +28,7 @@ export interface MonthlyRow {
   suggestions: MonthlySuggestion[];
 }
 export interface MonthlyAnalysis {
+  packaging?: import("./packaging").PackagingAnalysis;
   country: string; asOf: string; windowLabel: string;
   gridMonths: MonthlyRef[]; selectedMonths: MonthlyRef[]; forecastMonths: MonthlyRef[];
   rows: MonthlyRow[]; totals: MonthlyRow[];

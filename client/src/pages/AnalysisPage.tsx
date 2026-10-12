@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { useUnit } from "@/contexts/UnitContext";
 import ForecastIntelligenceTab from "@/components/ForecastIntelligenceTab";
 import ClosingStockTab from "@/components/ClosingStockTab";
+import { canonicalSkuLabel } from "@/components/performance/canonicalSkuLabel";
 
 // ==================== HELPER COMPONENTS ====================
 
@@ -257,7 +258,7 @@ export default function AnalysisPage() {
                     <tbody>
                       {skuList.map((sku: any) => (
                         <tr key={sku.id} className="border-b hover:bg-muted/30">
-                          <td className="p-2 font-medium">{sku.name}</td>
+                          <td className="p-2 font-medium">{canonicalSkuLabel(sku)}</td>
                           <td className="text-center p-2">
                             <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${sku.weight === '50g' ? 'bg-blue-100 text-blue-700' : sku.weight === '250g' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'}`}>{sku.weight}</span>
                           </td>
@@ -358,7 +359,7 @@ export default function AnalysisPage() {
               <CardContent className="p-3 pl-4">
                 <div className="flex items-start justify-between mb-2">
                   <div>
-                    <p className="text-sm font-semibold">{sku.name}</p>
+                    <p className="text-sm font-semibold">{canonicalSkuLabel(sku)}</p>
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold ${
                         sku.weight === '50g' ? 'bg-blue-100 text-blue-700' :
@@ -877,7 +878,7 @@ export default function AnalysisPage() {
                       <tbody>
                         {skus.map((sku: any) => (
                           <tr key={sku.id} className="border-b hover:bg-muted/30 transition-colors">
-                            <td className="p-2 font-medium sticky left-0 bg-white border-r whitespace-nowrap">{sku.name}</td>
+                            <td className="p-2 font-medium sticky left-0 bg-white border-r whitespace-nowrap">{canonicalSkuLabel(sku)}</td>
                             <td className="text-center p-1.5">
                               <span className={`px-1 py-0.5 rounded text-[10px] font-semibold ${sku.weight === '50g' ? 'bg-blue-100 text-blue-700' : sku.weight === '250g' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'}`}>{sku.weight}</span>
                             </td>
@@ -974,7 +975,7 @@ export default function AnalysisPage() {
                         {sortedSkus.map((sku: any, idx: number) => (
                           <tr key={sku.id} className="border-b hover:bg-muted/30 transition-colors">
                             <td className="p-2 font-medium sticky left-0 bg-white">
-                              <div>{sku.name}</div>
+                              <div>{canonicalSkuLabel(sku)}</div>
                               <div className="text-[10px] text-muted-foreground">{sku.category} · {sku.packagingType} Pkg</div>
                             </td>
                             <td className="text-center p-2">
@@ -1129,7 +1130,7 @@ export default function AnalysisPage() {
                           <button className="w-full flex items-center justify-between p-3 bg-red-50 hover:bg-red-100 transition-colors text-left" onClick={() => setExpandedSku(expandedSku === sku.id ? null : sku.id)}>
                             <div className="flex items-center gap-3">
                               <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: zoneColorMap[sku.currentZone] }} />
-                              <span className="text-xs font-semibold">{sku.name}</span>
+                              <span className="text-xs font-semibold">{canonicalSkuLabel(sku)}</span>
                               <span className={`text-[10px] px-1 py-0.5 rounded font-medium ${sku.weight === '50g' ? 'bg-blue-100 text-blue-700' : sku.weight === '250g' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'}`}>{sku.weight}</span>
                             </div>
                             <div className="flex items-center gap-4">
@@ -1175,7 +1176,7 @@ export default function AnalysisPage() {
                       {overstockedSkus.map((sku: any) => (
                         <div key={sku.id} className="flex items-center justify-between p-2.5 bg-amber-50 rounded-lg border border-amber-100">
                           <div className="flex items-center gap-2">
-                            <span className="text-xs font-medium">{sku.name}</span>
+                            <span className="text-xs font-medium">{canonicalSkuLabel(sku)}</span>
                             <span className={`text-[10px] px-1 py-0.5 rounded font-medium ${sku.weight === '50g' ? 'bg-blue-100 text-blue-700' : sku.weight === '250g' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'}`}>{sku.weight}</span>
                           </div>
                           <div className="flex items-center gap-4">
@@ -1229,12 +1230,12 @@ export default function AnalysisPage() {
                         <tbody>
                           {filteredHeatmap.map((row: any, rowIdx: number) => (
                             <tr key={row.skuId} className={rowIdx % 2 === 0 ? "bg-white" : "bg-slate-50"}>
-                              <td className="px-2 py-1 font-medium sticky left-0 z-10 border-b" style={{ backgroundColor: rowIdx % 2 === 0 ? "white" : "#f8fafc" }}>{row.skuName}</td>
+                              <td className="px-2 py-1 font-medium sticky left-0 z-10 border-b" style={{ backgroundColor: rowIdx % 2 === 0 ? "white" : "#f8fafc" }}>{canonicalSkuLabel({ name: row.skuName, weight: row.weight, packagingType: row.packagingType })}</td>
                               <td className="px-1 py-1 text-center border-b">
                                 <span className={`text-[9px] px-1 rounded font-medium ${row.weight === '50g' ? 'bg-blue-100 text-blue-700' : row.weight === '250g' ? 'bg-amber-100 text-amber-700' : 'bg-rose-100 text-rose-700'}`}>{row.weight}</span>
                               </td>
                               {row.periods.map((pw: any) => (
-                                <td key={pw.label} className="px-1 py-1 text-center border-b font-semibold" style={{ backgroundColor: zoneBgMap[pw.zone] || "#f9fafb", color: zoneColorMap[pw.zone] || "#374151" }} title={`${row.skuName} - ${pw.label}: ${pw.weeks}w (${pw.zone})`}>
+                                <td key={pw.label} className="px-1 py-1 text-center border-b font-semibold" style={{ backgroundColor: zoneBgMap[pw.zone] || "#f9fafb", color: zoneColorMap[pw.zone] || "#374151" }} title={`${canonicalSkuLabel({ name: row.skuName, weight: row.weight, packagingType: row.packagingType })} - ${pw.label}: ${pw.weeks}w (${pw.zone})`}>
                                   {pw.weeks > 0 ? pw.weeks : "-"}
                                 </td>
                               ))}
@@ -1336,7 +1337,7 @@ export default function AnalysisPage() {
                     {sortedSkus.map((sku: any, idx: number) => (
                       <tr key={sku.id} className="border-b hover:bg-muted/30 transition-colors">
                         <td className="p-2 font-medium sticky left-0 bg-white">
-                          <div>{sku.name}</div>
+                          <div>{canonicalSkuLabel(sku)}</div>
                           <div className="text-[10px] text-muted-foreground">{sku.category} · {sku.packagingType} Pkg</div>
                         </td>
                         <td className="text-center p-2">

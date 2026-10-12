@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { CoverZone, SectionProps } from "./types";
 import { EmptyState, PERF_COLORS, QuestionCard, SectionNotes, usePerfFormat, ZONE_COLORS } from "./shared";
+import NativePackagingTable from "./NativePackagingTable";
 
 const th = "px-2 py-2 text-left text-xs font-medium text-muted-foreground";
 const td = "px-2 py-2 text-sm";
@@ -23,6 +24,7 @@ export default function InventorySection({ pack, presentation }: SectionProps) {
   const healthy = inv.zoneCounts.find((z) => z.zone === "Healthy")?.count ?? 0;
   const coverSorted = [...inv.cover].sort((a, b) => (a.weeks ?? Infinity) - (b.weeks ?? Infinity));
   const ef = inv.efficiency;
+  const packagingEfficiency = ef.byPackaging;
   const ls = inv.lostSales;
   const trendData = ef.total.trend.map((pt, i) => {
     const row: Record<string, number | string | null> = { label: pt.label, Total: pt.stockToSales };
@@ -167,6 +169,11 @@ export default function InventorySection({ pack, presentation }: SectionProps) {
               <tr className={cn("border-t", i === 0 && "font-semibold bg-muted/40")} key={g.group}><td className={td}>{g.group}</td><td className={td}>{g.turns === null ? "–" : `${g.turns.toFixed(1)}×`}</td><td className={td}>{g.daysOfInventory === null ? "–" : Math.round(g.daysOfInventory)}</td><td className={td}>{fmtMc(g.avgStock)}</td><td className={td}>{fmtMc(g.annualisedIms)}</td></tr>
             ))}</tbody>
           </table>
+          <NativePackagingTable title="Inventory efficiency by packaging · native cohort" rows={packagingEfficiency} columns={[
+            { key: "group", label: "Packaging" }, { key: "turns", label: "Turns", kind: "number" },
+            { key: "daysOfInventory", label: "Days of inventory", kind: "number" }, { key: "avgStock", label: `Average stock (${unitLabel})`, kind: "quantity" },
+            { key: "annualisedIms", label: `Annualised IMS (${unitLabel})`, kind: "quantity" },
+          ]} />
           {trendData.length > 1 && (
             <ResponsiveContainer width="100%" height={220}>
               <LineChart data={trendData}>

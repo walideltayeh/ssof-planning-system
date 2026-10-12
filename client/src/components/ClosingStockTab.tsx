@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { canonicalSkuLabel } from "@/components/performance/canonicalSkuLabel";
 import { trpc } from "@/lib/trpc";
 import { useIncludeFoc } from "@/hooks/useIncludeFoc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -249,7 +250,7 @@ function ClosingStockTab({ country }: { country: "Lebanon" | "Syria" | "Libya" |
           <tbody>
             {filteredSkus.map((s, i) => (
               <tr key={s.id} className={`${i % 2 === 0 ? "bg-white" : "bg-muted/20"} hover:bg-blue-50/40 transition-colors`}>
-                <td className="px-3 py-2 font-medium max-w-[200px] truncate" title={s.name}>{s.name}</td>
+                <td className="px-3 py-2 font-medium max-w-[200px] truncate" title={canonicalSkuLabel(s)}>{canonicalSkuLabel(s)}</td>
                 <td className="px-3 py-2 text-center">
                   <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${s.weight === "1kg" ? "bg-red-50 text-red-700" : s.weight === "250g" ? "bg-amber-50 text-amber-700" : "bg-blue-50 text-blue-700"}`}>
                     {s.weight}

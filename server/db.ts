@@ -1952,7 +1952,7 @@ export async function getAnalysisByFlavor() {
 
     return {
       flavor,
-      skus: flavorSkus.map(s => ({ id: s.id, name: s.name, weight: s.weight })),
+      skus: flavorSkus.map(s => ({ id: s.id, name: s.name, weight: s.weight, packagingType: s.packagingType ?? "New" })),
       weights: Array.from(new Set(flavorSkus.map(s => s.weight))),
       totalForecast: Math.round(fTotal),
       totalIms: Math.round(iTotal),
@@ -2413,6 +2413,7 @@ export async function getIntlAnalysis(country: "Syria" | "Libya" | "KSA", includ
     skuId: number;
     skuName: string;
     weight: string;
+    packagingType: string;
     periodLabel: string;
     totalQty: number;
     clearedQty: number;
@@ -2471,6 +2472,7 @@ export async function getIntlAnalysis(country: "Syria" | "Libya" | "KSA", includ
       skuId: row.skuId,
       skuName: sku.name,
       weight: sku.weight,
+      packagingType: sku.packagingType ?? "New",
       periodLabel: p.label,
       totalQty: prodTotal,
       clearedQty,

@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { canonicalSkuLabel } from "@/components/performance/canonicalSkuLabel";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -220,7 +221,7 @@ function ForecastIntelligenceTab({ country }: { country: "Lebanon" | "Syria" | "
                 <div key={s.id} className="flex items-center justify-between p-2 rounded border border-muted">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-sm font-medium">{s.name}</span>
+                      <span className="text-sm font-medium">{canonicalSkuLabel(s)}</span>
                       <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${s.weight === "1kg" ? "bg-red-50 text-red-700" : s.weight === "250g" ? "bg-amber-50 text-amber-700" : "bg-blue-50 text-blue-700"}`}>
                         {s.weight}
                       </span>
@@ -317,9 +318,9 @@ function ForecastIntelligenceTab({ country }: { country: "Lebanon" | "Syria" | "
                 const autoFilled = (s as any).hasAutoFilledFutureIms === true;
                 return (
                   <tr key={s.id} className={i % 2 === 0 ? "bg-white" : "bg-muted/20"}>
-                    <td className="px-2 py-1.5 font-medium max-w-[180px] truncate" title={autoFilled ? `${s.name} — future IMS auto-filled from recommended forecast` : s.name}>
+                    <td className="px-2 py-1.5 font-medium max-w-[180px] truncate" title={autoFilled ? `${canonicalSkuLabel(s)} — future IMS auto-filled from recommended forecast` : canonicalSkuLabel(s)}>
                       <span className="flex items-center gap-1">
-                        <span className="truncate">{s.name}</span>
+                        <span className="truncate">{canonicalSkuLabel(s)}</span>
                         {autoFilled && (
                           <span
                             className="inline-flex items-center px-1 py-0 rounded-sm text-[8px] font-semibold bg-violet-100 text-violet-700 border border-violet-200 leading-tight"
@@ -404,7 +405,7 @@ function ForecastIntelligenceTab({ country }: { country: "Lebanon" | "Syria" | "
             <CardContent className="space-y-1.5 max-h-72 overflow-y-auto">
               {underForecasted.map(s => (
                 <div key={s.id} className="flex items-center gap-2 text-xs">
-                  <div className="w-44 truncate font-medium" title={s.name}>{s.name}</div>
+                  <div className="w-44 truncate font-medium" title={canonicalSkuLabel(s)}>{canonicalSkuLabel(s)}</div>
                   <div className="flex-1 relative h-5">
                     <div className="absolute inset-0 flex items-center">
                       <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
@@ -432,7 +433,7 @@ function ForecastIntelligenceTab({ country }: { country: "Lebanon" | "Syria" | "
             <CardContent className="space-y-1.5 max-h-72 overflow-y-auto">
               {overForecasted.map(s => (
                 <div key={s.id} className="flex items-center gap-2 text-xs">
-                  <div className="w-44 truncate font-medium" title={s.name}>{s.name}</div>
+                  <div className="w-44 truncate font-medium" title={canonicalSkuLabel(s)}>{canonicalSkuLabel(s)}</div>
                   <div className="flex-1 relative h-5">
                     <div className="absolute inset-0 flex items-center">
                       <div className="w-full h-2 bg-muted rounded-full overflow-hidden">

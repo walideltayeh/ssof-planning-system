@@ -329,7 +329,7 @@ describe("forecast accuracy", () => {
     const series = buildSkuSeries(ds);
     const toIdx = periods.findIndex((p) => p.year === 2026 && p.month === 8);
     const chronic = chronicBias(series, toIdx);
-    const hit = chronic.find((c) => c.sku === skus[0].name);
+    const hit = chronic.find((c) => c.sku === `${skus[0].name.replace(/^Al Fakher\s*/i, "").replace(/\s*50g$/, "")} · ${skus[0].weight} · New`);
     expect(hit).toBeDefined();
     expect(hit!.direction).toBe("over");
     expect(hit!.consecutiveMonths).toBeGreaterThanOrEqual(3);

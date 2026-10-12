@@ -16,6 +16,8 @@ import { compareHeadlines } from "../../shared/performance/boardCompare";
 import type { WorkbookExtras } from "./countryPerformanceExcel";
 import { summarizeFocReceipts, focReceiptAdditions } from "../../shared/performance/focReceipts";
 import { describeUpdate } from "@shared/audit/lastUpdate";
+import { buildPackagingAnalysis } from "./packaging.helpers";
+import { analysisSkuLabel, packagingOf } from "./countryPerformance.helpers";
 import { BoardHeadlineSchema } from "./countryPerformance.schemas";
 import {
   baselineFromSnapshot,
@@ -211,6 +213,15 @@ export async function getCountryPerformance(req: PerformanceRequest & { refresh?
   if (req.country === "Syria") {
     pack.syriaReconciliation = await loadSyriaReconciliation(ds, pack.meta.window);
     const comparison = pack.syriaReconciliation;
+    // Label only outputs; leave tracker matching and warehouse quantities untouched.
+    const labelDetail = (detail: import("../../shared/performance/syriaReconciliation").ReconciliationDetail) => {
+      const sku = ds.skus.find(s => s.id === detail.skuId);
+      if (sku) detail.sku = analysisSkuLabel(sku);
+    };
+    for (const detail of [...comparison.pendingProduction, ...comparison.ignoredOpeningEntries]) labelDetail(detail);
+    for (const line of comparison.lines) {
+      for (const breakdown of line.breakdown) for (const detail of breakdown.details) labelDetail(detail);
+    }
     if (comparison.warning) pack.confidence.issues.push({
       severity: comparison.status === "unavailable" ? "amber" : "red",
       title: "Syria — WS Tracker reconciliation",
@@ -370,7 +381,7 @@ function buildBasePack(
     const demands = s.months.map((m) => (intl ? m.ims : m.effectiveIms));
     return {
       skuId: s.sku.id,
-      sku: s.sku.name,
+      sku: analysisSkuLabel(s.sku),
       weight: s.sku.weight,
       category: s.sku.category ?? "Core",
       closingStock: c.closing,
@@ -388,7 +399,7 @@ function buildBasePack(
       const sf = shortfallBeforeNextArrival(row);
       const stockoutMonth = risk ? periods[w.toIdx + 1 + risk.monthIndex] : null;
       return {
-        sku: row.sku.name,
+        sku: analysisSkuLabel(row.sku),
         weight: row.sku.weight,
         closingStock: row.openingStock,
         weeks: cell.weeks === null ? null : round(cell.weeks, 1),
@@ -410,7 +421,7 @@ function buildBasePack(
       const fwd = row.demand.slice(0, 3);
       const avgFwd = fwd.length ? sum(fwd) / fwd.length : 0;
       return {
-        sku: s.sku.name,
+        sku: analysisSkuLabel(s.sku),
         weight: s.sku.weight,
         closingStock: c.closing,
         weeks: c.weeks === null ? null : round(c.weeks, 1),
@@ -428,7 +439,7 @@ function buildBasePack(
     for (let i = w.toIdx; i >= 0 && xs.length < 3; i--) if (s.months[i].imsIsActual) xs.push(s.months[i].ims);
     runRateBySku.set(s.sku.id, xs.length ? sum(xs) / xs.length : 0);
   }
-  const expiryRows = intl ? expiryAtRisk((ds.expiryRows ?? []).filter((r) => filteredSkus.some((s) => s.id === r.skuId)), runRateBySku) : [];
+  const expiryRows = intl ? expiryAtRisk((ds.expiryRows ?? []).filter((r) => filteredSkus.some((s) => s.id === r.skuId)).map(r => ({ ...r, skuName: analysisSkuLabel(filteredSkus.find(s => s.id === r.skuId)!) })), runRateBySku) : [];
   const expiryRiskMc = intl ? round(sum(expiryRows.map((r) => r.atRiskMc))) : null;
 
   // Pending clearance / delays (intl)
@@ -438,7 +449,7 @@ function buildBasePack(
     ? batches
         .filter((b) => b.pendingMc > 0 && b.expectedArrival && b.expectedArrival <= now && b.status !== "Cleared" && daysBetween(b.expectedArrival, now) > 7)
         .map((b) => ({
-          sku: b.sku.name,
+          sku: analysisSkuLabel(b.sku),
           weight: b.sku.weight,
           productionPeriod: b.period.label,
           producedMc: round(b.producedMc),
@@ -676,7 +687,7 @@ function buildBasePack(
     atRisk: atRisk.map((a) => ({ sku: a.sku, weight: a.weight, shortfall: a.shortfallMc, stockoutDate: a.projectedStockoutDate, nextArrival: a.nextArrival })),
     overstock: overstock.map((o) => ({ sku: o.sku, weight: o.weight, excess: o.excessMc, monthsToSell: o.monthsToSell })),
     delayed: delayed.map((d) => ({ sku: d.sku, weight: d.weight, pendingMc: d.pendingMc, daysLate: d.daysLate, invoiceRef: d.invoiceRef, productionPeriod: d.productionPeriod })),
-    chronic: chronic.map((c) => ({ ...c, monthlyDemand: runRateBySku.get(series.find((s) => s.sku.name === c.sku)?.sku.id ?? -1) ?? 0 })),
+    chronic: chronic.map((c) => ({ ...c, monthlyDemand: runRateBySku.get(series.find((s) => analysisSkuLabel(s.sku) === c.sku)?.sku.id ?? -1) ?? 0 })),
     expiry: expiryRows.slice(0, 3).map((e) => ({ sku: e.sku, weight: e.weight, atRiskMc: e.atRiskMc, expiryDate: e.expiryDate })),
   });
 
@@ -748,9 +759,9 @@ function buildBasePack(
 
   const stockRows = series.map((s) => ({
     skuId: s.sku.id,
-    sku: s.sku.name,
+    sku: analysisSkuLabel(s.sku),
     weight: s.sku.weight,
-    packaging: s.sku.packagingType ?? "",
+    packaging: packagingOf(s.sku),
     production: round(sum(s.months.slice(w.fromIdx, w.toIdx + 1).map((c) => c.actualProduction))),
     arrival: round(sum(s.months.slice(w.fromIdx, w.toIdx + 1).map((c) => c.arrivals)), 2),
     remainingStock: s.months[w.toIdx].closing,
@@ -763,7 +774,27 @@ function buildBasePack(
       remainingStock: closing,
     },
   };
-  return { meta, stockSituation, runningRate, outlook, executive: { tiles, keyMessages, risks }, flow, demand, supply, inventory, forecastQuality, forward, commercial, portfolio, market, anomalies, confidence, headline };
+  const packaging = buildPackagingAnalysis(ds, w, series);
+  if (!packaging.enabled) demand.mix = demand.mix.filter(dimension => dimension.dimension !== "packaging");
+  if (packaging.enabled) {
+    const old = packaging.groups.find(group => group.packaging === "Old");
+    if (old && (old.metrics.ims.value > 0 || old.metrics.stock.value > 0)) {
+      keyMessages.unshift({
+        rank: 1, tone: old.metrics.stock.value > 0 ? "warning" : "neutral",
+        headline: old.metrics.ims.sharePct === null ? "Old packaging stock remains without recorded sell-out" : `${old.metrics.ims.sharePct}% of sell-out is still Old packaging`,
+        detail: `${Math.round(old.metrics.stock.value).toLocaleString("en-US")} MC of Old stock remains; ${old.aggregateMonthsAtRate === null ? "no measurable stock duration at the current Old rate" : `${old.aggregateMonthsAtRate} aggregate months at the current Old rate`}. ${old.monthsToClear === null ? "No complete clear-out date: some stocked Old SKUs have no sales." : `Complete clear-out projected in ${old.projectedClearMonth}, at each SKU's own rate.`} No stock is borrowed between packaging or flavours.`,
+        impactMc: old.metrics.stock.value,
+      });
+      keyMessages.forEach((message, i) => { message.rank = i + 1; });
+    }
+    for (const row of packaging.expiry) {
+      const existing = risks.find(r => r.sku === row.sku && r.issue.includes("expire"));
+      const risk = { rank: risks.length + 1, sku: row.sku, weight: row.weight, issue: `Old packaging: ${Math.round(row.atRiskMc).toLocaleString("en-US")} MC will not clear before expiry (${row.expiryDate})`, impactMc: row.atRiskMc, action: "Prioritise this Old batch in sell-out; review promotions and replenishment", severity: "red" as const };
+      if (existing) Object.assign(existing, risk); else risks.push(risk);
+    }
+    headline.risks = risks.map(r => ({ sku: r.sku, issue: r.issue, severity: r.severity }));
+  }
+  return { packaging, meta, stockSituation, runningRate, outlook, executive: { tiles, keyMessages, risks }, flow, demand, supply, inventory, forecastQuality, forward, commercial, portfolio, market, anomalies, confidence, headline };
 }
 
 /** Keep production planning separate from stock: only eligible FOC receipts
@@ -782,6 +813,10 @@ export function buildPack(
     && p.sortOrder <= ds.periods.find(x => x.id === pack.meta.window.to.id)!.sortOrder);
   const summary = summarizeFoc(selectedSkus, selectedPeriods, ds.forecast, ds.foc ?? [], includeFoc);
   summary.receipts = summarizeFocReceipts(ds, includeFoc, selectedSkus.map(s => s.id), selectedPeriods.map(p => p.id));
+  for (const row of summary.skus) {
+    const sku = selectedSkus.find(s => s.id === row.skuId);
+    if (sku) row.label = analysisSkuLabel(sku);
+  }
   pack.foc = summary;
   // Keep fractional mastercases from the approved PO; do not round the physical
   // production plan to whole cases while the FOC section retains two decimals.
@@ -1021,12 +1056,12 @@ function buildDemand(a: { series: SkuSeries[]; periods: DatasetPeriod[]; w: Wind
     mixFor("flavour", "Which flavours sell most?", (s) => flavourOf(s.sku)),
   ];
 
-  const skuTotals = series.map((s) => ({ sku: s.sku.name, weight: s.sku.weight, mc: sumOver([s], w, (c) => c.ims) ?? 0 }));
+  const skuTotals = series.map((s) => ({ sku: analysisSkuLabel(s.sku), weight: s.sku.weight, mc: sumOver([s], w, (c) => c.ims) ?? 0 }));
   const pareto = paretoRows(skuTotals);
 
   const basis: "ly" | "prev" = lyW ? "ly" : "prev";
   const refW = lyW ?? a.prevW;
-  const movers = topMovers(series.map((s) => ({ sku: s.sku.name, weight: s.sku.weight, current: sumOver([s], w, (c) => c.ims) ?? 0, reference: refW ? sumOver([s], refW, (c) => c.ims) ?? 0 : 0 })));
+  const movers = topMovers(series.map((s) => ({ sku: analysisSkuLabel(s.sku), weight: s.sku.weight, current: sumOver([s], w, (c) => c.ims) ?? 0, reference: refW ? sumOver([s], refW, (c) => c.ims) ?? 0 : 0 })));
   if (!refW) notes.push("Growers and decliners need a prior year or previous period to compare against.");
 
   const isNpi = (s: SkuSeries) => (s.sku.category ?? "Core") !== "Core";
@@ -1044,7 +1079,7 @@ function buildDemand(a: { series: SkuSeries[]; periods: DatasetPeriod[]; w: Wind
     const first = s.months.findIndex((c) => c.ims > 0 && c.imsIsActual);
     const rampCells = first >= 0 ? s.months.slice(first, Math.min(s.months.length, w.toIdx + 1)).filter((c) => !c.isFuture) : [];
     return {
-      sku: s.sku.name,
+      sku: analysisSkuLabel(s.sku),
       weight: s.sku.weight,
       launchMonth: first >= 0 ? shortLabel(s.months[first].period) : null,
       monthsSinceLaunch: rampCells.length,
@@ -1119,7 +1154,7 @@ function buildSupply(a: { intl: boolean; series: SkuSeries[]; periods: DatasetPe
       pendingMc: round(pendingMc),
       clearanceRatePct: clearedMc + pendingMc > 0 ? round((clearedMc / (clearedMc + pendingMc)) * 100, 1) : null,
       batchStatus: Array.from(statusMap.entries()).map(([status, v]) => ({ status, batches: v.batches, mc: round(v.mc) })),
-      oldestPending: oldest ? { sku: oldest.sku.name, productionPeriod: oldest.period.label, pendingMc: round(oldest.pendingMc), daysWaiting: oldest.expectedArrival ? daysBetween(oldest.expectedArrival, now) : daysBetween(new Date(oldest.period.year, oldest.period.month - 1, 1), now) } : null,
+      oldestPending: oldest ? { sku: analysisSkuLabel(oldest.sku), productionPeriod: oldest.period.label, pendingMc: round(oldest.pendingMc), daysWaiting: oldest.expectedArrival ? daysBetween(oldest.expectedArrival, now) : daysBetween(new Date(oldest.period.year, oldest.period.month - 1, 1), now) } : null,
       avgDaysToClear: daysToClear.length ? round(sum(daysToClear) / daysToClear.length) : null,
       medianDaysToClear: daysToClear.length ? daysToClear[Math.floor(daysToClear.length / 2)] : null,
     };
@@ -1142,9 +1177,9 @@ function buildInventory(a: {
   const zoneCounts = zoneOrder.map((zone) => ({ zone, count: coverRows.filter((c) => c.zone === zone).length }));
   const months = projRows[0]?.labels ?? [];
   const rows = projRows.map((row) => {
-    const p = projectSku({ skuId: row.sku.id, sku: row.sku.name, weight: row.sku.weight, openingStock: row.openingStock, demand: row.demand, arrivals: row.arrivals }, 1, rule);
+    const p = projectSku({ skuId: row.sku.id, sku: analysisSkuLabel(row.sku), weight: row.sku.weight, openingStock: row.openingStock, demand: row.demand, arrivals: row.arrivals }, 1, rule);
     return {
-      sku: row.sku.name,
+      sku: analysisSkuLabel(row.sku),
       weight: row.sku.weight,
       cells: p.map((m, i) => ({ label: row.labels[i], weeks: m.weeks === null ? null : round(m.weeks, 1), zone: classifyZone(m.weeks, m.closing), closing: round(m.closing) })),
     };
@@ -1162,7 +1197,7 @@ function buildInventory(a: {
       pricedMc += c;
     } else {
       unpricedMc += c;
-      missing.push(s.sku.name);
+      missing.push(analysisSkuLabel(s.sku));
     }
   }
   const anyPrice = pricedMc > 0 || Array.from(priceOf.values()).some((p) => p && p > 0);
@@ -1199,6 +1234,10 @@ function buildForecastQuality(a: { series: SkuSeries[]; chartW: Window; w: Windo
     overallBiasPct: a.accOverall.biasPct,
     byMonth: accuracyByMonth(chartSamples.samples, order),
     byWeight: accuracyByGroup(a.acc.samples, (s) => s.weight),
+    byPackaging: accuracyByGroup(a.acc.samples, sample => {
+      const sku = a.series.find(s => analysisSkuLabel(s.sku) === sample.sku)?.sku;
+      return sku ? packagingOf(sku) : "New";
+    }),
     bySku: accuracyByGroup(a.acc.samples, (s) => s.sku, (s) => s.weight),
     chronic: a.chronic,
     excludedAutoFilledMonths: a.acc.excludedAutoFilled,
@@ -1210,11 +1249,15 @@ function buildForecastQuality(a: { series: SkuSeries[]; chartW: Window; w: Windo
 function buildForward(a: { intl: boolean; series: SkuSeries[]; periods: DatasetPeriod[]; w: Window; projRows: ReturnType<typeof projectionInputs>; horizonLabels: string[]; batches: Batch[]; ds: PerformanceDataset; rule: ReturnType<typeof coverRuleFor>; currentIdx: number }): ForwardSection {
   const { intl, projRows, horizonLabels, batches, ds, rule, periods, w } = a;
   const notes: string[] = [];
-  const inputs = projRows.map((r) => ({ skuId: r.sku.id, sku: r.sku.name, weight: r.sku.weight, openingStock: r.openingStock, demand: r.demand.map((v) => round(v, 2)), arrivals: r.arrivals.map((v) => round(v, 2)), production: r.production.map((v) => round(v, 2)) }));
+  const inputs = projRows.map((r) => ({ skuId: r.sku.id, sku: analysisSkuLabel(r.sku), weight: r.sku.weight, openingStock: r.openingStock, demand: r.demand.map((v) => round(v, 2)), arrivals: r.arrivals.map((v) => round(v, 2)), production: r.production.map((v) => round(v, 2)) }));
   const toMonths = (rows: typeof inputs): ForwardMonth[] => aggregateProjection(rows, 1, rule).map((m, i) => ({ label: horizonLabels[i], demand: round(m.demand), arrivals: round(m.arrivals), closing: round(m.closing), weeks: m.weeks === null ? null : round(m.weeks, 1), targetLowMc: round(m.targetLowMc), targetHighMc: round(m.targetHighMc) }));
   const total = toMonths(inputs);
   const weights = Array.from(new Set(inputs.map((i) => i.weight)));
   const byWeight = weights.map((weight) => ({ weight, months: toMonths(inputs.filter((i) => i.weight === weight)) }));
+  const byPackaging = [...new Set(projRows.map(r => packagingOf(r.sku)))].sort().map(packaging => {
+    const ids = new Set(projRows.filter(r => packagingOf(r.sku) === packaging).map(r => r.sku.id));
+    return { packaging, months: toMonths(inputs.filter(i => ids.has(i.skuId))) };
+  });
 
   // Lead time for order timing
   let leadTimeMonths = 1;
@@ -1266,7 +1309,7 @@ function buildForward(a: { intl: boolean; series: SkuSeries[]; periods: DatasetP
   notes.push("Demand = entered IMS where available, otherwise the forecast. Target = 5 weeks of cover (middle of the 4–6 band).");
   if (intl) notes.push("Arrivals include planned production batches landing per their arrival offset; overdue batches are assumed to land in the first projected month.");
 
-  return { horizonMonths: horizonLabels, total, byWeight, gaps, inputs: { months: horizonLabels, cover: rule, target: { low: 4, high: 6 }, leadTimeMonths, leadTimeNote, skus: inputs }, notes };
+  return { horizonMonths: horizonLabels, total, byWeight, byPackaging, gaps, inputs: { months: horizonLabels, cover: rule, target: { low: 4, high: 6 }, leadTimeMonths, leadTimeNote, skus: inputs }, notes };
 }
 
 function buildCommercial(a: { series: SkuSeries[]; w: Window; lyW: Window | null; filteredSkus: PerformanceDataset["skus"] }): CommercialSection {
@@ -1321,6 +1364,7 @@ function buildCommercial(a: { series: SkuSeries[]; w: Window; lyW: Window | null
     pricedVolumeSharePct: all.pricedSharePct,
     byWeight: weights.map((wt) => rowFor(wt, series.filter((s) => s.sku.weight === wt))),
     byCategory: cats.map((c) => rowFor(c, series.filter((s) => (s.sku.category ?? "Core") === c))),
+    byPackaging: [...new Set(series.map(s => packagingOf(s.sku)))].sort().map(packaging => rowFor(packaging, series.filter(s => packagingOf(s.sku) === packaging))),
     skusMissingPrice: missing,
     notes,
   };
@@ -1347,7 +1391,7 @@ function buildConfidence(a: {
       if (first < 0) return null;
       const months: string[] = [];
       for (let i = first; i <= latestActualIdx; i++) if (s.months[i].ims === 0) months.push(shortLabel(s.months[i].period));
-      return months.length ? { sku: s.sku.name, weight: s.sku.weight, months } : null;
+      return months.length ? { sku: analysisSkuLabel(s.sku), weight: s.sku.weight, months } : null;
     })
     .filter((x): x is NonNullable<typeof x> => x !== null);
   const missingCount = sum(missingImsMonths.map((m) => m.months.length));
@@ -1355,14 +1399,14 @@ function buildConfidence(a: {
 
   const skusWithoutForecast = filteredSeries
     .filter((s) => !s.months.slice(w.fromIdx, Math.min(s.months.length, w.toIdx + 1 + horizon)).some((c) => c.forecast > 0))
-    .map((s) => ({ sku: s.sku.name, weight: s.sku.weight }));
+    .map((s) => ({ sku: analysisSkuLabel(s.sku), weight: s.sku.weight }));
   if (skusWithoutForecast.length) issues.push({ severity: "amber", title: "SKUs without a forecast", detail: `${skusWithoutForecast.length} SKU(s) have no forecast in the period or the next ${horizon} months.`, count: skusWithoutForecast.length });
 
   const autoAll = filteredSeries.reduce((n, s) => n + s.months.filter((c) => c.ims !== 0 && c.imsSource === "auto_forecast").length, 0);
   const autoPast = filteredSeries.reduce((n, s) => n + s.months.filter((c) => c.ims !== 0 && c.imsSource === "auto_forecast" && !c.isFuture).length, 0);
   if (autoAll) issues.push({ severity: autoPast ? "amber" : "grey", title: "Auto-filled IMS", detail: `${autoAll} IMS month(s) were auto-filled from the forecast${autoPast ? `, ${autoPast} of them in months that should now hold actual sales` : ""}.`, count: autoAll });
 
-  const skusMissingPrice = filteredSeries.filter((s) => !(num(s.sku.priceToWs) > 0)).map((s) => s.sku.name);
+  const skusMissingPrice = filteredSeries.filter((s) => !(num(s.sku.priceToWs) > 0)).map((s) => analysisSkuLabel(s.sku));
   if (skusMissingPrice.length) issues.push({ severity: "grey", title: "SKUs without a wholesale price", detail: `${skusMissingPrice.length} SKU(s) have no price to WS, so dollar values exclude them.`, count: skusMissingPrice.length });
 
   const latest = (rows: { updatedAt?: Date | string | null }[]): string | null => {
@@ -1396,7 +1440,7 @@ function buildConfidence(a: {
       checked++;
       const packClosing = round(s.months[currentIdx].closing);
       const diff = packClosing - src.closingStock;
-      if (Math.abs(diff) >= 1) mismatches.push({ sku: s.sku.name, weight: s.sku.weight, packClosing, planningFgClosing: src.closingStock, difference: round(diff) });
+      if (Math.abs(diff) >= 1) mismatches.push({ sku: analysisSkuLabel(s.sku), weight: s.sku.weight, packClosing, planningFgClosing: src.closingStock, difference: round(diff) });
     }
     reconciliation = {
       month: periods[currentIdx].label,

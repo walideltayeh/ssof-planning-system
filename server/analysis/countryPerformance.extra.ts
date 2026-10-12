@@ -41,6 +41,8 @@ import type {
   VolumeBridge,
 } from "./countryPerformance.types";
 import {
+  analysisSkuLabel,
+  packagingOf,
   flavourOf,
   isIntlCountry,
   pct,
@@ -227,10 +229,11 @@ export function buildRunningRate(a: {
   const weights = Array.from(new Set(series.map((s) => s.sku.weight))).sort((x, y) => gramsOf(x) - gramsOf(y));
   const byWeight = weights.map((wt) => tile(wt, perSku.filter((p) => p.s.sku.weight === wt)));
   const byType = ["Core", "NPI"].map((t) => tile(t, perSku.filter((p) => typeOf(p.s.sku) === t))).filter((t) => t.skuCount > 0);
+  const byPackaging = [...new Set(series.map(s => packagingOf(s.sku)))].sort().map(packaging => tile(packaging, perSku.filter(p => packagingOf(p.s.sku) === packaging)));
 
   // Drivers of the change in run rate (3-month avg vs previous 3 months, per SKU).
   const drivers: RunningRateDriver[] = perSku
-    .map((p) => ({ sku: p.s.sku.name, weight: p.s.sku.weight, current: p.avg3, previous: p.prior3, changeMc: p.avg3 - p.prior3, changePct: p.prior3 > 0 ? pct(p.avg3, p.prior3) : null }))
+    .map((p) => ({ sku: analysisSkuLabel(p.s.sku), weight: p.s.sku.weight, current: p.avg3, previous: p.prior3, changeMc: p.avg3 - p.prior3, changePct: p.prior3 > 0 ? pct(p.avg3, p.prior3) : null }))
     .filter((d) => d.changeMc !== 0);
   const up = drivers.filter((d) => d.changeMc > 0).sort((x, y) => y.changeMc - x.changeMc).slice(0, 5);
   const down = drivers.filter((d) => d.changeMc < 0).sort((x, y) => x.changeMc - y.changeMc).slice(0, 5);
@@ -255,6 +258,7 @@ export function buildRunningRate(a: {
     trend: { pct: trendPct, direction, text: trendText },
     chart,
     byWeight,
+    byPackaging,
     byType,
     up,
     down,
@@ -357,6 +361,7 @@ export function buildOutlook(a: {
   const total = group("Total", series);
   const weights = Array.from(new Set(series.map((s) => s.sku.weight))).sort((x, y) => gramsOf(x) - gramsOf(y));
   const byWeight = weights.map((wt) => group(wt, series.filter((s) => s.sku.weight === wt)));
+  const byPackaging = [...new Set(series.map(s => packagingOf(s.sku)))].sort().map(packaging => group(packaging, series.filter(s => packagingOf(s.sku) === packaging)));
   const byType = ["Core", "NPI"].map((t) => group(t, series.filter((s) => typeOf(s.sku) === t))).filter((g) => g.skuCount > 0);
 
   let cumLanding = 0;
@@ -381,7 +386,7 @@ export function buildOutlook(a: {
   }
   notes.push("Landing estimate = actual IMS to date plus the current forecast for the remaining months. Required run rate = (annual plan − actual to date) ÷ months remaining, compared with the latest actual month.");
 
-  return { year, ytdThrough, monthsElapsed, monthsRemaining, baseline: baselineInfo, total, byWeight, byType, monthly, message, notes };
+  return { year, ytdThrough, monthsElapsed, monthsRemaining, baseline: baselineInfo, total, byWeight, byPackaging, byType, monthly, message, notes };
 }
 
 // ── Volume bridge ────────────────────────────────────────────────────────────
@@ -440,7 +445,16 @@ export function buildVolumeBridge(a: {
     { key: "ty", label: "This period", value: round(tyTotal), kind: "total" },
   ];
   const note = lyW.months.length < w.months.length ? `Partial prior-year data (${lyW.months.length} of ${w.months.length} months).` : "Bridge uses IMS as entered (auto-filled months included, as in Planning FG).";
-  return { available: true, fromLabel: a.lyLabel ?? "Last year", toLabel: a.windowLabel, steps, byWeight, note };
+  const activeLy = sum(series.map(s => sumWin(s.months.map(c => c.ims), lyW)));
+  const byPackaging: BridgeStep[] = [
+    { key: "ly", label: "Last year (active SKUs)", value: round(activeLy), kind: "total" },
+    ...[...new Set(series.map(s => packagingOf(s.sku)))].sort().map(packaging => ({
+      key: `packaging-${packaging}`, label: packaging, kind: "delta" as const,
+      value: round(sum(series.filter(s => packagingOf(s.sku) === packaging).map(s => sumWin(s.months.map(c => c.ims), w) - sumWin(s.months.map(c => c.ims), lyW)))),
+    })),
+    { key: "ty", label: "This period", value: round(tyTotal), kind: "total" },
+  ];
+  return { available: true, fromLabel: a.lyLabel ?? "Last year", toLabel: a.windowLabel, steps, byWeight, byPackaging, note };
 }
 
 // ── Portfolio health ─────────────────────────────────────────────────────────
@@ -467,7 +481,7 @@ export function buildPortfolio(a: { series: SkuSeries[]; periods: DatasetPeriod[
     if (sharePct < thresholds.tailSharePct) quadrant = "Tail";
     else if (sharePct >= thresholds.shareSplitPct) quadrant = growthPct !== null && growthPct > thresholds.growthSplitPct ? "Stars" : "Core earners";
     else quadrant = growthPct !== null && growthPct > thresholds.growthSplitPct ? "Question marks" : "Tail";
-    return { sku: s.sku.name, weight: s.sku.weight, flavour: flavourOf(s.sku), category: s.sku.category ?? "Core", mc: round(mc), sharePct, growthPct, quadrant, closingStock: round(s.months[w.toIdx].closing) };
+    return { sku: analysisSkuLabel(s.sku), weight: s.sku.weight, flavour: flavourOf(s.sku), category: s.sku.category ?? "Core", mc: round(mc), sharePct, growthPct, quadrant, closingStock: round(s.months[w.toIdx].closing) };
   });
   const quadrants: Quadrant[] = ["Stars", "Core earners", "Question marks", "Tail"];
   const quadrantCounts = quadrants.map((q) => {
@@ -495,7 +509,7 @@ export function buildPortfolio(a: { series: SkuSeries[]; periods: DatasetPeriod[
     const weeks = s.months[w.toIdx].weeks;
     const candidate = zeroMonthsLast3 >= 2 || (monthsSinceLastSale !== null && monthsSinceLastSale >= 3) || monthsSinceLastSale === null;
     const reason = monthsSinceLastSale === null ? "No meaningful sale on record" : zeroMonthsLast3 >= 2 ? `${zeroMonthsLast3} of the last 3 months without sales` : monthsSinceLastSale >= 3 ? `Last meaningful sale ${monthsSinceLastSale} months ago` : "Low volume but still selling";
-    tail.push({ sku: s.sku.name, weight: s.sku.weight, mc: round(sumWin(s, w) ?? 0), sharePct: round(shares[i], 2), zeroMonthsLast3, monthsSinceLastSale, stockMc: round(stockMc), weeks, candidate, reason });
+    tail.push({ sku: analysisSkuLabel(s.sku), weight: s.sku.weight, mc: round(sumWin(s, w) ?? 0), sharePct: round(shares[i], 2), zeroMonthsLast3, monthsSinceLastSale, stockMc: round(stockMc), weeks, candidate, reason });
   }
   tail.sort((x, y) => Number(y.candidate) - Number(x.candidate) || y.stockMc - x.stockMc);
   const tailStockMc = round(sum(tail.map((t) => t.stockMc)));
@@ -547,7 +561,7 @@ export function buildLostSales(a: { series: SkuSeries[]; periods: DatasetPeriod[
       const runRate = prior.length ? avg(prior) : 0;
       const ims = c.imsIsActual ? c.ims : 0;
       const lostMc = Math.max(0, runRate - ims);
-      rows.push({ sku: s.sku.name, weight: s.sku.weight, month: shortLabel(periods[i]), closing: round(c.closing), ims: round(ims), runRate: round(runRate), lostMc: round(lostMc) });
+      rows.push({ sku: analysisSkuLabel(s.sku), weight: s.sku.weight, month: shortLabel(periods[i]), closing: round(c.closing), ims: round(ims), runRate: round(runRate), lostMc: round(lostMc) });
     }
   }
   const bySkuMap = new Map<string, { sku: string; weight: string; months: number; lostMc: number }>();
@@ -592,6 +606,7 @@ export function buildEfficiency(a: { series: SkuSeries[]; periods: DatasetPeriod
   const weights = Array.from(new Set(series.map((s) => s.sku.weight))).sort((x, y) => gramsOf(x) - gramsOf(y));
   const total = group("Total", series);
   const byWeight = weights.map((wt) => group(wt, series.filter((s) => s.sku.weight === wt)));
+  const byPackaging = [...new Set(series.map(s => packagingOf(s.sku)))].sort().map(packaging => group(packaging, series.filter(s => packagingOf(s.sku) === packaging)));
 
   const variability: VariabilityRow[] = series.map((s) => {
     const vals: number[] = [];
@@ -611,12 +626,13 @@ export function buildEfficiency(a: { series: SkuSeries[]; periods: DatasetPeriod
       else if (currentWeeks > recommendedWeeks + 3) verdict = "Well above the safety level";
       else verdict = "Cover matches the volatility";
     }
-    return { sku: s.sku.name, weight: s.sku.weight, avgIms: round(mean), cv, volatility, recommendedWeeks, targetWeeks, currentWeeks, verdict };
+    return { sku: analysisSkuLabel(s.sku), weight: s.sku.weight, avgIms: round(mean), cv, volatility, recommendedWeeks, targetWeeks, currentWeeks, verdict };
   });
   variability.sort((x, y) => (y.cv ?? -1) - (x.cv ?? -1));
   return {
     total,
     byWeight,
+    byPackaging,
     variability,
     method: "Last 12 months with actual IMS. Turns = annualised IMS ÷ average closing stock; days of inventory = 365 ÷ turns. Volatility = standard deviation ÷ mean of monthly IMS. Recommended cover = 3 weeks plus 1.65 × volatility × weeks per month, capped at 10 weeks.",
   };
@@ -786,7 +802,7 @@ export function buildAnomalies(a: { series: SkuSeries[]; periods: DatasetPeriod[
       });
       push("weight", wt, wt, m.measure, values, 20);
     }
-    for (const s of series) push("sku", s.sku.name, s.sku.weight, m.measure, s.months.map((c) => m.pick(c)), 5);
+    for (const s of series) push("sku", analysisSkuLabel(s.sku), s.sku.weight, m.measure, s.months.map((c) => m.pick(c)), 5);
   }
   rows.sort((x, y) => Math.abs(y.zScore) - Math.abs(x.zScore) || Math.abs(y.deviationMc) - Math.abs(x.deviationMc));
   return {
@@ -818,7 +834,7 @@ export function buildHeadline(a: {
   const year = outlook.year;
   const throughMonth = outlook.monthsElapsed;
   const skuForecasts = series.map((s) => ({
-    sku: s.sku.name,
+    sku: analysisSkuLabel(s.sku),
     weight: s.sku.weight,
     remainingForecast: round(sum(s.months.filter((c, i) => periods[i].year === year && periods[i].month > throughMonth).map((c) => c.forecast))),
   }));

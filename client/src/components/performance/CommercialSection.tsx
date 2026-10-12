@@ -1,5 +1,6 @@
 import type { SectionProps } from "./types";
 import { EmptyState, QuestionCard, SectionNotes, usePerfFormat } from "./shared";
+import NativePackagingTable from "./NativePackagingTable";
 
 const th = "px-3 py-2 text-left text-xs font-medium text-muted-foreground";
 const td = "px-3 py-2 text-sm";
@@ -16,6 +17,7 @@ export default function CommercialSection({ pack, presentation }: SectionProps) 
     {["Group", "Sell-out value", "Last year", "Growth", "Stock value", "Volume priced"].map((x) => <th className={th} key={x}>{x}</th>)}
   </tr></thead><tbody>{rows.slice(0, presentation ? 8 : undefined).map((r) => <tr className="border-t" key={r.group}><td className={td}>{r.group}</td><td className={td}>{fmtUsd(r.selloutUsd)}</td><td className={td}>{fmtUsd(r.selloutLyUsd)}</td><td className={`${td} ${(r.selloutGrowthPct ?? 0) >= 0 ? "text-green-700" : "text-red-700"}`}>{fmtPctSigned(r.selloutGrowthPct)}</td><td className={td}>{fmtUsd(r.stockUsd)}</td><td className={td}>{fmtPct(r.pricedSharePct)}</td></tr>)}</tbody></table>
     {presentation && rows.length > 8 && <p className="mt-2 text-xs text-muted-foreground">+{rows.length - 8} more in the full pack</p>}</div>;
+  const packagingValue = c.byPackaging;
 
   return <div className={presentation ? "space-y-5 text-base" : "space-y-4"}>
     <div className="grid gap-4 md:grid-cols-3">
@@ -24,6 +26,11 @@ export default function CommercialSection({ pack, presentation }: SectionProps) 
       <QuestionCard question="How much volume has a price?"><div className={presentation ? "text-3xl font-bold" : "text-2xl font-bold"}>{fmtPct(c.pricedVolumeSharePct)}</div><p className="text-sm text-muted-foreground">of volume has a price</p></QuestionCard>
     </div>
     <div className="grid gap-4 md:grid-cols-2"><QuestionCard question="How does value split by weight?">{table(c.byWeight)}</QuestionCard><QuestionCard question="How does value split by category?">{table(c.byCategory)}</QuestionCard></div>
+    <NativePackagingTable title="Commercial value by packaging · USD" rows={packagingValue} columns={[
+      { key: "group", label: "Packaging" }, { key: "selloutUsd", label: "Sell-out", kind: "usd" },
+      { key: "selloutLyUsd", label: "Last year", kind: "usd" }, { key: "selloutGrowthPct", label: "Growth", kind: "percent" },
+      { key: "stockUsd", label: "Stock value", kind: "usd" }, { key: "pricedSharePct", label: "Priced share", kind: "percent" },
+    ]} />
     <QuestionCard question="Which SKUs are not valued?">
       {!c.skusMissingPrice.length ? <p className="text-sm text-muted-foreground">Every SKU in this view has a wholesale price.</p> : <div className="flex flex-wrap gap-2">{c.skusMissingPrice.map((sku) => <span className="rounded-full border bg-muted px-3 py-1 text-sm" key={sku}>{sku}</span>)}</div>}
       <p className="mt-2 text-xs text-muted-foreground">Missing prices are never estimated.</p>

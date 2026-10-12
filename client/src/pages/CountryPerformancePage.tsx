@@ -29,6 +29,7 @@ import { formatUpdateTime, lastUpdateSentence, useLastUpdates } from "@/hooks/us
 import { trpc } from "@/lib/trpc";
 import { Check } from "lucide-react";
 import { useIncludeFoc } from "@/hooks/useIncludeFoc";
+import PackagingBreakdown from "@/components/performance/PackagingBreakdown";
 
 const LebanonDeepDive = lazy(() => import("@/pages/AnalysisPage"));
 const IntlDeepDive = lazy(() => import("@/pages/IntlAnalysisPage"));
@@ -114,7 +115,8 @@ export default function CountryPerformancePage() {
     const content = section.id === "changes"
       ? <BoardChangesSection pack={pack} request={request} presentation={presentation} />
       : <section.Component pack={pack} presentation={presentation} />;
-    return <>{pack.foc && <p className="mb-3 rounded-md border border-[#7f1d1d]/15 bg-[#7f1d1d]/[0.035] px-3 py-2 text-xs text-muted-foreground"><span className="font-semibold text-foreground">Derived using {pack.foc.basisLabel}.</span> IMS and commercial values exclude planned FOC; actual stock reflects recorded movements only.</p>}{content}</>;
+    const packagingSections = new Set(["runningRate", "outlook", "stockSituation", "flow", "demand", "supply", "inventory", "quality", "portfolio", "forward", "commercial"]);
+    return <>{pack.foc && <p className="mb-3 rounded-md border border-[#7f1d1d]/15 bg-[#7f1d1d]/[0.035] px-3 py-2 text-xs text-muted-foreground"><span className="font-semibold text-foreground">Derived using {pack.foc.basisLabel}.</span> IMS and commercial values exclude planned FOC; actual stock reflects recorded movements only.</p>}{content}{packagingSections.has(section.id) && <div className="mt-4"><PackagingBreakdown data={pack.packaging} context={section.id} hasPrices={pack.commercial?.hasPrices} /></div>}</>;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pack, preset, compare, country, anchor, from, to, filters, includeFoc]);
 

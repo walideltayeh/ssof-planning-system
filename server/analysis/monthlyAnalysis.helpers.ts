@@ -7,6 +7,8 @@ import {
   type PerformanceDataset, type SkuSeries,
 } from "./countryPerformance.helpers";
 import type { PerformanceRequest } from "./countryPerformance.types";
+import { buildPackagingAnalysis } from "./packaging.helpers";
+import { analysisSkuLabel, packagingOf } from "./countryPerformance.helpers";
 
 export function monthlyRef(year: number, month: number): MonthlyRef {
   const date = new Date(Date.UTC(year, month - 1, 1));
@@ -133,7 +135,7 @@ export function buildMonthlyAnalysis(ds: PerformanceDataset, req: PerformanceReq
   const countryIndexes = monthlySeasonality(countryHistory);
   const weightIndexes = new Map(byWeight.map(weight => [weight, monthlySeasonality(observations(series.filter(s => s.sku.weight === weight), historyMonths))]));
   const futureDemandByRow = new Map<string, number[]>();
-  const makeRow = (members: SkuSeries[], identity: Pick<MonthlyRow, "id" | "sku" | "weight" | "category" | "flavour" | "total">): MonthlyRow => {
+  const makeRow = (members: SkuSeries[], identity: Pick<MonthlyRow, "id" | "sku" | "weight" | "category" | "flavour" | "total" | "packaging">): MonthlyRow => {
     const history = observations(members, historyMonths);
     const rates = members.map(s => monthlyRunningRate(observations([s], historyMonths)));
     const ownIndexes = monthlySeasonality(history);
@@ -203,15 +205,17 @@ export function buildMonthlyAnalysis(ds: PerformanceDataset, req: PerformanceReq
       suggestions: suggestedForecast(avg3, futureMonths, indexes, entered, closing, supply, req.country),
     };
   };
-  const rows = series.map(s => makeRow([s], { id: String(s.sku.id), sku: s.sku.name, weight: s.sku.weight,
-    category: s.sku.category ?? "Core", flavour: flavourOf(s.sku), total: false }));
+  const packaging = buildPackagingAnalysis(ds, w, series);
+  const rows = series.map(s => makeRow([s], { id: String(s.sku.id), sku: analysisSkuLabel(s.sku), weight: s.sku.weight,
+    category: s.sku.category ?? "Core", flavour: flavourOf(s.sku), packaging: packagingOf(s.sku), total: false }));
   const totals = [
     ...byWeight.map(weight => makeRow(series.filter(s => s.sku.weight === weight), { id: `weight:${weight}`, sku: `${weight} total`, weight, category: "", flavour: "", total: true })),
+    ...(packaging.enabled ? packaging.groups.map(group => makeRow(series.filter(s => packagingOf(s.sku) === group.packaging), { id: `packaging:${group.packaging}`, sku: `${group.packaging} packaging`, weight: "", category: "", flavour: "", packaging: group.packaging, total: true })) : []),
     makeRow(series, { id: "country", sku: `${req.country} total`, weight: "", category: "", flavour: "", total: true }),
   ];
   // Group suggestions are sums of SKU-level suggestions, never a different group forecast model.
   for (const total of totals) {
-    const children = rows.filter(row => total.id === "country" || row.weight === total.weight);
+    const children = rows.filter(row => total.id === "country" || (total.id.startsWith("packaging:") ? row.packaging === total.packaging : row.weight === total.weight));
     const suggestions = total.suggestions.map((s, i) => sum(children.map(row => row.suggestions[i].suggested)));
     const groupDemand = Array.from({ length: 8 }, (_, i) => sum(children.map(row => futureDemandByRow.get(row.id)![i])));
     total.suggestions = total.suggestions.map((s, i) => {
@@ -224,9 +228,11 @@ export function buildMonthlyAnalysis(ds: PerformanceDataset, req: PerformanceReq
     });
   }
   return {
+    packaging,
     country: req.country, asOf: end.label, windowLabel: windowLabel(w, req.preset), gridMonths, selectedMonths,
     forecastMonths: futureMonths.slice(0, 6), rows, totals,
-    seasonality: [{ group: req.country, months: countryIndexes }, ...byWeight.map(weight => ({ group: weight, months: weightIndexes.get(weight)! }))],
+    seasonality: [{ group: req.country, months: countryIndexes }, ...byWeight.map(weight => ({ group: weight, months: weightIndexes.get(weight)! })),
+      ...(packaging.enabled ? packaging.groups.map(group => ({ group: `${group.packaging} packaging`, months: monthlySeasonality(observations(series.filter(s => packagingOf(s.sku) === group.packaging), historyMonths)) })) : [])],
     materialThresholdPct: 20,
     notes: [
       "Read-only suggestions. Nothing on this screen writes into the forecast.",

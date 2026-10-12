@@ -8,6 +8,7 @@ import { Settings2 } from "lucide-react";
 import { usePerformanceContext } from "./PerformanceContext";
 import type { SectionProps } from "./types";
 import { EmptyState, PERF_COLORS, QuestionCard, RagBadge, SectionNotes, usePerfFormat } from "./shared";
+import NativePackagingTable from "./NativePackagingTable";
 
 const th = "px-2 py-2 text-left text-xs font-medium text-muted-foreground";
 const td = "px-2 py-2 text-sm";
@@ -17,6 +18,7 @@ export default function OutlookSection({ pack, presentation }: SectionProps) {
   const o = pack.outlook;
   const { fmtMc, fmtMcSigned, fmtPctSigned, axisMc, unitLabel } = usePerfFormat();
   const groups = [o.total, ...o.byWeight, ...o.byType];
+  const packagingOutlook = o.byPackaging;
   const gapColour = (v: number | null) => (v === null ? "text-muted-foreground" : v >= 0 ? "text-green-700" : "text-red-700");
 
   const ChartTooltip = ({ active, payload, label }: any) => {
@@ -79,6 +81,14 @@ export default function OutlookSection({ pack, presentation }: SectionProps) {
           </ResponsiveContainer>
         )}
       </QuestionCard>
+      <NativePackagingTable title="Full-year outlook by packaging · native forecast calculation" rows={packagingOutlook} columns={[
+        { key: "group", label: "Packaging" }, { key: "skuCount", label: "SKUs", kind: "number" },
+        { key: "ytdActual", label: "Actual to date", kind: "quantity" }, { key: "remainingForecast", label: "Remaining forecast", kind: "quantity" },
+        { key: "landing", label: "Landing", kind: "quantity" }, { key: "annualPlan", label: "Annual plan", kind: "quantity" },
+        { key: "gapMc", label: "Gap", kind: "quantity" }, { key: "gapPct", label: "Gap %", kind: "percent" },
+        { key: "requiredRate", label: "Required / month", kind: "quantity" }, { key: "currentRate", label: "Current / month", kind: "quantity" },
+        { key: "stretchPct", label: "Stretch", kind: "percent" }, { key: "status", label: "Status" },
+      ]} />
 
       <QuestionCard question="Where will each part of the range land?" actions={!presentation ? <BaselinePicker country={pack.meta.country} year={o.year} /> : undefined}>
         <div className="overflow-x-auto">

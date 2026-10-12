@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { TableSkeleton } from "@/components/TableSkeleton";
 import ForecastIntelligenceTab from "@/components/ForecastIntelligenceTab";
 import ClosingStockTab from "@/components/ClosingStockTab";
+import { canonicalSkuLabel } from "@/components/performance/canonicalSkuLabel";
 
 // ==================== SHARED HELPERS ====================
 
@@ -306,7 +307,7 @@ export default function IntlAnalysisPage() {
                     <tbody>
                       {skuList.map((sku: any) => (
                         <tr key={sku.id} className="border-b hover:bg-muted/30">
-                          <td className="p-2 font-medium">{sku.name}</td>
+                          <td className="p-2 font-medium">{canonicalSkuLabel(sku)}</td>
                           <td className="text-center p-2">
                             <WeightBadge weight={sku.weight} />
                           </td>
@@ -438,7 +439,7 @@ export default function IntlAnalysisPage() {
                 <div key={sku.id} className="space-y-1">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-medium">{sku.name}</span>
+                      <span className="text-sm font-medium">{canonicalSkuLabel(sku)}</span>
                       <WeightBadge weight={sku.weight} />
                       <PackagingBadge type={sku.packagingType} />
                     </div>
@@ -598,7 +599,7 @@ export default function IntlAnalysisPage() {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-xs font-medium text-muted-foreground w-5 text-right">{idx + 1}.</span>
-                        <span className="text-sm font-medium">{sku.name}</span>
+                        <span className="text-sm font-medium">{canonicalSkuLabel(sku)}</span>
                         <WeightBadge weight={sku.weight} />
                         <PackagingBadge type={sku.packagingType} />
                       </div>
@@ -666,7 +667,7 @@ export default function IntlAnalysisPage() {
                   <div key={sku.id} className="space-y-1">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-medium">{sku.name}</span>
+                        <span className="text-sm font-medium">{canonicalSkuLabel(sku)}</span>
                         <WeightBadge weight={sku.weight} />
                         <PackagingBadge type={sku.packagingType} />
                       </div>
@@ -731,7 +732,7 @@ export default function IntlAnalysisPage() {
                   {delayedBatches.slice(0, 8).map((b: any, i: number) => (
                     <div key={i} className="flex items-center justify-between text-xs border-b pb-1">
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="font-medium">{b.skuName}</span>
+                        <span className="font-medium">{canonicalSkuLabel({ name: b.skuName, weight: b.weight, packagingType: b.packagingType })}</span>
                         <WeightBadge weight={b.weight} />
                       </div>
                       <div className="flex items-center gap-2">
@@ -811,7 +812,7 @@ export default function IntlAnalysisPage() {
                 <tbody>
                   {(filtered as any[]).map((b: any, i: number) => (
                     <tr key={i} className="border-b hover:bg-muted/50">
-                      <td className="px-2 py-1.5 font-medium">{b.skuName}</td>
+                      <td className="px-2 py-1.5 font-medium">{canonicalSkuLabel({ name: b.skuName, weight: b.weight, packagingType: b.packagingType })}</td>
                       <td className="px-2 py-1.5"><WeightBadge weight={b.weight} /></td>
                       <td className="px-2 py-1.5"><PackagingBadge type={b.packagingType} /></td>
                       <td className="px-2 py-1.5 text-muted-foreground">{b.periodLabel}</td>
@@ -928,7 +929,7 @@ export default function IntlAnalysisPage() {
                     {sortedSkus.map((sku: any, idx: number) => (
                       <tr key={sku.id} className="border-b hover:bg-muted/30 transition-colors">
                         <td className="p-2 font-medium sticky left-0 bg-white">
-                          <div>{sku.name}</div>
+                          <div>{canonicalSkuLabel(sku)}</div>
                           <div className="text-[10px] text-muted-foreground">{sku.category} · {sku.packagingType} Pkg</div>
                         </td>
                         <td className="text-center p-2"><WeightBadge weight={sku.weight} /></td>
@@ -1110,7 +1111,7 @@ export default function IntlAnalysisPage() {
                   {sortedSkus.map((sku: any, idx: number) => (
                     <tr key={sku.id} className="border-b hover:bg-muted/30 transition-colors">
                       <td className="p-2 font-medium sticky left-0 bg-white">
-                        <div>{sku.name}</div>
+                        <div>{canonicalSkuLabel(sku)}</div>
                         <div className="text-[10px] text-muted-foreground">{sku.category} · {sku.packagingType} Pkg</div>
                       </td>
                       <td className="text-center p-2"><WeightBadge weight={sku.weight} /></td>

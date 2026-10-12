@@ -5,6 +5,8 @@ import { Slider } from "@/components/ui/slider";
 import type { GapRow, SectionProps } from "./types";
 import { PERF_COLORS, QuestionCard, SectionNotes, usePerfFormat } from "./shared";
 import { useScenario } from "./useScenario";
+import NativePackagingTable from "./NativePackagingTable";
+import { aggregateProjection } from "@shared/performance/projection";
 
 const th = "px-3 py-2 text-left text-xs font-medium text-muted-foreground";
 const td = "px-3 py-2 text-sm";
@@ -17,6 +19,14 @@ export default function ForwardSection({ pack, presentation }: SectionProps) {
   const { fmtMc, fmtMcSigned, fmtWeeks, axisMc, unitLabel } = usePerfFormat();
   const total = scenarioPct === 0 ? f.total : scenario.total;
   const byWeight = scenarioPct === 0 ? f.byWeight : scenario.byWeight;
+  const packagingForwardRows = scenarioPct === 0
+    ? f.byPackaging?.flatMap((group) => group.months.map((month, index) => ({ ...month, packaging: group.packaging, label: f.inputs.months[index] ?? `Month ${index + 1}` })))
+    : (["Old", "New"] as const).flatMap((packaging) => {
+      const skuGroup = f.inputs.skus.filter((sku) => new RegExp(`[·\\s]${packaging}\\s*$`, "i").test(sku.sku));
+      if (!skuGroup.length) return [];
+      return aggregateProjection(skuGroup, 1 + scenarioPct / 100, f.inputs.cover, f.inputs.target)
+        .map((month, index) => ({ ...month, packaging, label: f.inputs.months[index] ?? `Month ${index + 1}` }));
+    });
   const gaps = scenarioPct === 0 ? f.gaps : scenario.gaps;
   const chartData = (rows: typeof total) => rows.map((r) => ({ ...r, targetBase: r.targetLowMc, targetBand: Math.max(0, r.targetHighMc - r.targetLowMc) }));
   const filtered = useMemo(() => gaps.filter((r) => filter === "all" || r.action === filter).sort((a, b) => Math.abs(b.gapMc) - Math.abs(a.gapMc)), [gaps, filter]);
@@ -57,6 +67,12 @@ export default function ForwardSection({ pack, presentation }: SectionProps) {
     <QuestionCard question="Which weights need attention?">
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{byWeight.map((w) => <div className="rounded-md border p-2" key={w.weight}><h3 className="px-2 pt-1 font-semibold">{w.weight}</h3>{StockChart({ rows: w.months, height: presentation ? 320 : 230 })}</div>)}</div>
     </QuestionCard>
+    <NativePackagingTable title="Forward projection by packaging · native projection" rows={packagingForwardRows} columns={[
+      { key: "packaging", label: "Packaging" }, { key: "label", label: "Month" }, { key: "demand", label: `Demand (${unitLabel})`, kind: "quantity" },
+      { key: "arrivals", label: `Arrivals (${unitLabel})`, kind: "quantity" }, { key: "closing", label: `Closing stock (${unitLabel})`, kind: "quantity" },
+      { key: "weeks", label: "Cover", kind: "weeks" }, { key: "targetLowMc", label: `Target min (${unitLabel})`, kind: "quantity" },
+      { key: "targetHighMc", label: `Target max (${unitLabel})`, kind: "quantity" },
+    ]} />
     <QuestionCard question="What should we add or cut, and by when?" actions={<div className="flex gap-1">{(["all", "add", "cut"] as const).map((x) => <Button key={x} size="sm" variant={filter === x ? "default" : "outline"} onClick={() => setFilter(x)}>{x === "all" ? "All" : x === "add" ? "Add" : "Cut"}</Button>)}</div>}>
       <div className="overflow-x-auto"><table className="w-full"><thead><tr>{["SKU", "Weight", "Horizon month", `Projected closing (${unitLabel})`, `Target closing (${unitLabel})`, `Gap (${unitLabel})`, "Action", "Order by"].map((x) => <th className={th} key={x}>{x}</th>)}</tr></thead>
         <tbody>{shown.map((r) => <tr className="border-t" key={`${r.sku}-${r.weight}`}><td className={td}>{r.sku}</td><td className={td}>{r.weight}</td><td className={td}>{r.horizonMonth}</td><td className={td}>{fmtMc(r.projectedClosing)}</td><td className={td}>{fmtMc(r.targetClosing)}</td><td className={td}>{fmtMcSigned(r.gapMc)}</td><td className={td}>{actionBadge(r)}</td><td className={td}>{r.orderByMonth ?? "–"}</td></tr>)}</tbody>

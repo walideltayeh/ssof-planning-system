@@ -16,3 +16,4 @@
 - [Analysis working tabs](analysis-working-tabs.md) — working tabs are separate from the full saved board/PDF order; remember selection per user, with Summary as the first-use default.
 - [Country hiding](country-visibility.md) — hiding blocks everyone but preserves all records; Admin restoration must remain reachable even with every country hidden.
 - [Libya supplier receipts](libya-supplier-receipts.md) — supplier warehouse detail governs receipt dates/quantities; receipt month is not production month; transit alone cannot establish actual quantity.
+- [Packaging stock separation](packaging-stock-separation.md) — Old/New stock and demand are separate, including within a flavour/weight pair; aggregate cover cannot prove every SKU will clear.

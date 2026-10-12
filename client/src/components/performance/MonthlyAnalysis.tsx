@@ -7,7 +7,10 @@ import { useUnit } from "@/contexts/UnitContext";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import type { MonthlyAnalysis as MonthlyAnalysisData, MonthlyRow } from "@shared/performance/monthlyAnalysis";
+import type { PackagingAnalysis, PackagingMonth, PackagingPair, PackagingStalled, PackagingExpiry, PackagingGroup } from "@shared/performance/packaging";
 import type { PerformanceRequest } from "./types";
+import { canonicalSkuLabel } from "./canonicalSkuLabel";
+import PackagingBreakdown from "./PackagingBreakdown";
 
 type Input = PerformanceRequest & { refresh?: true };
 type Cell = string | number | null;
@@ -92,7 +95,7 @@ function SortableTable<T>({ title, columns, rows, unit, convertVal, empty = "No 
           </th>;
         })}</tr></thead>
         <tbody>{sorted.map((row) => <tr key={rowKey(row)} className="odd:bg-background even:bg-[#f7f2f0]/70 hover:bg-[#f5e9e5]">
-          {columns.map((column, index) => <td key={column.key} className={`${column.kind ? numericCell : bodyCell} ${index === 0 ? "sticky left-0 z-[1] bg-inherit font-semibold text-foreground" : ""} ${column.cellClass?.(row) ?? ""}`}>
+          {columns.map((column, index) => <td key={column.key} className={`${column.kind ? numericCell : bodyCell} ${index === 0 ? "sticky left-0 z-[1] bg-card font-semibold text-foreground" : ""} ${column.cellClass?.(row) ?? ""}`}>
             {column.format ? column.format(row) : (() => {
               const value = column.value(row);
               return typeof value === "number" ? shown(value) : value ?? "—";
@@ -104,8 +107,19 @@ function SortableTable<T>({ title, columns, rows, unit, convertVal, empty = "No 
   </section>;
 }
 
-function skuLabel(row: MonthlyRow) { return `${row.sku} · ${row.weight}`; }
-function skuDisplay(row: MonthlyRow) { return `${skuLabel(row)}${row.total ? " total" : ""}`; }
+function skuLabel(row: MonthlyRow) {
+  const raw = row.sku.trim();
+  const weight = row.weight.trim();
+  const packaging = row.packaging?.trim();
+  let label = raw || "SKU";
+  if (weight && !label.toLowerCase().includes(weight.toLowerCase())) label += ` · ${weight}`;
+  if (packaging && !label.toLowerCase().includes(packaging.toLowerCase())) label += ` · ${packaging}`;
+  return label;
+}
+function skuDisplay(row: MonthlyRow) {
+  if (row.total && row.packaging) return `${row.packaging} packaging total`;
+  return `${skuLabel(row)}${row.total ? " total" : ""}`;
+}
 function identityColumns<T extends MonthlyRow>(): Column<T>[] {
   return [
     { key: "sku", label: "SKU · weight", value: (r) => skuDisplay(r) },
@@ -117,6 +131,75 @@ const pct = (value: number | null) => value == null ? "—" : `${value > 0 ? "+"
 const qty = (value: number | null | undefined, formatVal: (v: number, d?: number) => string) => value == null ? "—" : formatVal(value);
 
 function skuKeys(row: MonthlyRow) { return row.id; }
+
+function PackagingTransition({ data }: { data?: PackagingAnalysis }) {
+  const { formatVal, unitLabel, convertVal } = useUnit();
+  if (!data?.enabled || !data.groups.length) return null;
+  const hasOld = data.groups.some((group) => group.packaging === "Old");
+  const hasNew = data.groups.some((group) => group.packaging === "New");
+  const quantity = (value: number | null | undefined) => value == null ? "—" : formatVal(value);
+  const pctText = (value: number | null | undefined) => value == null ? "—" : `${value > 0 ? "+" : ""}${shown(value)}%`;
+  const monthCols: Column<PackagingMonth>[] = [
+    { key: "month", label: "Month", value: (r) => r.month, format: (r) => r.label },
+    ...(hasOld ? [
+      { key: "oldIms", label: "Old IMS", value: (r: PackagingMonth) => r.oldIms, kind: "quantity" as const, format: (r: PackagingMonth) => quantity(r.oldIms) },
+      { key: "oldShare", label: "Old share", value: (r: PackagingMonth) => r.oldSharePct, kind: "percent" as const, format: (r: PackagingMonth) => pctText(r.oldSharePct) },
+    ] : []),
+    ...(hasNew ? [
+      { key: "newIms", label: "New IMS", value: (r: PackagingMonth) => r.newIms, kind: "quantity" as const, format: (r: PackagingMonth) => quantity(r.newIms) },
+      { key: "newShare", label: "New share", value: (r: PackagingMonth) => r.newSharePct, kind: "percent" as const, format: (r: PackagingMonth) => pctText(r.newSharePct) },
+    ] : []),
+  ];
+  const pairCols: Column<PackagingPair>[] = [
+    { key: "flavour", label: "Flavour", value: (r) => r.flavour },
+    { key: "weight", label: "Weight", value: (r) => r.weight },
+    ...(hasOld ? [
+      { key: "oldIms", label: "Old IMS", value: (r: PackagingPair) => r.old.ims, kind: "quantity" as const, format: (r: PackagingPair) => quantity(r.old.ims) },
+      { key: "oldStock", label: "Old stock", value: (r: PackagingPair) => r.old.stock, kind: "quantity" as const, format: (r: PackagingPair) => quantity(r.old.stock) },
+      { key: "oldCover", label: "Old cover", value: (r: PackagingPair) => r.old.coverWeeks, kind: "weeks" as const, format: (r: PackagingPair) => r.old.coverWeeks == null ? "—" : `${shown(r.old.coverWeeks)} wks` },
+      { key: "oldShare", label: "Old share", value: (r: PackagingPair) => r.old.sharePct, kind: "percent" as const, format: (r: PackagingPair) => pctText(r.old.sharePct) },
+    ] : []),
+    ...(hasNew ? [
+      { key: "newIms", label: "New IMS", value: (r: PackagingPair) => r.new.ims, kind: "quantity" as const, format: (r: PackagingPair) => quantity(r.new.ims) },
+      { key: "newStock", label: "New stock", value: (r: PackagingPair) => r.new.stock, kind: "quantity" as const, format: (r: PackagingPair) => quantity(r.new.stock) },
+      { key: "newCover", label: "New cover", value: (r: PackagingPair) => r.new.coverWeeks, kind: "weeks" as const, format: (r: PackagingPair) => r.new.coverWeeks == null ? "—" : `${shown(r.new.coverWeeks)} wks` },
+      { key: "newShare", label: "New share", value: (r: PackagingPair) => r.new.sharePct, kind: "percent" as const, format: (r: PackagingPair) => pctText(r.new.sharePct) },
+    ] : []),
+  ];
+  const groupCols: Column<PackagingGroup>[] = [
+    { key: "packaging", label: "Packaging", value: (r) => r.packaging },
+    { key: "skuCount", label: "SKUs", value: (r) => r.skuCount },
+    { key: "runRate", label: "Run rate / month", value: (r) => r.metrics.runRate.value, kind: "quantity", format: (r) => quantity(r.metrics.runRate.value) },
+    { key: "stock", label: "Stock", value: (r) => r.metrics.stock.value, kind: "quantity", format: (r) => quantity(r.metrics.stock.value) },
+    { key: "cover", label: "Cover at own IMS rate", value: (r) => r.metrics.runRate.value > 0 ? r.metrics.cover.value : null, kind: "weeks", format: (r) => r.metrics.runRate.value > 0 ? `${shown(r.metrics.cover.value)} wks` : "—" },
+    { key: "aggregateMonths", label: "Aggregate months at rate", value: (r) => r.aggregateMonthsAtRate ?? null, kind: "index" },
+    { key: "monthsToClear", label: "Months to clear", value: (r) => r.monthsToClear, kind: "index", format: (r) => r.monthsToClear == null ? "—" : shown(r.monthsToClear) },
+    { key: "clearMonth", label: "Projected clear-out", value: (r) => r.projectedClearMonth },
+  ];
+  const stalledCols: Column<PackagingStalled>[] = [
+    { key: "sku", label: "SKU · weight · packaging", value: (r) => canonicalSkuLabel({ sku: r.sku, weight: r.weight, packaging: "Old" }) },
+    { key: "stock", label: "Stock", value: (r) => r.stock, kind: "quantity", format: (r) => quantity(r.stock) },
+    { key: "runRate", label: "Run rate / month", value: (r) => r.runRate, kind: "quantity", format: (r) => quantity(r.runRate) },
+    { key: "monthsToClear", label: "Months to clear", value: (r) => r.monthsToClear, kind: "index" },
+  ];
+  const expiryCols: Column<PackagingExpiry>[] = [
+    { key: "sku", label: "SKU · weight · packaging", value: (r) => canonicalSkuLabel({ sku: r.sku, weight: r.weight, packaging: "Old" }) },
+    { key: "expiryDate", label: "Expiry date", value: (r) => r.expiryDate },
+    { key: "remainingMc", label: "Remaining", value: (r) => r.remainingMc, kind: "quantity", format: (r) => quantity(r.remainingMc) },
+    { key: "atRiskMc", label: "At-risk", value: (r) => r.atRiskMc, kind: "quantity", format: (r) => quantity(r.atRiskMc) },
+  ];
+  return <section id="packaging-transition" className="space-y-3" aria-labelledby="packaging-transition-title">
+    <div className="flex flex-wrap items-end justify-between gap-2 border-b border-[#7f1d1d]/20 pb-2">
+      <div><p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#80502f]">Packaging transition · {data.country}</p><h2 id="packaging-transition-title" className="mt-1 text-base font-bold">Old versus New inventory</h2></div>
+      <p className="text-xs text-muted-foreground">As of {data.asOf || "not recorded"} · {unitLabel} · cover remains weeks</p>
+    </div>
+    <SortableTable title="Monthly IMS and packaging share" columns={monthCols} rows={data.months} unit={unitLabel} convertVal={convertVal} rowKey={(row) => row.month} />
+    {data.pairs.length > 0 && <SortableTable title="Flavour · weight transition pairs" columns={pairCols} rows={data.pairs} unit={unitLabel} convertVal={convertVal} rowKey={(row) => `${row.flavour}-${row.weight}`} />}
+    <SortableTable title="Packaging stock and clear-out" columns={groupCols} rows={data.groups} unit={unitLabel} convertVal={convertVal} rowKey={(row) => row.packaging} />
+    {!!data.stalled.length && <SortableTable title="Stalled Old SKUs" columns={stalledCols} rows={data.stalled} unit={unitLabel} convertVal={convertVal} rowKey={(row) => String(row.skuId)} />}
+    {data.country !== "Lebanon" && !!data.expiry.length && <SortableTable title="International Old packaging expiry risk" columns={expiryCols} rows={data.expiry} unit={unitLabel} convertVal={convertVal} rowKey={(row) => String(row.skuId)} />}
+  </section>;
+}
 
 function Content({ data }: { data: MonthlyAnalysisData }) {
   const { formatVal, unitLabel, convertVal } = useUnit();
@@ -233,6 +316,8 @@ function Content({ data }: { data: MonthlyAnalysisData }) {
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-b border-[#7f1d1d]/20 pb-1.5"><h2 className="text-base font-bold">{panel.title}</h2><p className="text-xs text-muted-foreground">{panel.hint}</p></div>
       {panel.table}
     </section>)}
+    <PackagingBreakdown data={data.packaging} context="monthly" />
+    <PackagingTransition data={data.packaging} />
     <div className="rounded-lg border border-border bg-muted/35 px-4 py-3 text-xs text-muted-foreground"><strong className="text-foreground">Data notes.</strong> {data.notes.length ? data.notes.join(" ") : "Nulls indicate missing or insufficient source data, not zero. History and confidence are disclosed in the relevant year and suggestion rows."}</div>
   </div>;
 }

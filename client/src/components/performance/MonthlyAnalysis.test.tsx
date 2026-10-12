@@ -42,6 +42,21 @@ const fixture = {
   seasonality: [{ group: "Lebanon · 400g", months: [{ month: 1, index: 1.2, years: 4, ramadanYears: [2022, 2024], summer: false }] }],
   materialThresholdPct: 15, notes: ["History limited to four complete years."],
 };
+const packagingMetric = (value: number) => ({ value, sharePct: 50, lastYear: value - 1, changePct: 10 });
+const packagingFixture = {
+  enabled: true, country: "Lebanon", asOf: "2025-02-01",
+  groups: (["Old", "New"] as const).map((packaging) => ({
+    packaging, skuCount: 1, monthsToClear: 2.5, projectedClearMonth: "Apr 2025",
+    metrics: {
+      runRate: packagingMetric(2), ims: packagingMetric(2), forecast: packagingMetric(3),
+      production: packagingMetric(1), arrival: packagingMetric(1), stock: packagingMetric(packaging === "Old" ? 4 : 2),
+      cover: packagingMetric(3), selloutValue: packagingMetric(20), stockValue: packagingMetric(40),
+    },
+  })),
+  months: [{ month: "2025-01", label: "Jan 2025", oldIms: 2, newIms: 3, oldSharePct: 40, newSharePct: 60 }],
+  pairs: [{ flavour: "Plain", weight: "400g", old: { ims: 2, stock: 4, runRate: 2, coverWeeks: 4, sharePct: 40 }, new: { ims: 3, stock: 2, runRate: 3, coverWeeks: 2, sharePct: 60 } }],
+  stalled: [], expiry: [], notes: [],
+};
 
 describe("MonthlyAnalysis planner", () => {
   beforeEach(() => {
@@ -123,6 +138,42 @@ describe("MonthlyAnalysis planner", () => {
     expect(within(suggestions).getAllByText("3 MC").length).toBeGreaterThan(0);
     expect(within(suggestions).getAllByText("3 wks").length).toBeGreaterThan(0);
     expect(within(suggestions).getAllByText("18", { exact: true }).length).toBeGreaterThan(0);
+  });
+
+  it("renders Old/New monthly transition and converts exported stock quantities with the selected unit", async () => {
+    mocks.unit = "KG";
+    mocks.useQuery.mockReturnValue({ data: { ...fixture, packaging: packagingFixture }, isLoading: false, error: null });
+    const create = vi.fn().mockReturnValue("blob:packaging-export");
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: create });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    render(<MonthlyAnalysis input={{ country: "Lebanon" } as any} />);
+    const pairs = screen.getByRole("table", { name: "Flavour · weight transition pairs" });
+    expect(within(pairs).getByText("24")).toBeInTheDocument();
+    expect(within(pairs).getAllByText("12").length).toBeGreaterThan(0);
+    expect(within(pairs).getByText("4 wks")).toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole("region", { name: "Packaging stock and clear-out" })).getByRole("button", { name: /Export Excel/ }));
+    await waitFor(() => expect(click).toHaveBeenCalled());
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(await (create.mock.calls[0][0] as Blob).arrayBuffer());
+    const sheet = workbook.getWorksheet("Packaging stock and clear-out")!;
+    expect(sheet.getCell("D1").value).toBe("Stock (KG)");
+    expect(sheet.getCell("D3").value).toBe(24);
+    click.mockRestore();
+  });
+
+  it("does not show absent New columns or an empty transition-pair table", () => {
+    const oldOnly = {
+      ...packagingFixture,
+      groups: [packagingFixture.groups[0]],
+      months: [{ ...packagingFixture.months[0], newIms: null, newSharePct: null }],
+      pairs: [],
+    };
+    mocks.useQuery.mockReturnValue({ data: { ...fixture, packaging: oldOnly }, isLoading: false, error: null });
+    render(<MonthlyAnalysis input={{ country: "Lebanon" } as any} />);
+    const monthly = screen.getByRole("table", { name: "Monthly IMS and packaging share" });
+    expect(within(monthly).queryByRole("columnheader", { name: /New/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("table", { name: "Flavour · weight transition pairs" })).not.toBeInTheDocument();
   });
 
   it("exports a table and retains a materialized workbook download", async () => {

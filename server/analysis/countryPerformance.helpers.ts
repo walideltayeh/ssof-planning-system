@@ -253,6 +253,14 @@ export function flavourOf(sku: { name: string; weight: string }): string {
   return sku.name.replace(/^Al Fakher\s*/i, "").replace(new RegExp(`\\s*${sku.weight}\\s*$`, "i"), "").trim() || sku.name;
 }
 
+export function packagingOf(sku: Pick<DatasetSku, "packagingType">): "Old" | "New" {
+  return sku.packagingType?.trim().toLowerCase() === "old" ? "Old" : "New";
+}
+
+export function analysisSkuLabel(sku: Pick<DatasetSku, "name" | "weight" | "packagingType">): string {
+  return `${flavourOf(sku)} · ${sku.weight} · ${packagingOf(sku)}`;
+}
+
 export function applyFilters(skus: DatasetSku[], filters: PerformanceFilters | undefined): DatasetSku[] {
   if (!filters) return skus;
   const has = (xs?: string[]) => Array.isArray(xs) && xs.length > 0;
@@ -854,7 +862,7 @@ export function accuracySamples(series: SkuSeries[], w: Window): { samples: Accu
         continue;
       }
       if (!c.imsIsActual) continue;
-      samples.push({ sku: s.sku.name, weight: s.sku.weight, label: shortLabel(c.period), forecast: c.forecast, actual: c.ims });
+      samples.push({ sku: analysisSkuLabel(s.sku), weight: s.sku.weight, label: shortLabel(c.period), forecast: c.forecast, actual: c.ims });
     }
   }
   return { samples, excludedAutoFilled };
@@ -916,7 +924,7 @@ export function chronicBias(series: SkuSeries[], toIdx: number, lookback = 6, mi
       run++;
       biases.push(bias);
     }
-    if (direction && run >= minRun) out.push({ sku: s.sku.name, weight: s.sku.weight, direction, consecutiveMonths: run, avgBiasPct: round(sum(biases) / biases.length, 1) });
+    if (direction && run >= minRun) out.push({ sku: analysisSkuLabel(s.sku), weight: s.sku.weight, direction, consecutiveMonths: run, avgBiasPct: round(sum(biases) / biases.length, 1) });
   }
   return out.sort((a, b) => Math.abs(b.avgBiasPct) - Math.abs(a.avgBiasPct));
 }
@@ -952,7 +960,7 @@ export function projectionInputs(series: SkuSeries[], periods: DatasetPeriod[], 
 }
 
 export function stockoutRisk(row: ProjectionRow, monthsAhead = 3): { monthIndex: number; dayOfMonth: number } | null {
-  const trimmed = { skuId: row.sku.id, sku: row.sku.name, weight: row.sku.weight, openingStock: row.openingStock, demand: row.demand.slice(0, monthsAhead), arrivals: row.arrivals.slice(0, monthsAhead) };
+  const trimmed = { skuId: row.sku.id, sku: analysisSkuLabel(row.sku), weight: row.sku.weight, openingStock: row.openingStock, demand: row.demand.slice(0, monthsAhead), arrivals: row.arrivals.slice(0, monthsAhead) };
   return findStockout(trimmed, 1);
 }
 
@@ -969,7 +977,7 @@ export function shortfallBeforeNextArrival(row: ProjectionRow): { shortfall: num
 }
 
 export function projectedClosings(row: ProjectionRow, country: PerformanceCountry): number[] {
-  return projectSku({ skuId: row.sku.id, sku: row.sku.name, weight: row.sku.weight, openingStock: row.openingStock, demand: row.demand, arrivals: row.arrivals }, 1, coverRuleFor(country)).map((m) => m.closing);
+  return projectSku({ skuId: row.sku.id, sku: analysisSkuLabel(row.sku), weight: row.sku.weight, openingStock: row.openingStock, demand: row.demand, arrivals: row.arrivals }, 1, coverRuleFor(country)).map((m) => m.closing);
 }
 
 /** MC that will not sell before it expires, assuming FIFO at the SKU's monthly run-rate. */

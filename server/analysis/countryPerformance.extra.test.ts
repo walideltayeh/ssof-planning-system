@@ -12,7 +12,7 @@ import {
   gramsOf,
   tabRunningRate,
 } from "./countryPerformance.extra";
-import { buildSkuSeries, computeExpectedArrival, monthlyTotals, resolveWindow, sortedPeriods, sum, type DatasetPeriod, type DatasetSku, type PerformanceDataset } from "./countryPerformance.helpers";
+import { analysisSkuLabel, buildSkuSeries, computeExpectedArrival, monthlyTotals, resolveWindow, sortedPeriods, sum, type DatasetPeriod, type DatasetSku, type PerformanceDataset } from "./countryPerformance.helpers";
 import type { BoardHeadline } from "./countryPerformance.types";
 
 const NOW = new Date("2026-09-15T10:00:00Z");
@@ -84,7 +84,7 @@ describe("stock situation by SKU", () => {
     expect(sheet).toBeDefined();
     const values: unknown[] = [];
     sheet!.eachRow((r) => values.push(r.values));
-    expect(values).toContainEqual(expect.arrayContaining(["Al Fakher Grape 250g", "250g", "Old", 200, 200, 600]));
+    expect(values).toContainEqual(expect.arrayContaining(["Grape · 250g · Old", "250g", "Old", 200, 200, 600]));
     expect(values).toContainEqual(expect.arrayContaining(["Total", 200, 200, 600]));
   });
 
@@ -97,7 +97,7 @@ describe("stock situation by SKU", () => {
     expect(pack.stockSituation.rows).toHaveLength(3);
     for (const s of series) {
       expect(pack.stockSituation.rows.find((r) => r.skuId === s.sku.id)).toEqual({
-        skuId: s.sku.id, sku: s.sku.name, weight: s.sku.weight, packaging: s.sku.packagingType,
+        skuId: s.sku.id, sku: analysisSkuLabel(s.sku), weight: s.sku.weight, packaging: s.sku.packagingType,
         production: Math.round(sum(s.months.slice(start, end + 1).map((c) => c.actualProduction)) * 100) / 100,
         arrival: Math.round(sum(s.months.slice(start, end + 1).map((c) => c.arrivals)) * 100) / 100,
         remainingStock: Math.round(s.months[end].closing * 100) / 100,
@@ -281,7 +281,7 @@ describe("buildPack board additions", () => {
     expect(pack.headline.version).toBe(1);
     expect(pack.headline.ytdIms).toBe(8 * 360);
     expect(pack.headline.skuForecasts).toHaveLength(3);
-    expect(pack.headline.skuForecasts.find((f) => f.sku === "Al Fakher Grape 250g")!.remainingForecast).toBe(4 * 210);
+    expect(pack.headline.skuForecasts.find((f) => f.sku === "Grape · 250g · Old")!.remainingForecast).toBe(4 * 210);
   });
 
   it("uses the chosen budget version as the annual plan", () => {

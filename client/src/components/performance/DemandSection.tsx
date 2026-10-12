@@ -10,6 +10,7 @@ type BridgeStep = VolumeBridge["steps"][number];
 import {
   EmptyState, PERF_COLORS, QuestionCard, SectionNotes, Sparkline, usePerfFormat,
 } from "./shared";
+import NativePackagingTable from "./NativePackagingTable";
 
 const th = "px-2 py-2 text-left text-xs font-medium text-muted-foreground";
 const td = "px-2 py-2 text-sm";
@@ -37,6 +38,8 @@ export default function DemandSection({ pack, presentation }: SectionProps) {
   const yoyAvailable = d.yoy.some((x) => x.lastYear !== null);
   const seasonYears = Math.max(0, ...d.seasonality.map((x) => x.yearsUsed));
   const moversLimit = presentation ? 8 : 15;
+  const mixDimensions = d.mix.filter((dimension) => pack.packaging?.enabled || !/packaging/i.test(`${dimension.dimension} ${dimension.title}`));
+  const packagingBridge = d.bridge.byPackaging;
 
   const QuantityTooltip = ({ active, payload, label }: any) => {
     if (!active || !payload?.length) return null;
@@ -86,7 +89,6 @@ export default function DemandSection({ pack, presentation }: SectionProps) {
       </ResponsiveContainer>
       {!lastYear && <p className="text-sm text-muted-foreground">No prior year data</p>}
     </QuestionCard>
-
     <QuestionCard question={`How did we get from ${d.bridge.fromLabel} to ${d.bridge.toLabel}?`} hint="Volume bridge: same-SKU growth, new launches and lost or inactive lines">
       {!d.bridge.available ? <EmptyState message={d.bridge.note} /> : <div className="grid gap-4 lg:grid-cols-[3fr_2fr]">
         <ResponsiveContainer width="100%" height={chartH}>
@@ -105,6 +107,10 @@ export default function DemandSection({ pack, presentation }: SectionProps) {
         </div>
       </div>}
     </QuestionCard>
+    <NativePackagingTable title="Demand bridge by packaging · native bridge contribution" rows={packagingBridge} columns={[
+      { key: "label", label: "Packaging bridge step" }, { key: "value", label: `Contribution (${unitLabel})`, kind: "quantity" },
+      { key: "kind", label: "Type" }, { key: "detail", label: "Detail" },
+    ]} />
 
     <div className="grid gap-4 md:grid-cols-2">
       <QuestionCard question="How does each month compare with last year?">
@@ -132,11 +138,11 @@ export default function DemandSection({ pack, presentation }: SectionProps) {
     </div>
 
     <QuestionCard question="What is our mix, and how is it shifting?">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{d.mix.map((dimension) => <div className="overflow-x-auto" key={dimension.dimension}>
+      {mixDimensions.length === 0 ? <EmptyState message="Packaging mix is not enabled for this country." /> : <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{mixDimensions.map((dimension) => <div className="overflow-x-auto" key={dimension.dimension}>
         <h3 className="mb-1 font-semibold">{dimension.title}</h3><table className="w-full"><thead><tr>{["Group", unitLabel, "Share", "Last year", "Shift"].map((x) => <th className={th} key={x}>{x}</th>)}</tr></thead>
         <tbody>{dimension.rows.slice(0, presentation ? 8 : undefined).map((r) => <tr className="border-t" key={r.group}><td className={td}>{r.group}</td><td className={td}>{fmtMc(r.mc)}</td><td className={td}>{fmtPct(r.sharePct)}</td><td className={td}>{fmtPct(r.lastYearSharePct)}</td><td className={`${td} ${(r.shiftPts ?? 0) >= 0 ? "text-green-700" : "text-red-700"}`}>{fmtPctSigned(r.shiftPts)}</td></tr>)}</tbody></table>
         {presentation && dimension.rows.length > 8 && <p className="text-xs text-muted-foreground">+{dimension.rows.length - 8} more in the full pack</p>}
-      </div>)}</div>
+      </div>)}</div>}
     </QuestionCard>
 
     <QuestionCard question="Which SKUs make up 80% of sell-out?" actions={!presentation && d.pareto.length > 15 ? <Button variant="outline" size="sm" onClick={() => setShowPareto(!showPareto)}>{showPareto ? "Show less" : "Show all"}</Button> : null}>

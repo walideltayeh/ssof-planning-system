@@ -603,6 +603,48 @@ export async function buildPerformanceWorkbook(pack: PerformancePack, extras: Wo
     ]);
   }
 
+  // Packaging is a stock cohort, not a replacement for the active header filter.
+  if (pack.packaging?.enabled) {
+    const p = pack.packaging;
+    const s = addSheet(wb, "Old versus New");
+    s.title("Old versus New packaging", `${p.country} · ${p.asOf}`);
+    const names = { runRate: "IMS run rate / month", ims: "IMS", forecast: "Entered forecast", production: "Production", arrival: "Arrivals", stock: "Stock on hand", cover: "Cover at own IMS rate", selloutValue: "Sell-out value", stockValue: "Stock value" };
+    s.table(["Packaging", "Measure", "Current (MC)", "Share of total %", "Last year (MC)", "Change vs LY %"],
+      p.groups.flatMap(group => (["runRate", "ims", "forecast", "production", "arrival", "stock"] as const).map(key => {
+        const f = group.metrics[key];
+        return [group.packaging, names[key], mc(f.value), f.sharePct, mc(f.lastYear), f.changePct];
+      })));
+    s.question("Stock cover and constant-rate clear-out, no future receipts");
+    s.table(["Packaging", "IMS rate (MC/month)", "Stock (MC)", "Cover weeks", "Cover LY weeks", "Cover vs LY %", "Aggregate months at rate", "Months to complete clear-out", "Projected clear month"],
+      p.groups.map(g => [g.packaging, mc(g.metrics.runRate.value), mc(g.metrics.stock.value), g.metrics.runRate.value > 0 ? g.metrics.cover.value : null, g.metrics.cover.lastYear, g.metrics.cover.changePct, g.aggregateMonthsAtRate, g.monthsToClear, g.projectedClearMonth]));
+    s.question("Monthly IMS and share");
+    const hasOld = p.groups.some(g => g.packaging === "Old"), hasNew = p.groups.some(g => g.packaging === "New");
+    s.table(["Month", ...(hasOld ? ["Old IMS (MC)", "Old share %"] : []), ...(hasNew ? ["New IMS (MC)", "New share %"] : [])],
+      p.months.map(m => [m.label, ...(hasOld ? [mc(m.oldIms), m.oldSharePct] : []), ...(hasNew ? [mc(m.newIms), m.newSharePct] : [])]));
+    s.question("Same flavour and weight, separate inventory");
+    s.table(["Flavour", "Weight", "Old IMS (MC)", "New IMS (MC)", "Old stock (MC)", "New stock (MC)", "Old cover weeks", "New cover weeks", "Old share %", "New share %"],
+      p.pairs.map(r => [r.flavour, r.weight, mc(r.old.ims), mc(r.new.ims), mc(r.old.stock), mc(r.new.stock), r.old.coverWeeks, r.new.coverWeeks, r.old.sharePct, r.new.sharePct]));
+    s.question("Old stock that is not moving");
+    s.table(["SKU · weight · packaging", "Stock (MC)", "IMS rate (MC/month)", "Months to clear"], p.stalled.map(r => [r.sku, mc(r.stock), mc(r.runRate), r.monthsToClear]));
+    if (isIntl) {
+      s.question("Old packaging expiry risk");
+      s.table(["SKU · weight · packaging", "Expiry", "Remaining (MC)", "At risk (MC)"], p.expiry.map(r => [r.sku, r.expiryDate, mc(r.remainingMc), mc(r.atRiskMc)]));
+    }
+    for (const note of p.notes) s.note(note);
+    s.question("Packaging running rate");
+    s.table(["Packaging", "Rate (MC/month)", "Last year (MC/month)", "vs LY %"], (pack.runningRate.byPackaging ?? []).map(r => [r.group, mc(r.current), mc(r.lastYear), r.vsLyPct]));
+    s.question("Packaging full-year outlook");
+    s.table(["Packaging", "Actual YTD (MC)", "Remaining forecast (MC)", "Landing (MC)", "Annual plan (MC)", "Gap (MC)", "Gap %"], (pack.outlook.byPackaging ?? []).map(r => [r.group, mc(r.ytdActual), mc(r.remainingForecast), mc(r.landing), mc(r.annualPlan), mc(r.gapMc), r.gapPct]));
+    s.question("Packaging forecast quality");
+    s.table(["Packaging", "Actual (MC)", "Forecast (MC)", "Accuracy %", "Bias %"], (pack.forecastQuality.byPackaging ?? []).map(r => [r.group, mc(r.actual), mc(r.forecast), r.accuracyPct, r.biasPct]));
+    s.question("Packaging inventory efficiency");
+    s.table(["Packaging", "Turns", "Days of inventory", "Average stock (MC)", "Annualised IMS (MC)"], (pack.inventory.efficiency.byPackaging ?? []).map(r => [r.group, r.turns, r.daysOfInventory, mc(r.avgStock), mc(r.annualisedIms)]));
+    s.question("Packaging forward look");
+    s.table(["Packaging", "Month", "Demand (MC)", "Arrivals (MC)", "Closing stock (MC)", "Cover weeks"], (pack.forward.byPackaging ?? []).flatMap(g => g.months.map(r => [g.packaging, r.label, mc(r.demand), mc(r.arrivals), mc(r.closing), r.weeks])));
+    s.question("Packaging commercial value");
+    s.table(["Packaging", "Sell-out (USD)", "Sell-out LY (USD)", "Change vs LY %", "Stock (USD)", "Priced volume %"], (pack.commercial.byPackaging ?? []).map(r => [r.group, r.selloutUsd, r.selloutLyUsd, r.selloutGrowthPct, r.stockUsd, r.pricedSharePct]));
+  }
+
   // ── Presenter notes ───────────────────────────────────────────────────────
   if (extras.notes?.length) {
     const s = addSheet(wb, "Presenter Notes");

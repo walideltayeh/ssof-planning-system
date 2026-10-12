@@ -2,6 +2,7 @@ import { Bar, CartesianGrid, Cell, ComposedChart, Legend, Line, ResponsiveContai
 import { cn } from "@/lib/utils";
 import type { SectionProps } from "./types";
 import { EmptyState, PERF_COLORS, QuestionCard, RagBadge, RAG_STYLES, SectionNotes, StatusText, usePerfFormat } from "./shared";
+import NativePackagingTable from "./NativePackagingTable";
 
 const th = "px-2 py-2 text-left text-xs font-medium text-muted-foreground";
 const td = "px-2 py-2 text-sm";
@@ -20,6 +21,7 @@ export default function RunningRateSection({ pack, presentation }: SectionProps)
   }
 
   const figures = [r.headline, r.avg3, r.avg6];
+  const packagingTiles = r.byPackaging;
   const trendColour = r.trend.direction === "up" ? "text-green-700" : r.trend.direction === "down" ? "text-red-700" : "text-muted-foreground";
   const driverTable = (rows: typeof r.up, positive: boolean) => (
     <div className="overflow-x-auto">
@@ -121,6 +123,12 @@ export default function RunningRateSection({ pack, presentation }: SectionProps)
           <TileTable rows={r.byType} unitLabel={unitLabel} fmtMc={fmtMc} fmtPctSigned={fmtPctSigned} />
         </QuestionCard>
       </div>
+      <NativePackagingTable title="Run rate by packaging · native plan and last-year comparison" rows={packagingTiles} columns={[
+        { key: "group", label: "Packaging" }, { key: "skuCount", label: "SKUs", kind: "number" },
+        { key: "current", label: `Rate (${unitLabel}/month)`, kind: "quantity" }, { key: "plan", label: "Plan", kind: "quantity" },
+        { key: "lastYear", label: "Last year", kind: "quantity" }, { key: "vsPlanPct", label: "vs plan", kind: "percent" },
+        { key: "vsLyPct", label: "vs last year", kind: "percent" }, { key: "status", label: "Status" },
+      ]} />
 
       <QuestionCard question="Which SKUs are driving the change?" hint="Top 5 each way, 3-month average vs the previous 3 months">
         <div className="grid gap-6 md:grid-cols-2">{driverTable(r.up, true)}{driverTable(r.down, false)}</div>
