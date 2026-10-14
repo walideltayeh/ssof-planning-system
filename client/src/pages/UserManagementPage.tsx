@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { Eye, EyeOff, Pencil, Trash2, Plus, ShieldCheck, User, ChevronDown, ChevronRight, History } from "lucide-react";
+import { Eye, EyeOff, Pencil, Trash2, Plus, ShieldCheck, User, ChevronDown, ChevronRight, History, Pause, Play } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { checkPasswordStrength, PASSWORD_MIN_LENGTH, PASSWORD_REQUIREMENTS_MESSAGE } from "@shared/passwordStrength";
 
@@ -16,16 +16,11 @@ const ACTION_LABELS: Record<string, string> = {
   create_user: "created",
   update_user: "updated",
   delete_user: "deleted",
+  pause_user: "paused",
+  resume_user: "resumed",
 };
 
 const ALL_COUNTRIES: Country[] = ["Lebanon", "Syria", "Libya", "KSA"];
-
-const COUNTRY_FLAGS: Record<Country, string> = {
-  Lebanon: "🇱🇧",
-  Syria: "🇸🇾",
-  Libya: "🇱🇾",
-  KSA: "🇸🇦",
-};
 
 const COUNTRY_COLORS: Record<Country, string> = {
   Lebanon: "bg-red-100 text-red-700 border-red-200",
@@ -88,12 +83,21 @@ export default function UserManagementPage() {
     onSuccess: () => { utils.appUsers.list.invalidate(); toast.success("User deleted"); setConfirmDelete(null); },
     onError: (e) => toast.error(e.message),
   });
+  const setPausedMutation = trpc.appUsers.setPaused.useMutation({
+    onSuccess: (result) => {
+      utils.appUsers.list.invalidate();
+      setConfirmPause(null);
+      toast.success(result.isPaused ? "Account paused" : "Account resumed");
+    },
+    onError: (e) => toast.error(e.message),
+  });
 
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<UserFormState>(emptyForm());
   const [formError, setFormError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
+  const [confirmPause, setConfirmPause] = useState<number | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [expandedHistory, setExpandedHistory] = useState<Set<number>>(new Set());
 
@@ -370,7 +374,7 @@ export default function UserManagementPage() {
                           : "bg-background border-border text-muted-foreground hover:bg-muted"
                       }`}
                     >
-                      <span>{COUNTRY_FLAGS[c]}</span> {c}
+                      {c}
                     </button>
                   ))}
                 </div>
@@ -391,7 +395,7 @@ export default function UserManagementPage() {
                       return (
                         <div key={c} className="flex items-center gap-3">
                           <Badge variant="outline" className={`text-xs gap-1 shrink-0 w-24 justify-center ${COUNTRY_COLORS[c]}`}>
-                            <span>{COUNTRY_FLAGS[c]}</span> {c}
+                              {c}
                           </Badge>
                           <div className="flex gap-1">
                             {([
@@ -462,12 +466,14 @@ export default function UserManagementPage() {
                     <th className="text-left py-3 px-4 font-medium">Email</th>
                     <th className="text-left py-3 px-4 font-medium">Role</th>
                     <th className="text-left py-3 px-4 font-medium">Country Access</th>
+                    <th className="text-left py-3 px-4 font-medium">Status</th>
                     {isOwner && <th className="text-right py-3 px-4 font-medium">Actions</th>}
                   </tr>
                 </thead>
                 <tbody>
                   {users.map(u => {
                     const isCurrentUser = currentUser?.username === u.username;
+                    const isPaused = Boolean((u as ServerUser & { isPaused?: boolean }).isPaused);
                     const lastChange = u.lastChange;
                     const isExpanded = expandedHistory.has(u.id);
                     const lastChangeAgo = lastChange
@@ -476,7 +482,7 @@ export default function UserManagementPage() {
                     const lastChangeTitle = lastChange
                       ? `${ACTION_LABELS[lastChange.action] ?? lastChange.action} by ${lastChange.username} on ${new Date(lastChange.createdAt).toLocaleString()}`
                       : "";
-                    const colSpan = isOwner ? 6 : 5;
+                    const colSpan = isOwner ? 7 : 6;
                     return (
                       <Fragment key={u.id}>
                       <tr className={`border-b last:border-b-0 hover:bg-muted/30 transition-colors ${isExpanded ? "bg-muted/20" : ""}`}>
@@ -544,12 +550,23 @@ export default function UserManagementPage() {
                               <Badge variant="outline" className="text-xs">All Countries</Badge>
                             ) : (
                               (u.countries as string[]).map(c => (
-                                <Badge key={c} variant="outline" className={`text-xs gap-1 ${COUNTRY_COLORS[c as Country] ?? ""}`}>
-                                  <span>{COUNTRY_FLAGS[c as Country] ?? "🌐"}</span>{c}
+                                <Badge key={c} variant="outline" className={`text-xs ${COUNTRY_COLORS[c as Country] ?? ""}`}>
+                                  {c}
                                 </Badge>
                               ))
                             )}
                           </div>
+                        </td>
+                        <td className="py-3 px-4">
+                          <Badge
+                            variant="outline"
+                            className={isPaused
+                              ? "border-amber-300 bg-amber-50 text-amber-800"
+                              : "border-emerald-300 bg-emerald-50 text-emerald-800"}
+                            data-testid={`status-account-${u.id}`}
+                          >
+                            {isPaused ? "Paused" : "Active"}
+                          </Badge>
                         </td>
                         {isOwner && (
                           <td className="py-3 px-4 text-right">
@@ -560,9 +577,35 @@ export default function UserManagementPage() {
                                   variant="ghost"
                                   onClick={() => openEdit(u)}
                                   className="h-7 w-7 p-0"
+                                  aria-label={`Edit ${u.displayName}`}
                                 >
                                   <Pencil className="h-3.5 w-3.5" />
                                 </Button>
+                                {!isCurrentUser && (
+                                  isPaused ? (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => setPausedMutation.mutate({ id: u.id, isPaused: false })}
+                                      disabled={setPausedMutation.isPending}
+                                      aria-label={`Resume ${u.displayName}`}
+                                      className="h-7 gap-1 px-2 text-xs"
+                                    >
+                                      <Play className="h-3 w-3" /> Resume
+                                    </Button>
+                                  ) : (
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      onClick={() => setConfirmPause(u.id)}
+                                      disabled={setPausedMutation.isPending}
+                                      aria-label={`Pause ${u.displayName}`}
+                                      className="h-7 gap-1 px-2 text-xs text-muted-foreground"
+                                    >
+                                      <Pause className="h-3 w-3" /> Pause
+                                    </Button>
+                                  )
+                                )}
                                 {confirmDelete === u.id ? (
                                   <div className="flex items-center gap-1">
                                     <Button
@@ -592,6 +635,39 @@ export default function UserManagementPage() {
                                   >
                                     <Trash2 className="h-3.5 w-3.5" />
                                   </Button>
+                                )}
+                                {confirmPause === u.id && (
+                                  <div
+                                    role="dialog"
+                                    aria-label={`Pause ${u.displayName}`}
+                                    className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/30 p-4 text-left"
+                                  >
+                                    <div className="w-full max-w-md rounded-lg border bg-background p-5 shadow-lg">
+                                      <h2 className="text-base font-semibold">Pause {u.displayName}?</h2>
+                                      <p className="mt-2 text-sm text-muted-foreground">
+                                        Pausing blocks account access and current signed-in sessions. Resume restores access.
+                                        Countries, roles, and history will be retained.
+                                      </p>
+                                      <div className="mt-5 flex justify-end gap-2">
+                                        <Button
+                                          type="button"
+                                          variant="outline"
+                                          onClick={() => setConfirmPause(null)}
+                                          disabled={setPausedMutation.isPending}
+                                        >
+                                          Cancel
+                                        </Button>
+                                        <Button
+                                          type="button"
+                                          variant="destructive"
+                                          onClick={() => setPausedMutation.mutate({ id: u.id, isPaused: true })}
+                                          disabled={setPausedMutation.isPending}
+                                        >
+                                          Pause account
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  </div>
                                 )}
                               </div>
                             )}

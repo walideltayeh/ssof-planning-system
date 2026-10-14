@@ -72,6 +72,23 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>(loadSession);
 
+  const utils = trpc.useUtils();
+  const session = trpc.auth.me.useQuery(undefined, {
+    enabled: state.user !== null,
+    refetchInterval: 15_000,
+    refetchIntervalInBackground: true,
+    refetchOnMount: "always",
+    retry: false,
+  });
+  useEffect(() => {
+    // A fresh null response means the HTTP-only session is no longer accepted
+    // (including owner-paused accounts). Network errors alone never sign out.
+    if (state.user && session.isFetchedAfterMount && !session.isFetching && session.data === null) {
+      setState({ user: null, country: null });
+      clearSession();
+    }
+  }, [state.user, session.isFetchedAfterMount, session.isFetching, session.data]);
+
   const verifyLoginMutation = trpc.appUsers.verifyLogin.useMutation();
 
   const login = async (username: string, password: string, country?: Country): Promise<string | null> => {
@@ -94,6 +111,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           ? (userCountries[0] as Country)
           : null;
       const newState: AuthState = { user, country: resolvedCountry };
+      // Do not let a cached null from an earlier session undo a successful login.
+      await utils.auth.me.cancel();
+      await utils.auth.me.reset();
       setState(newState);
       saveSession(newState);
       return null;

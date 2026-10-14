@@ -1,4 +1,4 @@
-import { AXIOS_TIMEOUT_MS, COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
+import { ACCOUNT_PAUSED_MESSAGE, AXIOS_TIMEOUT_MS, COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { ForbiddenError } from "@shared/_core/errors";
 import axios, { type AxiosInstance } from "axios";
 import { parse as parseCookieHeader } from "cookie";
@@ -304,6 +304,16 @@ class SDKServer {
 
     if (!user) {
       throw ForbiddenError("User not found");
+    }
+
+    // Re-read account status on every authenticated HTTP request, including
+    // exports: a previously issued cookie must not bypass an owner's pause.
+    const appUsername = user.openId.startsWith("appuser:")
+      ? user.openId.slice("appuser:".length) : user.name;
+    const appUser = appUsername ? await db.getAppUserByUsername(appUsername) : null;
+    if (appUser?.isPaused) throw ForbiddenError(ACCOUNT_PAUSED_MESSAGE);
+    if (user.openId.startsWith("appuser:") && !appUser) {
+      throw ForbiddenError("User account no longer exists");
     }
 
     await db.upsertUser({

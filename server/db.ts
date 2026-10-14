@@ -9,6 +9,7 @@ import { NON_DATA_ACTIONS, NON_DATA_SHEETS, type CountryLastUpdate } from "@shar
 import type { AuditTrail, InsertAuditTrail, InsertSsofVersion, Country, ClearanceEvent, AppUserRow, InsertAppUser } from "../drizzle/schema";
 import type { Sku, InsertSku, Period, ForecastData, ImsData, ShipmentData, ArrivalData, PlanningFgData, SsofVersion } from "../drizzle/schema";
 import { ENV } from './_core/env';
+import { ACCOUNT_PAUSED_MESSAGE } from "@shared/const";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 let _pool: Pool | null = null;
@@ -1163,7 +1164,7 @@ export async function getRecentUserAuditChanges(
     const page = await db.select().from(auditTrail)
       .where(and(
         eq(auditTrail.sheet, 'Users'),
-        inArray(auditTrail.action, ['create_user', 'update_user', 'delete_user']),
+        inArray(auditTrail.action, ['create_user', 'update_user', 'delete_user', 'pause_user', 'resume_user']),
       ))
       .orderBy(desc(auditTrail.createdAt))
       .limit(PAGE_SIZE)
@@ -2824,6 +2825,16 @@ export async function getAppUserById(id: number): Promise<AppUserRow | null> {
   const rows = await db.select().from(appUsers).where(eq(appUsers.id, id)).limit(1);
   return rows[0] ?? null;
 }
+export async function setAppUserPaused(id: number, isPaused: boolean) {
+  const database = await getDb();
+  if (!database) throw new Error("Database not available");
+  const updated = await database.update(appUsers)
+    .set({ isPaused, updatedAt: new Date() })
+    .where(and(eq(appUsers.id, id), eq(appUsers.isOwner, false)))
+    .returning({ id: appUsers.id, username: appUsers.username });
+  if (!updated.length) throw new Error("User not found or owner account cannot be paused");
+  if (isPaused) await removePresence(updated[0].username);
+}
 export async function createAppUser(data: { username: string; displayName: string; password: string; role: "admin" | "viewer"; countries: string[]; countryRoles?: Record<string, "admin" | "viewer">; isOwner?: boolean; email?: string | null }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -2981,6 +2992,7 @@ export async function verifyAppUserLogin(username: string, password: string, cou
   const user = await getAppUserByUsername(username);
   if (!user) return { success: false, error: "Invalid username or password" };
   if (user.password !== password.toLowerCase().trim()) return { success: false, error: "Invalid username or password" };
+  if (user.isPaused) return { success: false, error: ACCOUNT_PAUSED_MESSAGE };
   const countries: string[] = JSON.parse(user.countries);
   const countryLower = country.toLowerCase();
   if (!user.isOwner && !countries.some(c => c.toLowerCase() === countryLower)) {
@@ -2993,6 +3005,7 @@ export async function verifyAppUserLoginNoCountry(username: string, password: st
   const user = await getAppUserByUsername(username);
   if (!user) return { success: false, error: "Invalid username or password" };
   if (user.password !== password.toLowerCase().trim()) return { success: false, error: "Invalid username or password" };
+  if (user.isPaused) return { success: false, error: ACCOUNT_PAUSED_MESSAGE };
   return { success: true, user };
 }
 

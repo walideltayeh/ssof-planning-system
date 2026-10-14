@@ -255,6 +255,7 @@ export const appUsers = pgTable("app_users", {
   // regardless of either field.
   countryRoles: text("countryRoles").default("{}").notNull(),
   isOwner: boolean("isOwner").default(false).notNull(),
+  isPaused: boolean("isPaused").default(false).notNull(),
   email: varchar("email", { length: 320 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().notNull(),

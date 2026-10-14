@@ -1,4 +1,4 @@
-import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
+import { ACCOUNT_PAUSED_MESSAGE, COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 import { checkPasswordStrength, PASSWORD_MIN_LENGTH, PASSWORD_REQUIREMENTS_MESSAGE } from "@shared/passwordStrength";
 import { invokeLLM } from "./_core/llm";
 import { getSessionCookieOptions } from "./_core/cookies";
@@ -142,6 +142,7 @@ async function requireAppOwner(ctx: { user: User }) {
     throw new TRPCError({ code: "FORBIDDEN", message: "No username on session" });
   }
   const requester = await db.getAppUserByUsername(username);
+  if (requester?.isPaused) throw new TRPCError({ code: "UNAUTHORIZED", message: ACCOUNT_PAUSED_MESSAGE });
   if (!requester?.isOwner) {
     throw new TRPCError({ code: "FORBIDDEN", message: "Owner privileges required" });
   }
@@ -180,6 +181,7 @@ export async function requireCountryAccess(
       message: "No country access configured for this account",
     });
   }
+  if (requester.isPaused) throw new TRPCError({ code: "UNAUTHORIZED", message: ACCOUNT_PAUSED_MESSAGE });
   await assertCountryVisible(country);
   if (requester.isOwner) return;
   let allowed: string[] = [];
@@ -221,6 +223,7 @@ export async function requireCountryAdmin(
     throw new TRPCError({ code: "FORBIDDEN", message: "No username on session" });
   }
   const requester = await db.getAppUserByUsername(username);
+  if (requester?.isPaused) throw new TRPCError({ code: "UNAUTHORIZED", message: ACCOUNT_PAUSED_MESSAGE });
   if (!requester) {
     throw new TRPCError({
       code: "FORBIDDEN",
@@ -2586,6 +2589,7 @@ export const appRouter = router({
             isOwner: u.isOwner,
             email: u.email ?? null,
             createdAt: u.createdAt,
+            isPaused: u.isPaused,
             lastChange: change ? {
               username: change.username,
               action: change.action,
@@ -2719,6 +2723,25 @@ export const appRouter = router({
           details: `Updated user ${targetTag}: ${changes.join("; ") || "(no changes)"}`,
         });
         return { success: true };
+      }),
+    setPaused: protectedProcedure
+      .input(z.object({ id: z.number().int().positive(), isPaused: z.boolean() }))
+      .mutation(async ({ ctx, input }) => {
+        const requester = await requireAppOwner(ctx);
+        const target = await db.getAppUserById(input.id);
+        if (!target) throw new TRPCError({ code: "NOT_FOUND", message: "User not found" });
+        if (target.isOwner || target.id === requester.id) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Owner accounts cannot be paused" });
+        }
+        if (target.isPaused === input.isPaused) return { success: true as const, isPaused: input.isPaused };
+        await db.setAppUserPaused(input.id, input.isPaused);
+        await db.logAudit({
+          username: requester.username,
+          action: input.isPaused ? "pause_user" : "resume_user",
+          sheet: "Users",
+          details: `${input.isPaused ? "Paused" : "Resumed"} user '${target.username}' (id=${target.id})`,
+        });
+        return { success: true as const, isPaused: input.isPaused };
       }),
     // Delete user - owner only, cannot delete self
     delete: protectedProcedure
